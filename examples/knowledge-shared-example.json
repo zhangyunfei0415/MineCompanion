@@ -1,0 +1,7 @@
+{
+  "id": "vanilla_logistics_example",
+  "source": "用户维护的原版后勤示例；不是当前世界的库存记录",
+  "minecraft": "1.20.1",
+  "status": "reference_only_unverified",
+  "text": "普通箱间搬运先绑定当前世界的材料仓库与交付箱，再确认材料数量。陌生机器先观察槽位和配方，不把资料中的槽位编号直接用于当前菜单。此资料仅为参考，不授权任何动作。"
+}

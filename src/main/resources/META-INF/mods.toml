@@ -1,0 +1,22 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+[[mods]]
+modId="logistics_companion"
+version="0.8.1"
+displayName="后勤伙伴 / Logistics Companion"
+authors="Mi Bao & Codex"
+displayTest="IGNORE_ALL_VERSION"
+description='''纯客户端 AI 后勤伙伴。世界对象记忆、局部扫描、可见交互站位、菜单观察与库存核对；侧栏消息、本机双窗口同步和 DeepSeek 接入。服务器无需安装。'''
+[[dependencies.logistics_companion]]
+modId="forge"
+mandatory=true
+versionRange="[47.4.0,48)"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.logistics_companion]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="CLIENT"

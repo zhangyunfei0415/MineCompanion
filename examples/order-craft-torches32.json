@@ -1,0 +1,7 @@
+{
+  "kind": "craft",
+  "item": "minecraft:torch",
+  "count": 32,
+  "source": "材料仓库",
+  "destination": "交付箱"
+}

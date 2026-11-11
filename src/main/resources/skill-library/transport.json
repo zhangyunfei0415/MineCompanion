@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "builtin:transport",
+  "name": "箱间搬运",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "从当前世界命名来源搬到交付处，先核实再取放。",
+  "parameters": {
+    "source": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "item": {
+      "type": "string",
+      "default": "minecraft:iron_ingot"
+    },
+    "count": {
+      "type": "integer",
+      "default": 32,
+      "min": 1,
+      "max": 64
+    }
+  },
+  "requires": [
+    "transport"
+  ],
+  "seconds": 1200,
+  "steps": [
+    {
+      "tool": "transport",
+      "args": {
+        "source": "${source}",
+        "destination": "${destination}",
+        "item": "${item}",
+        "count": "${count}"
+      }
+    }
+  ],
+  "verification": "必须看各步骤实际结果；当前环境未运行前不宣称验证通过",
+  "recovery": "失败保留已核实进度；未知效果不自动重放，重新观察后再决定"
+}

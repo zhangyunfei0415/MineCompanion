@@ -1,0 +1,9 @@
+{
+  "name":"收到木材后制作并退出",
+  "seconds":180,
+  "wait_seconds":45,
+  "steps":[
+    {"tool":"craft_item","args":{"item":"minecraft:stick","count":4},"requires":{"minecraft:birch_log":1}},
+    {"tool":"close_screen","args":{}}
+  ]
+}

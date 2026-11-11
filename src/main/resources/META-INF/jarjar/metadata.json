@@ -1,0 +1,8 @@
+{
+  "jars": [{
+    "identifier": {"group": "cabaletta", "artifact": "baritone-forge"},
+    "version": {"range": "[1.10.1,1.11)", "artifactVersion": "1.10.1"},
+    "path": "META-INF/jarjar/baritone-api-forge-1.10.1.jar",
+    "isObfuscated": false
+  }]
+}

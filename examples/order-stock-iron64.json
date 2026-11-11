@@ -1,0 +1,8 @@
+{
+  "kind": "stock",
+  "item": "minecraft:iron_ingot",
+  "count": 64,
+  "low": 16,
+  "source": "材料仓库",
+  "destination": "交付箱"
+}

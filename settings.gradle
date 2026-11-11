@@ -1,0 +1,10 @@
+pluginManagement {
+    repositories {
+        if (System.getProperty('companionMirror')) {
+            maven { url = System.getProperty('companionMirror') + '/forge'; allowInsecureProtocol = true }
+            maven { url = System.getProperty('companionMirror') + '/central'; allowInsecureProtocol = true }
+        } else { gradlePluginPortal(); maven { url = 'https://maven.minecraftforge.net/' } }
+    }
+    resolutionStrategy { eachPlugin { if (requested.id.id == 'net.minecraftforge.gradle') useModule('net.minecraftforge.gradle:ForgeGradle:6.0.54') } }
+}
+rootProject.name = 'logistics-companion'

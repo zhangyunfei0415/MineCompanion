@@ -1,0 +1,23 @@
+{
+  "generator": "built-in image_gen",
+  "date": "2026-10-29",
+  "file": "dragon_states_078.png",
+  "sha256": "b482ad81587b15f925525ab64680b78916a06a8076151c176e2b810072098131",
+  "width": 1774,
+  "height": 887,
+  "columns": 4,
+  "rows": 2,
+  "states": [
+    "rest",
+    "carry",
+    "mine",
+    "wood",
+    "combat",
+    "craft",
+    "smelt",
+    "help"
+  ],
+  "reference": "Original generated white dragon mascot interpretation. No upstream desktop-pet artwork copied or redistributed.",
+  "upstream_reference": "https://github.com/jingh12312-rgb/bailong-desktop-pet",
+  "upstream_assets_permission": "ASSETS.md does not grant redistribution; upstream assets not bundled."
+}

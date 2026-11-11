@@ -1,0 +1,23 @@
+{
+  "generator": "built-in image_gen",
+  "date": "2026-10-30",
+  "file": "dragon_states_client04.png",
+  "sha256": "099841a15add640649d8c93200a55ce8c37ed2c09a896ac15de594a6e97591c4",
+  "width": 1774,
+  "height": 887,
+  "columns": 4,
+  "rows": 2,
+  "states": [
+    "rest",
+    "carry",
+    "mine",
+    "wood",
+    "combat",
+    "craft",
+    "smelt",
+    "help"
+  ],
+  "reference": "Original generated white dragon mascot; no upstream artwork redistributed.",
+  "prompt": "Original white-haired lavender-eyed chibi dragon girl, purple white dress and wings. Transparent 4x2 game HUD atlas, sleeping plush/carry crate/mine pickaxe/wood axe/combat sword shield/craft hammer table/smelt furnace pot/help question. Clean dark purple outlines, no white sticker borders, no glow, no particles, consistent scale and padding.",
+  "review": "Selected fresh generation after edit trial retained border artifacts; static atlas inspected. In-game alpha blending and edge appearance still require verification."
+}

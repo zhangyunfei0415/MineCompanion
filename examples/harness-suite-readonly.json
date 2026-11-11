@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "name": "客户端结构化观察与统计",
+  "steps": [
+    {"tool":"inspect_client","args":{},"expect":{"path":"source","equals":"loaded_client_debug_data"}},
+    {"tool":"runtime_stats","args":{},"expect":{"path":"scope","equals":"current_game_process"}}
+  ]
+}

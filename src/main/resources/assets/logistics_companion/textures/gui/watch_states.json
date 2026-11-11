@@ -1,0 +1,54 @@
+{
+  "width": 1774,
+  "height": 887,
+  "columns": [
+    0,
+    222,
+    444,
+    665,
+    887,
+    1109,
+    1330,
+    1552,
+    1774
+  ],
+  "rows": [
+    [
+      28,
+      246
+    ],
+    [
+      286,
+      232
+    ],
+    [
+      530,
+      180
+    ],
+    [
+      710,
+      169
+    ]
+  ],
+  "states": [
+    "rest",
+    "carry",
+    "mine",
+    "wood",
+    "combat",
+    "craft",
+    "smelt",
+    "help"
+  ],
+  "characters": [
+    "DeepSeek whale maid",
+    "ChatGPT dragon girl"
+  ],
+  "styles": [
+    "moe",
+    "MC pixel"
+  ],
+  "generator": "built-in image_gen",
+  "sha256": "7a310e636888a8b17d85091c66dfc3ead5d2b926ba24301fa851a37355ef7353",
+  "reference": "User supplied character reference screenshots; originals are not bundled; original generated interpretation."
+}

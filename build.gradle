@@ -1,0 +1,59 @@
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '6.0.54'
+}
+group = 'dev.mibao'
+version = '0.8.1'
+base { archivesName = 'logistics-companion' }
+java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; withSourcesJar() }
+minecraft {
+    mappings channel: 'official', version: '1.20.1'
+    copyIdeResources = true
+    runs {
+        client { workingDirectory project.file('run'); mods { companion { source sourceSets.main } } }
+    }
+}
+repositories { mavenCentral() }
+configurations { validationRuntime }
+if (System.getProperty('companionMirror')) {
+    repositories.all { repo ->
+        if (repo instanceof MavenArtifactRepository) {
+            def remote = repo.url.toString()
+            def route = remote.contains('minecraftforge') ? 'forge' : remote.contains('libraries.minecraft') ? 'libraries' : remote.contains('maven') ? 'central' : null
+            if (route != null) { repo.url = System.getProperty('companionMirror') + '/' + route; repo.allowInsecureProtocol = true }
+        }
+    }
+}
+dependencies {
+    compileOnly files('.build-deps/jei-1.20.1-common-api-15.56.0.205.jar')
+    minecraft 'net.minecraftforge:forge:1.20.1-47.4.18'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    validationRuntime 'org.junit.jupiter:junit-jupiter:5.10.3'
+    validationRuntime 'org.junit.platform:junit-platform-launcher:1.10.3'
+    validationRuntime 'com.google.code.gson:gson:2.10.1'
+    // Minecraft already provides Netty; this is solely for the packaged-class test harness.
+    validationRuntime 'io.netty:netty-transport:4.1.82.Final'
+    validationRuntime 'org.openjdk.nashorn:nashorn-core:15.4'
+    validationRuntime 'org.ow2.asm:asm-tree:9.9.1'
+    validationRuntime 'org.ow2.asm:asm-analysis:9.9.1'
+    validationRuntime 'org.ow2.asm:asm-commons:9.9.1'
+    validationRuntime 'org.ow2.asm:asm-util:9.9.1'
+    validationRuntime 'org.apiguardian:apiguardian-api:1.1.2'
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17; options.incremental = false }
+test { useJUnitPlatform() }
+jar { manifest { attributes 'Implementation-Version': project.version, 'Implementation-Build': 'field-skills-20261112-01' }; finalizedBy 'reobfJar' }
+tasks.named('processResources') {
+    from('vendor/baritone/baritone-api-forge-1.10.1.jar') { into 'META-INF/jarjar' }
+    from('vendor/baritone/LICENSE') { into 'META-INF/licenses/baritone' }
+    from('vendor/baritone/GPL-3.0.txt') { into 'META-INF/licenses/baritone' }
+}
+// Test the packaged classes too; this also avoids directory-classpath canonicalization
+// problems on restricted Windows hosts.
+tasks.named('compileTestJava', JavaCompile) {
+    dependsOn tasks.named('jar')
+    classpath = configurations.validationRuntime + files(tasks.named('jar').flatMap { it.archiveFile })
+}
+tasks.named('test', Test) {
+    classpath = sourceSets.test.output + configurations.validationRuntime + files(tasks.named('jar').flatMap { it.archiveFile })
+}

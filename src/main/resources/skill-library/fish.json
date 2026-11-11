@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "builtin:fish",
+  "name": "岸边自动钓鱼",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "先站到岸边面向水域并将鱼竿放在主手，任务在本地执行抛竿、咬钩监测、收线与背包核验。",
+  "parameters": {
+    "count": {"type": "integer", "default": 3, "min": 1, "max": 64},
+    "seconds": {"type": "integer", "default": 180, "min": 10, "max": 1800}
+  },
+  "requires": ["fish"],
+  "seconds": 1800,
+  "steps": [{"tool": "fish", "args": {"count": "${count}", "seconds": "${seconds}"}}],
+  "verification": "自己的浮漂运动、收线与同步背包增加关联，外部补给可能与观察窗口重叠",
+  "recovery": "低耐久、满包、浮漂丢失或超时时结束，准备好鱼竿和水域后再下达任务"
+}

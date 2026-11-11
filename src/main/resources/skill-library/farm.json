@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "builtin:farm",
+  "name": "成熟作物收获补种",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "需要成熟作物和补种种子；播种/骨粉组合继续用现有farm_cycle。",
+  "parameters": {
+    "crop": {
+      "type": "string",
+      "default": "minecraft:wheat"
+    },
+    "count": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 64
+    },
+    "radius": {
+      "type": "integer",
+      "default": 8,
+      "min": 2,
+      "max": 12
+    }
+  },
+  "requires": [
+    "harvest_replant"
+  ],
+  "seconds": 1200,
+  "steps": [
+    {
+      "tool": "harvest_replant",
+      "args": {
+        "crop": "${crop}",
+        "count": "${count}",
+        "radius": "${radius}"
+      }
+    }
+  ],
+  "verification": "必须看各步骤实际结果；当前环境未运行前不宣称验证通过",
+  "recovery": "失败保留已核实进度；未知效果不自动重放，重新观察后再决定"
+}

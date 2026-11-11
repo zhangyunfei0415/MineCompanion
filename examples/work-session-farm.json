@@ -1,0 +1,9 @@
+{
+  "name":"成熟小麦收割补种与产物收集",
+  "seconds":360,
+  "wait_seconds":45,
+  "steps":[
+    {"tool":"harvest_replant","args":{"crop":"minecraft:wheat","count":4,"radius":8}},
+    {"tool":"collect_items","args":{"item":"minecraft:wheat","mode":"sweep","radius":8}}
+  ]
+}

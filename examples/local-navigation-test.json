@@ -1,0 +1,32 @@
+{
+  "build": "localcycle-20261027-05",
+  "scope": "81dfd78e-34cc-32a0-bfd4-0979565f9651|minecraft:overworld",
+  "seconds": 300,
+  "capture_failure": true,
+  "steps": [
+    {
+      "name": "此前失败的普通导航边界",
+      "tool": "go_to",
+      "args": {"x":94,"y":87,"z":62},
+      "seconds": 120,
+      "expect": [
+        {"metric":"field","path":"on_ground","op":"eq","value":true},
+        {"metric":"field","path":"y","op":"eq","value":87},
+        {"metric":"distance_xz","x":94.5,"z":62.5,"op":"lte","value":2},
+        {"metric":"field","path":"controls.held_controls","op":"eq","value":0}
+      ]
+    },
+    {
+      "name": "重新打开交付箱核实32铁锭",
+      "tool": "open_container",
+      "args": {"x":93,"y":88,"z":57},
+      "expect": [{"metric":"menu_count","item":"minecraft:iron_ingot","op":"eq","value":32}]
+    },
+    {
+      "name": "正常退出菜单",
+      "tool": "close_screen",
+      "args": {},
+      "expect": [{"metric":"field","path":"controls.screen_kind","op":"eq","value":"world"}]
+    }
+  ]
+}

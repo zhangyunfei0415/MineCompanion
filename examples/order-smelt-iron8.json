@@ -1,0 +1,8 @@
+{
+  "kind": "smelt",
+  "item": "minecraft:iron_ingot",
+  "input": "minecraft:raw_iron",
+  "count": 8,
+  "source": "材料仓库",
+  "destination": "交付箱"
+}

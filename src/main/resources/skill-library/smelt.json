@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "id": "builtin:smelt",
+  "name": "熔炼并交付",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "输入输出必须与当前普通熔炼配方相符，默认示例粗铁->铁锭；输出比例不是所有配方都为1:1。",
+  "parameters": {
+    "source": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "input": {
+      "type": "string",
+      "default": "minecraft:raw_iron"
+    },
+    "output": {
+      "type": "string",
+      "default": "minecraft:iron_ingot"
+    },
+    "count": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 64
+    }
+  },
+  "requires": [
+    "smelt_item",
+    "deposit"
+  ],
+  "seconds": 1200,
+  "steps": [
+    {
+      "tool": "smelt_item",
+      "args": {
+        "source": "${source}",
+        "item": "${input}",
+        "count": "${count}"
+      }
+    },
+    {
+      "tool": "deposit",
+      "args": {
+        "place": "${destination}",
+        "item": "${output}",
+        "count": "${count}"
+      }
+    }
+  ],
+  "verification": "必须看各步骤实际结果；当前环境未运行前不宣称验证通过",
+  "recovery": "失败保留已核实进度；未知效果不自动重放，重新观察后再决定"
+}

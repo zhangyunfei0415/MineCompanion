@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "builtin:illuminate",
+  "name": "暗区插火把",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "在当前位置附近分帧查找可插普通火把的暗处，正常放置后重新读取方块光。",
+  "parameters": {
+    "radius": {"type": "integer", "default": 8, "min": 1, "max": 24},
+    "count": {"type": "integer", "default": 16, "min": 1, "max": 64},
+    "min_light": {"type": "integer", "default": 8, "min": 1, "max": 15}
+  },
+  "requires": ["illuminate_area"],
+  "seconds": 1800,
+  "steps": [{"tool": "illuminate_area", "args": {"radius": "${radius}", "count": "${count}", "min_light": "${min_light}"}}],
+  "verification": "确认放置位置及重新扫描后的实际方块光，未加载与未覆盖区域单列",
+  "recovery": "材料不足或候选受阻时保留已放置进度，补给后重新扫描"
+}

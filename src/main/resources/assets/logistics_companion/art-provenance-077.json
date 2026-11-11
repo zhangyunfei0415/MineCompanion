@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "asset": "textures/gui/workshop-077.png",
+  "source": "OpenAI built-in image_gen via imagegen skill",
+  "reference_images": [],
+  "original_generated_design": true,
+  "upstream_numen_art_copied": false,
+  "prompt": "Use case: illustration-story. Asset type: original decorative illustration for a Minecraft client mod's recipe and companion notebook screen. Create one polished cozy chibi illustration, landscape 3:2 composition: a small dark-blue whale-themed girl with blue hair and a tiny whale hood, alongside a small white-haired lavender dragon girl with short curved horns and lilac eyes, both adult fantasy mascots in modest cute outfits, working together at a blocky wooden cooking and crafting desk. An open recipe notebook, a small iron ingot, wheat and a bowl of soup communicate logistics, learning and cooking. Gentle Minecraft-inspired cubic workshop shapes mixed with soft anime line art, navy/teal background, warm amber lamp and mint accents. Keep both faces and the notebook clear at thumbnail scale. Original character designs, no existing logos, no brand text, no lettering, no watermark. Rounded soft vignette at edges, opaque background. Intended as a small decorative header, not a full UI screenshot. Save a finished PNG."
+}

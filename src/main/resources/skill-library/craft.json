@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "id": "builtin:craft",
+  "name": "取料制作并交付",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "item与count为新增目标产物；来源需普通容器，已有工具负责补料。",
+  "parameters": {
+    "source": {
+      "type": "string"
+    },
+    "destination": {
+      "type": "string"
+    },
+    "item": {
+      "type": "string",
+      "default": "minecraft:torch"
+    },
+    "count": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 64
+    }
+  },
+  "requires": [
+    "craft_item",
+    "deposit"
+  ],
+  "seconds": 1200,
+  "steps": [
+    {
+      "tool": "craft_item",
+      "args": {
+        "source": "${source}",
+        "item": "${item}",
+        "count": "${count}"
+      }
+    },
+    {
+      "tool": "deposit",
+      "args": {
+        "place": "${destination}",
+        "item": "${item}",
+        "count": "${count}"
+      }
+    }
+  ],
+  "verification": "必须看各步骤实际结果；当前环境未运行前不宣称验证通过",
+  "recovery": "失败保留已核实进度；未知效果不自动重放，重新观察后再决定"
+}

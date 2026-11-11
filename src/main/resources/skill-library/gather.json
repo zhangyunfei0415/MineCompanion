@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "id": "builtin:gather",
+  "name": "采石拾取并交付",
+  "version": "1",
+  "author": "Logistics Companion",
+  "license": "project-original",
+  "description": "默认石头->圆石1:1示例。其他方块掉落与数量需核实后再改参数，不适用于任意矿物和高处。",
+  "parameters": {
+    "count": {
+      "type": "integer",
+      "default": 4,
+      "min": 1,
+      "max": 64
+    },
+    "radius": {
+      "type": "integer",
+      "default": 8,
+      "min": 2,
+      "max": 16
+    },
+    "destination": {
+      "type": "string"
+    },
+    "block": {
+      "type": "string",
+      "default": "minecraft:stone"
+    },
+    "output": {
+      "type": "string",
+      "default": "minecraft:cobblestone"
+    }
+  },
+  "requires": [
+    "mine_resource",
+    "deposit"
+  ],
+  "seconds": 1200,
+  "steps": [
+    {
+      "tool": "mine_resource",
+      "args": {
+        "block": "${block}",
+        "count": "${count}",
+        "radius": "${radius}"
+      }
+    },
+    {
+      "tool": "deposit",
+      "args": {
+        "place": "${destination}",
+        "item": "${output}",
+        "count": "${count}"
+      }
+    }
+  ],
+  "verification": "必须看各步骤实际结果；当前环境未运行前不宣称验证通过",
+  "recovery": "失败保留已核实进度；未知效果不自动重放，重新观察后再决定"
+}

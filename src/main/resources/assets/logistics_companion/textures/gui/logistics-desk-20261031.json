@@ -1,0 +1,10 @@
+{
+  "generator": "built-in image_gen",
+  "date": "2026-10-31",
+  "file": "logistics-desk-20261031.png",
+  "sha256": "da7d67298215942b373f719fdf16aa15c153b91312b491edbe976128ee996bc8",
+  "width": 2172,
+  "height": 724,
+  "prompt": "Wide 3:1 original voxel/pixel logistics workshop at night, midnight teal and slate, warm amber lanterns, crates, furnace, wheat outside, map and compass at far right. Left two thirds quiet dark negative space for program text. No words, UI, logos or characters.",
+  "review": "Inspected selected original image; foreground UI and text drawn in code. No upstream art copied."
+}
