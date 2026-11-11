@@ -8,7 +8,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## 下载与安装
 
-在 [Releases](https://github.com/zhangyunfei0415/MineCompanion/releases) 下载 `logistics-companion-0.8.1.jar`，放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。使用 Java 17，Forge 47.4.x。首次安装或升级时关闭游戏，并备份旧配置与记忆。
+在 [Releases](https://github.com/zhangyunfei0415/MineCompanion/releases) 下载 `MineCompanion-0.8.1-Alpha.zip`，解压后将其中 `logistics-companion-0.8.1.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。ZIP 附带许可证与第三方源码资料。使用 Java 17，Forge 47.4.x。首次安装或升级时关闭游戏，并备份旧配置与记忆。
 
 模组显示名和内部 ID 暂沿用 Logistics Companion / `logistics_companion`，公开项目名采用 MineCompanion。
 
