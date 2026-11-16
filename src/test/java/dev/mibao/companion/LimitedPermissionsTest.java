@@ -7,7 +7,8 @@ import org.junit.jupiter.api.Test;
 class LimitedPermissionsTest {
   @Test
   void miningAliasesCannotBypassDisabledMining() {
-    for (String tool : new String[] {"mine_blocks", "mine_resource"}) {
+    for (String tool :
+        new String[] {"mine_blocks", "mine_resource", "mine_expedition", "mine_batch"}) {
       assertFalse(Rules.limitedDenial(tool, false, true, true).isEmpty());
       assertEquals("", Rules.limitedDenial(tool, true, false, false));
     }

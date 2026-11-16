@@ -14,6 +14,17 @@ public final class PermissionView {
     o.addProperty("mode", c.fullGameControl ? "FULL" : c.permission);
     o.addProperty("full_game_control", c.fullGameControl);
     o.addProperty("game_freedom", full);
+    o.addProperty("navigation_break", NavigationPermissions.canBreak());
+    o.addProperty("navigation_place", NavigationPermissions.canPlace());
+    o.addProperty("navigation_detour_only", c.navigationDetourOnly);
+    o.addProperty("navigation_break_configured", c.navigationBreak);
+    o.addProperty("navigation_place_configured", c.navigationPlace);
+    o.addProperty("navigation_settings_path", "F8 / 设置 / 权限与行为 / 导航地形策略");
+    o.addProperty("harness_resume_human_pause", c.harnessResumeHumanPause);
+    o.addProperty("safe_teleport", c.safeTeleport);
+    o.addProperty("protect_critical_command_blocks", c.protectCriticalCommandBlocks);
+    o.addProperty("death_policy", c.deathRecovery);
+    o.add("decision", DecisionService.status());
     o.addProperty("permission_is_not_capability", true);
     o.addProperty(
         "capability_check",

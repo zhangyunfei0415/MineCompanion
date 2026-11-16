@@ -68,7 +68,25 @@ public final class MiningJob extends Actions.Job {
   private final boolean confirm, creative;
   private String lastDenial = "";
   private final Map<String, Integer> denials = new TreeMap<>();
-  private final BlockPos center;
+  private BlockPos center;
+  private boolean fixedTargets;
+  private int minimumDurability = 1;
+  private String toolPolicy = "any";
+
+  MiningJob targets(List<BlockPos> positions, BlockPos origin, int durability, String preference) {
+    if (positions.isEmpty()
+        || positions.size() > 16
+        || positions.stream().anyMatch(p -> p.distSqr(origin) > (double) radius * radius))
+      throw new IllegalArgumentException("[MINING_TARGETS] 批次目标超出局部采矿范围");
+    center = origin;
+    candidates.clear();
+    candidates.addAll(positions);
+    fixedTargets = scanned = true;
+    minimumDurability = durability;
+    toolPolicy = preference;
+    return this;
+  }
+
   private final String filter;
   private final int radius, side, volume;
   private final TagKey<Block> tag;
@@ -269,7 +287,11 @@ public final class MiningJob extends Actions.Job {
         new MiningReceipt(epoch, List.copyOf(broken), gained, capacityBlocked, toolBlocked);
     String result =
         (plan.isDone() ? "成功：" : "部分完成：")
-            + (plan.isDone() ? "" : capacityBlocked ? "[NO_CAPACITY] " : toolBlocked ? "[TOOL_UNAVAILABLE] " : "[PARTIAL_RESULT] ")
+            + (plan.isDone()
+                ? ""
+                : capacityBlocked
+                    ? "[NO_CAPACITY] "
+                    : toolBlocked ? "[TOOL_UNAVAILABLE] " : "[PARTIAL_RESULT] ")
             + "服务器确认挖除 "
             + observed
             + " / "
@@ -288,8 +310,11 @@ public final class MiningJob extends Actions.Job {
     }
     if (exactTarget != null && plan.isDone()) {
       if (groundDrops && !roomFor(original)) {
-        finish("成功：服务器确认定点挖除；[DROPS_LEFT_ON_GROUND] 背包无容量，产物留地待回收；位置 "
-            + exactTarget.toShortString() + "；" + result);
+        finish(
+            "成功：服务器确认定点挖除；[DROPS_MAY_REMAIN_ON_GROUND] 背包无容量，若产生掉落则留地待回收，掉落数量未核实；位置 "
+                + exactTarget.toShortString()
+                + "；"
+                + result);
         return;
       }
       stop();
@@ -437,7 +462,7 @@ public final class MiningJob extends Actions.Job {
         }
       }
       if (target == null) {
-        if (observed > lastRescanObserved && rescans < 2) {
+        if (!fixedTargets && observed > lastRescanObserved && rescans < 2) {
           lastRescanObserved = observed;
           rescans++;
           cursor = 0;
@@ -525,8 +550,10 @@ public final class MiningJob extends Actions.Job {
       for (int i = 0; i < 36; i++) {
         ItemStack tool = mc().player.getInventory().getItem(i);
         if (requireAxe && !(tool.getItem() instanceof AxeItem)) continue;
-        if (tool.isDamageableItem() && tool.getMaxDamage() - tool.getDamageValue() <= 1) continue;
+        if (tool.isDamageableItem()
+            && tool.getMaxDamage() - tool.getDamageValue() <= minimumDurability) continue;
         if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) continue;
+        if (!MiningTools.matchesPolicy(tool, toolPolicy)) continue;
         float s = tool.getDestroySpeed(state);
         if (s > speed) {
           speed = s;
@@ -547,7 +574,9 @@ public final class MiningJob extends Actions.Job {
       mc().player.getInventory().selected = selected;
     }
     var tool = mc().player.getMainHandItem();
-    if (!creative && tool.isDamageableItem() && tool.getMaxDamage() - tool.getDamageValue() <= 1) {
+    if (!creative
+        && tool.isDamageableItem()
+        && tool.getMaxDamage() - tool.getDamageValue() <= minimumDurability) {
       toolBlocked = true;
       result("工具即将损坏。");
       return;

@@ -6,6 +6,36 @@ import com.google.gson.*;
 import org.junit.jupiter.api.Test;
 
 class WorkSessionPolicyTest {
+  @Test
+  void boundedVanillaActionsCanBeComposedWithoutRawKeyboardSteps() {
+    for (String tool :
+        new String[] {
+          "use_hand",
+          "use_entity",
+          "move_inventory",
+          "vehicle_control",
+          "build_platform",
+          "build_bridge",
+          "smelt_batch"
+        }) assertEquals(tool, parse("{steps:[{tool:'" + tool + "',args:{}}]}").steps.get(0).tool());
+  }
+
+  @Test
+  void portableSkillsRequireFreshEntityIdsInsteadOfSavedWorldIds() {
+    var definition =
+        JsonParser.parseString(
+                "{schema:1,id:'test:feed',steps:[{tool:'use_entity',args:{entity_id:5}}]}")
+            .getAsJsonObject();
+    assertThrows(IllegalArgumentException.class, () -> new SkillPackage(definition));
+    definition
+        .getAsJsonArray("steps")
+        .get(0)
+        .getAsJsonObject()
+        .getAsJsonObject("args")
+        .addProperty("entity_id", "${entity_id}");
+    assertDoesNotThrow(() -> new SkillPackage(definition));
+  }
+
   private SessionPlan parse(String text) {
     return new SessionPlan(JsonParser.parseString(text).getAsJsonObject());
   }

@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="MIT"
 [[mods]]
 modId="logistics_companion"
-version="0.8.1"
+version="0.8.2"
 displayName="后勤伙伴 / Logistics Companion"
 authors="Mi Bao & Codex"
 displayTest="IGNORE_ALL_VERSION"

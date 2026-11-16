@@ -9,6 +9,12 @@ public final class Rules {
 
   public static final Set<String> TOOLS =
       Set.of(
+          "decision_select",
+          "decision_status",
+          "config_reload",
+          "inspect_landing",
+          "resume_control",
+          "pause_control",
           "command_status",
           "integration_status",
           "column_probe",
@@ -73,6 +79,7 @@ public final class Rules {
           "run_library_skill",
           "gui_select",
           "gui_point",
+          "gui_action",
           "use_entity",
           "drop_inventory",
           "inspect_client",
@@ -141,6 +148,8 @@ public final class Rules {
           "collect_items",
           "harvest_replant",
           "mine_resource",
+          "mine_expedition",
+          "mining_status",
           "hunt_mobs",
           "request_visual",
           "restock",
@@ -170,6 +179,7 @@ public final class Rules {
           "finish");
   public static final Set<String> WRITE =
       Set.of(
+          "mine_expedition",
           "illuminate_area",
           "fish",
           "vehicle_control",
@@ -199,6 +209,7 @@ public final class Rules {
           "use_entity",
           "drop_inventory",
           "gui_point",
+          "gui_action",
           "select_slot",
           "open_inventory",
           "close_screen",
@@ -250,6 +261,7 @@ public final class Rules {
                 "attack_block",
                 "mine_blocks",
                 "mine_resource",
+                "mine_expedition",
                 "mine_batch",
                 "chop_wood",
                 "harvest_replant")

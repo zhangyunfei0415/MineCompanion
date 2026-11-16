@@ -26,12 +26,35 @@ public final class Actions {
     final Consumer<String> done;
     int ticks;
     final String dimension = mc().level.dimension().location().toString();
+    final net.minecraft.client.multiplayer.ClientLevel world = mc().level;
+    final String scope = Store.scope();
 
     Job(Consumer<String> d) {
       done = d;
     }
 
     abstract void tick();
+
+    void child(String tool, JsonObject args, Consumer<String> continuation) {
+      if (job != this) return;
+      job = null;
+      Agent.execute(
+          tool,
+          args,
+          result -> {
+            if (epoch != Agent.epoch
+                || !Agent.enabled
+                || mc().level != world
+                || !scope.equals(Store.scope())
+                || !acceptsChildResult()) return;
+            job = this;
+            continuation.accept(result);
+          });
+    }
+
+    boolean acceptsChildResult() {
+      return true;
+    }
 
     void stop() {
       Navigator.release();
@@ -43,16 +66,19 @@ public final class Actions {
     }
 
     void finish(String text) {
+      if (job != this) return;
       stop();
       if (job == this) {
         job = null;
         status = ActionSummary.describe(text);
-        if (epoch == Agent.epoch) done.accept(text);
+        if (epoch == Agent.epoch && mc().level == world && scope.equals(Store.scope()))
+          done.accept(text);
       }
     }
   }
 
   public static void cancel() {
+    MiningExpedition.cancelActive();
     AgentPointer.clear();
     if (job != null) {
       String message = job.interrupted();
@@ -66,7 +92,11 @@ public final class Actions {
 
   public static void tick() {
     if (job == null) return;
-    if (mc().player == null || mc().level == null || job.epoch != Agent.epoch) {
+    if (mc().player == null
+        || mc().level == null
+        || job.epoch != Agent.epoch
+        || mc().level != job.world
+        || !job.scope.equals(Store.scope())) {
       cancel();
       return;
     }
@@ -75,9 +105,7 @@ public final class Actions {
       return;
     }
     if (mc().player.isDeadOrDying()) {
-      Job j = job;
-      j.finish("失败：角色死亡。请协助复活或取回物品。");
-      Agent.stop("角色死亡，等待帮助");
+      DeathRecovery.tick();
       return;
     }
     if (SurvivalPolicy.blocked(
@@ -90,6 +118,7 @@ public final class Actions {
       return;
     }
     if (Agent.paused) {
+      if (job instanceof UseHandJob use) use.suspend();
       if (job instanceof GameInputJob) job.finish("输入已中断并释放：AI已暂停，请重新观察。");
       Navigator.release();
       return;
@@ -297,6 +326,7 @@ public final class Actions {
   public static JsonObject inspectMenu(int offset, int limit) {
     JsonObject result = inspectMenuContents(offset, limit);
     result.addProperty("menu_sync", MenuContext.syncStatus());
+    GuiContext.captureMenuSnapshot(result);
     return result;
   }
 
@@ -402,7 +432,7 @@ public final class Actions {
             int r = nav.tick();
             if (r == 1)
               finish(
-                  (exact ? "已精确落地：" : "已在目标高度附近稳定落地：")
+                  (exact ? "成功：已精确落地：" : "成功：已在目标高度附近稳定落地：")
                       + p.toShortString()
                       + "；"
                       + ArrivalReceipt.landingText(
@@ -425,11 +455,19 @@ public final class Actions {
   }
 
   public static BlockPos target(JsonObject args) {
-    if (args.has("x") && args.has("z") && !args.has("y")
-        && !args.has("object") && !args.has("place")) {
-      BlockPos surface = ColumnProbe.nearest(args.get("x").getAsInt(), args.get("z").getAsInt(),
-          mc().player.blockPosition().getY(), 32);
-      if (surface == null) throw new IllegalArgumentException("[HEIGHT_UNKNOWN] 未找到已加载安全支撑面，请column_probe或提供y");
+    if (args.has("x")
+        && args.has("z")
+        && !args.has("y")
+        && !args.has("object")
+        && !args.has("place")) {
+      BlockPos surface =
+          ColumnProbe.nearest(
+              args.get("x").getAsInt(),
+              args.get("z").getAsInt(),
+              mc().player.blockPosition().getY(),
+              32);
+      if (surface == null)
+        throw new IllegalArgumentException("[HEIGHT_UNKNOWN] 未找到已加载安全支撑面，请column_probe或提供y");
       return surface;
     }
     if (args.has("object") || args.has("place")) {

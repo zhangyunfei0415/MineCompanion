@@ -12,6 +12,26 @@ public final class DropInventoryJob extends Actions.Job {
   private int stage;
   private int settle;
   private net.minecraft.world.item.ItemStack expected;
+  private String fingerprint;
+  private int beforeTotal, requested, pickedUp;
+  private final java.util.Map<Integer, net.minecraft.world.item.ItemStack> spawned =
+      new java.util.HashMap<>();
+  private final java.util.Set<Integer> oldEntities = new java.util.HashSet<>();
+
+  void observeLoot(int entityId) {
+    var mc = Minecraft.getInstance();
+    if (stage != 2 || settle > 10 || oldEntities.contains(entityId) || spawned.size() >= 32) return;
+    if (mc.level.getEntity(entityId) instanceof net.minecraft.world.entity.item.ItemEntity entity
+        && entity.distanceToSqr(mc.player) <= 16
+        && WorldSense.fingerprint(entity.getItem()).equals(fingerprint))
+      spawned.putIfAbsent(entityId, entity.getItem().copy());
+  }
+
+  void pickup(int entityId, int playerId, int amount) {
+    if (stage != 2 || playerId != Minecraft.getInstance().player.getId()) return;
+    var item = spawned.remove(entityId);
+    if (item != null) pickedUp += Math.min(amount, item.getCount());
+  }
 
   public DropInventoryJob(String item, boolean stack, Consumer<String> done) {
     super(done);
@@ -47,6 +67,13 @@ public final class DropInventoryJob extends Actions.Job {
       if (r == 0) return;
       mc.player.getInventory().selected = prepare.readySlot;
       expected = mc.player.getMainHandItem().copy();
+      fingerprint = WorldSense.fingerprint(expected);
+      requested = stack ? expected.getCount() : 1;
+      beforeTotal = PlayerEvidence.total(PlayerEvidence.actual(fingerprint));
+      for (var entity :
+          mc.level.getEntitiesOfClass(
+              net.minecraft.world.entity.item.ItemEntity.class,
+              mc.player.getBoundingBox().inflate(4))) oldEntities.add(entity.getId());
       expected.shrink(stack ? expected.getCount() : 1);
       PlayerEvidence.begin();
       mc.player.drop(stack);
@@ -65,10 +92,28 @@ public final class DropInventoryJob extends Actions.Job {
     evidence.addProperty("whole_stack", stack);
     evidence.addProperty("expected_remaining", expected.getCount());
     evidence.addProperty("actual_remaining", actual.getCount());
-    boolean verified = net.minecraft.world.item.ItemStack.matches(expected, actual);
-    finish(new ActionResult(verified ? ActionResult.Status.verified : ActionResult.Status.unverified,
-        verified ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
-        verified ? "指定槽位丢弃后的同步背包已核对" : "已发送一次丢弃，最终槽位不符；请检查重新拾取或槽位变化", evidence).json());
+    int afterTotal = PlayerEvidence.total(PlayerEvidence.actual(fingerprint));
+    evidence.addProperty("fingerprint", fingerprint);
+    evidence.addProperty("requested", requested);
+    evidence.addProperty("inventory_before", beforeTotal);
+    evidence.addProperty("inventory_after", afterTotal);
+    evidence.addProperty("nearby_new_item_repickup", pickedUp);
+    evidence.addProperty("repickup_is_correlated_candidate", true);
+    boolean verified =
+        net.minecraft.world.item.ItemStack.matches(expected, actual)
+            && beforeTotal - afterTotal == requested;
+    boolean recovered = !verified && beforeTotal == afterTotal && pickedUp >= requested;
+    finish(
+        new ActionResult(
+                verified ? ActionResult.Status.verified : ActionResult.Status.unverified,
+                verified ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
+                verified
+                    ? "指定槽与总背包的精确指纹减量已核对"
+                    : recovered
+                        ? "丢弃后观察到附近同指纹新实体被重新拾取，总量已恢复；未完成净移出，不重发"
+                        : "已发送一次丢弃，净移出未核实；请检查重新拾取或槽位变化",
+                evidence)
+            .json());
   }
 
   @Override

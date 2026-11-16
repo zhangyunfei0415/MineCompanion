@@ -17,7 +17,7 @@ class SkillCatalogTest {
 
   @Test
   void everyPresetHasCompleteContractAndPermissionGatedExecutionTool() {
-    assertEquals(12, SkillCatalog.ALL.size());
+    assertEquals(13, SkillCatalog.ALL.size());
     for (var p : SkillCatalog.ALL) {
       assertFalse(p.parameters().isBlank());
       assertFalse(p.prerequisites().isBlank());
@@ -30,6 +30,7 @@ class SkillCatalogTest {
     assertTrue(Rules.WRITE.contains("harvest_replant"));
     assertTrue(Rules.WRITE.contains("collect_items"));
     assertTrue(Rules.WRITE.contains("mine_resource"));
+    assertTrue(Rules.WRITE.contains("mine_expedition"));
     assertTrue(Rules.WRITE.contains("hunt_mobs"));
   }
 

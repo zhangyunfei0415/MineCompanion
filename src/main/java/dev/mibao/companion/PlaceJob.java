@@ -17,6 +17,13 @@ import net.minecraft.world.phys.*;
 public final class PlaceJob extends Actions.Job {
   public static BlockPos lastPlaced;
   private Direction face;
+  private com.google.gson.JsonObject desired = new com.google.gson.JsonObject();
+  private PlacementIntent intent;
+
+  public PlaceJob state(com.google.gson.JsonObject value) {
+    desired = value.deepCopy();
+    return this;
+  }
 
   public PlaceJob face(String value) {
     if (value == null || value.equals("auto")) return this;
@@ -70,7 +77,8 @@ public final class PlaceJob extends Actions.Job {
   private String siteProblem(BlockPos p) {
     if (!mc().level.hasChunkAt(p)) return "目标区块未加载";
     if (!mc().level.getBlockState(p).canBeReplaced())
-      return "[TARGET_OCCUPIED] 目标格不可替换：" + BuiltInRegistries.BLOCK.getKey(mc().level.getBlockState(p).getBlock());
+      return "[TARGET_OCCUPIED] 目标格不可替换："
+          + BuiltInRegistries.BLOCK.getKey(mc().level.getBlockState(p).getBlock());
     if (!mc().level.getFluidState(p).isEmpty()) return "目标格存在流体";
     if (!mc().level
         .getEntities(
@@ -113,8 +121,17 @@ public final class PlaceJob extends Actions.Job {
           }
         }
         if (slot < 0) {
-          finish("失败：[CREATIVE_HOTBAR_REQUIRED] 创造建筑材料须已在快捷栏，不生成物品。");
-          return;
+          if (prepare == null)
+            prepare =
+                InventoryMove.ensure(
+                    s -> s.getItem() instanceof BlockItem && Actions.match(s, filter));
+          int ready = prepare.tick();
+          if (ready < 0) {
+            finish("失败：" + prepare.error);
+            return;
+          }
+          if (ready == 0) return;
+          slot = prepare.readySlot;
         }
         mc().player.getInventory().selected = slot;
       } else {
@@ -128,6 +145,7 @@ public final class PlaceJob extends Actions.Job {
       }
       var stack = mc().player.getMainHandItem();
       block = ((BlockItem) stack.getItem()).getBlock();
+      intent = new PlacementIntent(desired, block);
       fingerprint = WorldSense.fingerprint(stack);
       PlayerEvidence.begin();
       before = PlayerEvidence.total(PlayerEvidence.actual(fingerprint));
@@ -163,6 +181,16 @@ public final class PlaceJob extends Actions.Job {
                 + "。");
         return;
       }
+      Direction look = intent.lookDirection(block);
+      nav.placementIntent(
+          eye ->
+              look == null
+                  || Direction.fromYRot(
+                          Math.toDegrees(
+                                  Math.atan2(pos.getZ() + .5 - eye.z, pos.getX() + .5 - eye.x))
+                              - 90)
+                      == look,
+          intent::hitAllowed);
       if (!nav.startForPlacement(pos, face)) {
         finish(unreachable());
         return;
@@ -181,7 +209,7 @@ public final class PlaceJob extends Actions.Job {
         finish("失败：[PLACE_CHANGED] 放置位置已变化。");
         return;
       }
-      var hit = Reach.placementFrom(pos, mc().player.getEyePosition(), face);
+      var hit = Reach.placementFrom(pos, mc().player.getEyePosition(), face, intent::hitAllowed);
       var stack = mc().player.getMainHandItem();
       if (hit == null || !Actions.match(stack, fingerprint)) {
         finish("失败：[PLACE_CHANGED] 物品或支撑面不可见。");
@@ -202,6 +230,18 @@ public final class PlaceJob extends Actions.Job {
       }
       PlayerEvidence.forget(pos);
       if (!aim.ready(hit.getLocation())) return;
+      var predicted =
+          block.getStateForPlacement(
+              new BlockPlaceContext(mc().player, InteractionHand.MAIN_HAND, stack, hit));
+      if (predicted == null || !intent.matches(predicted)) {
+        finish(
+            "失败：[PLACEMENT_STATE_UNAVAILABLE] 当前正常站位/支撑面不能得到期望状态="
+                + desired
+                + "；客户端预测="
+                + predicted
+                + "，未发送放置");
+        return;
+      }
       mc().gameMode.useItemOn(mc().player, InteractionHand.MAIN_HAND, hit);
       mc().player.swing(InteractionHand.MAIN_HAND);
       phase = 2;
@@ -210,7 +250,10 @@ public final class PlaceJob extends Actions.Job {
     }
     var server = PlayerEvidence.block(pos);
     boolean matched =
-        server != null && placedMatches(server) && mc().level.getBlockState(pos).equals(server);
+        server != null
+            && placedMatches(server)
+            && mc().level.getBlockState(pos).equals(server)
+            && counterpartMatches(server);
     if (phase == 2 && matched && SignEditor.active()) {
       lastPlaced = pos;
       WorldSense.record(pos, server);
@@ -272,17 +315,53 @@ public final class PlaceJob extends Actions.Job {
   }
 
   private boolean placedMatches(net.minecraft.world.level.block.state.BlockState state) {
-    return state.is(block)
-        || (block instanceof net.minecraft.world.level.block.StandingSignBlock
-            && state.getBlock() instanceof net.minecraft.world.level.block.WallSignBlock
-            && net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                .getKey(state.getBlock())
-                .toString()
-                .equals(
-                    net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                        .getKey(block)
-                        .toString()
-                        .replace("_sign", "_wall_sign")));
+    boolean sameBlock =
+        state.is(block)
+            || (block instanceof net.minecraft.world.level.block.StandingSignBlock
+                && state.getBlock() instanceof net.minecraft.world.level.block.WallSignBlock
+                && net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(state.getBlock())
+                    .toString()
+                    .equals(
+                        net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                            .getKey(block)
+                            .toString()
+                            .replace("_sign", "_wall_sign")))
+            || block instanceof net.minecraft.world.level.block.TorchBlock
+                && net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                    .getKey(state.getBlock())
+                    .toString()
+                    .equals(
+                        net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                            .getKey(block)
+                            .toString()
+                            .replace("torch", "wall_torch"));
+    return sameBlock && intent.matches(state);
+  }
+
+  private boolean counterpartMatches(net.minecraft.world.level.block.state.BlockState state) {
+    BlockPos other;
+    if (block instanceof net.minecraft.world.level.block.DoorBlock) other = pos.above();
+    else if (block instanceof net.minecraft.world.level.block.BedBlock)
+      other =
+          pos.relative(
+              state.getValue(
+                  net.minecraft.world.level.block.state.properties.BlockStateProperties
+                      .HORIZONTAL_FACING));
+    else return true;
+    var actual = mc().level.getBlockState(other);
+    var received = PlayerEvidence.block(other);
+    return received != null
+        && received.equals(actual)
+        && actual.is(block)
+        && (block instanceof net.minecraft.world.level.block.DoorBlock
+            ? actual.getValue(
+                    net.minecraft.world.level.block.state.properties.BlockStateProperties
+                        .DOUBLE_BLOCK_HALF)
+                == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.UPPER
+            : actual.getValue(
+                    net.minecraft.world.level.block.state.properties.BlockStateProperties.BED_PART)
+                == net.minecraft.world.level.block.state.properties.BedPart.HEAD);
   }
 
   /** Unreachable receipt keeps the target position and the stance-candidate diagnosis. */

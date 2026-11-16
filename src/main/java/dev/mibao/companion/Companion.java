@@ -63,6 +63,33 @@ public final class Companion {
   private int ticks;
   private final ManualUseLatch manualUseLatch = new ManualUseLatch();
 
+  @SubscribeEvent
+  public void miningBoundary(
+      net.minecraftforge.event.entity.player.PlayerInteractEvent.LeftClickBlock event) {
+    if (!event.getLevel().isClientSide
+        || event.getEntity() != Minecraft.getInstance().player
+        || event.getAction()
+                != net.minecraftforge.event.entity.player.PlayerInteractEvent.LeftClickBlock.Action
+                    .START
+            && event.getAction()
+                != net.minecraftforge.event.entity.player.PlayerInteractEvent.LeftClickBlock.Action
+                    .CLIENT_HOLD) return;
+    if (!MiningExpedition.guard(event.getPos()).isBlank()) event.setCanceled(true);
+  }
+
+  @SubscribeEvent
+  public void miningPlacementBoundary(
+      net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickBlock event) {
+    if (!event.getLevel().isClientSide
+        || event.getEntity() != Minecraft.getInstance().player
+        || !(event.getItemStack().getItem() instanceof net.minecraft.world.item.BlockItem)) return;
+    var face = event.getFace();
+    if (face != null
+        && (!MiningExpedition.allowsPlacement(event.getPos())
+            || !MiningExpedition.allowsPlacement(event.getPos().relative(face))))
+      event.setCanceled(true);
+  }
+
   public Companion() {
     if (FMLEnvironment.dist != Dist.CLIENT) return;
     Store.init();
@@ -178,12 +205,13 @@ public final class Companion {
     }
     connected = now;
     if (now) {
-      if (Agent.enabled && mc.player.isDeadOrDying()) Agent.stop("角色死亡，已停止并交还控制");
+      DeathRecovery.tick();
       if ((WatchMode.active() || LocalDialogue.editing) && mc.mouseHandler.isMouseGrabbed())
         mc.mouseHandler.releaseMouse();
       Cooperation.poll();
       HarnessController.tick();
       ClientEvidence.tick();
+      RegionQueries.tick();
       MenuContext.tick();
       WorldSense.tick();
       MenuContext.refreshMemory();

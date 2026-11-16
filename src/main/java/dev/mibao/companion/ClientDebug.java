@@ -23,6 +23,41 @@ public final class ClientDebug {
     o.addProperty("on_ground", p.onGround());
     o.add("velocity", vec(p.getDeltaMovement()));
     o.addProperty("horizontal_collision", p.horizontalCollision);
+    o.addProperty("vertical_collision", p.verticalCollision);
+    o.addProperty("pose", p.getPose().name());
+    o.addProperty("air", p.getAirSupply());
+    o.addProperty("max_air", p.getMaxAirSupply());
+    o.addProperty("in_water", p.isInWater());
+    o.addProperty("under_water", p.isUnderWater());
+    o.addProperty("in_lava", p.isInLava());
+    o.addProperty("on_fire", p.isOnFire());
+    o.addProperty("fall_distance", p.fallDistance);
+    o.addProperty("sleeping", p.isSleeping());
+    o.addProperty("fall_flying", p.isFallFlying());
+    o.addProperty("flying", p.getAbilities().flying);
+    o.addProperty("may_fly", p.getAbilities().mayfly);
+    o.addProperty("saturation", p.getFoodData().getSaturationLevel());
+    o.addProperty("experience_level", p.experienceLevel);
+    o.addProperty("experience_progress", p.experienceProgress);
+    o.addProperty("using_item", p.isUsingItem());
+    o.addProperty("use_ticks", p.getTicksUsingItem());
+    if (p.isUsingItem()) o.addProperty("used_hand", p.getUsedItemHand().name());
+    o.add("main_hand", Actions.item(p.getMainHandItem()));
+    o.add("off_hand", Actions.item(p.getOffhandItem()));
+    o.add("vehicle", VehicleJob.state());
+    var effects = new JsonArray();
+    for (var effect : p.getActiveEffects()) {
+      var row = new JsonObject();
+      row.addProperty(
+          "id",
+          net.minecraft.core.registries.BuiltInRegistries.MOB_EFFECT
+              .getKey(effect.getEffect())
+              .toString());
+      row.addProperty("amplifier", effect.getAmplifier());
+      row.addProperty("duration_ticks", effect.getDuration());
+      effects.add(row);
+    }
+    o.add("effects", effects);
     o.addProperty("chunk_x", pos.getX() >> 4);
     o.addProperty("chunk_z", pos.getZ() >> 4);
     o.addProperty("dimension", mc.level.dimension().location().toString());
@@ -52,6 +87,15 @@ public final class ClientDebug {
       if (loaded) {
         var state = mc.level.getBlockState(target);
         t.addProperty("state", state.toString());
+        var properties = new JsonObject();
+        state
+            .getValues()
+            .forEach(
+                (property, value) -> properties.addProperty(property.getName(), value.toString()));
+        t.add("properties", properties);
+        t.addProperty("fluid", state.getFluidState().toString());
+        t.addProperty("block_light", mc.level.getBrightness(LightLayer.BLOCK, target));
+        t.addProperty("sky_light", mc.level.getBrightness(LightLayer.SKY, target));
         var faces = new JsonObject();
         for (Direction d : Direction.values()) {
           var hit = Reach.faceFrom(target, p.getEyePosition(), d);

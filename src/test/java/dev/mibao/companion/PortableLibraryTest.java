@@ -31,8 +31,8 @@ class PortableLibraryTest {
   }
 
   @Test
-  void allFiveShippedPackagesExpandAndBindWithoutCoordinates() throws Exception {
-    for (String name : List.of("transport", "craft", "smelt", "farm", "gather")) {
+  void shippedLogisticsAndMiningPackagesExpandAndBindWithoutCoordinates() throws Exception {
+    for (String name : List.of("transport", "craft", "smelt", "farm", "gather", "mining")) {
       var p = new SkillPackage(read(name));
       var session = p.expand(parameters(p));
       assertFalse(new SessionPlan(session).steps.isEmpty());

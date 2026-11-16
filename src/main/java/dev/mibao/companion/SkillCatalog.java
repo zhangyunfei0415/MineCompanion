@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Independent client-player procedures. No maid entity code or server capabilities. */
 public final class SkillCatalog {
-  public static final String VERSION = "8";
+  public static final String VERSION = "9";
 
   public record Preset(
       String id,
@@ -57,6 +57,15 @@ public final class SkillCatalog {
               "固定搜索中心 → 每帧最多256方块/2毫秒收集候选 → 检查流体/落沙/站位 → 正常寻路挖掘 → 等待服务器方块确认 → 每4块主动收集附近新掉落",
               "客户端与服务器都确认为空气才计数；背包增量另列，不将方块数量等同矿物产量",
               "12个不可达候选、单块15秒、总计5分钟或低血低饥即停；保留已确认数量；指定交付箱时可核实卸货后返回；不自动挖通道、挖脚下或处理流体"),
+          new Preset(
+              "mining_expedition",
+              "连续采矿与归仓",
+              "mine_expedition",
+              "block,item,count=32,goal=items/blocks/deliver,mode=vein/surface/baritone,terrain=detour/modify,delivery,source,job_id,resume",
+              "生存模式；已加载矿区；正确工具或普通镐材料；采矿及各子操作授权；开路需navigationBreak，垫脚需navigationPlace与放置权限",
+              "限额分帧建立矿点索引 → 准备正确工具 → 分批挖除 → 追踪新掉落并主动拾取 → 核对精确库存 → 满包归仓再返回 → 完成后返回起点",
+              "分别记录服务器确认挖除、本批新掉落拾取与完整背包增量交集、精确变体交付量；任务目标明确选择一种数量",
+              "时间/方块预算、矿区边界、缺料/工具/空间、危险或三批无进展有界停止；mining_status查看世界隔离检查点，明确resume后重新核实库存"),
           new Preset(
               "hunt",
               "指定怪物清理",

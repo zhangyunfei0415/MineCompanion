@@ -8,6 +8,8 @@ public final class LocalExecutor {
   private static ExecutionPolicy.Lane lane = ExecutionPolicy.Lane.REST;
 
   private static void interruptInput(String message) {
+    if (Actions.job instanceof BaritoneMiningJob mining) mining.interruptedBy(message);
+    if (Actions.job instanceof UseHandJob use) use.suspend();
     if (Actions.job instanceof PlatformJob building) building.interruptedBy(message);
     else if (Actions.job instanceof GameInputJob) Actions.job.finish(message);
   }
@@ -38,6 +40,11 @@ public final class LocalExecutor {
     if (!Agent.controlWorldValid()) {
       interruptInput("输入已释放：当前世界控制已失效。");
       lane = ExecutionPolicy.Lane.REST;
+      Perception.tick();
+      return;
+    }
+    if (MiningExpedition.expire()) {
+      lane = ExecutionPolicy.Lane.IDLE;
       Perception.tick();
       return;
     }

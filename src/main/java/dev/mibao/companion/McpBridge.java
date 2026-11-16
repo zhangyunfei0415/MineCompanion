@@ -35,7 +35,8 @@ public final class McpBridge {
       var connection = new JsonObject();
       connection.addProperty("url", "http://127.0.0.1:" + server.port() + "/mcp");
       connection.addProperty("token", Store.config.mcpToken);
-      connection.addProperty("version", "0.7.6");
+      connection.addProperty("version", "0.8.2");
+      connection.addProperty("build", BuildInfo.ID);
       Files.createDirectories(Store.ROOT);
       Files.writeString(DISCOVERY, connection.toString());
       Companion.log("本机MCP/Harness接口已启动：" + server.port() + "；认证信息只写入本机连接文件");
@@ -62,7 +63,7 @@ public final class McpBridge {
                     o.add(
                         "serverInfo",
                         JsonParser.parseString(
-                            "{\"name\":\"logistics-companion\",\"version\":\"0.7.6\"}"));
+                            "{\"name\":\"logistics-companion\",\"version\":\"0.8.2\"}"));
                     result.complete(o);
                   }
                   case "ping" -> result.complete(new JsonObject());

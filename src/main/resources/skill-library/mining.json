@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "builtin:mining",
+  "name": "矿区采集并交付",
+  "version": "1",
+  "author": "MineCompanion",
+  "license": "project-original",
+  "description": "固定已加载矿区内连续采矿与主动拾取，按本批产物交付核验。具体箱子由当前世界参数绑定。",
+  "parameters": {
+    "block": {"type": "string", "default": "minecraft:iron_ore"},
+    "item": {"type": "string", "default": "minecraft:raw_iron"},
+    "count": {"type": "integer", "default": 8, "min": 1, "max": 256},
+    "delivery": {"type": "string"},
+    "mode": {"type": "string", "default": "vein"},
+    "terrain": {"type": "string", "default": "detour"}
+  },
+  "requires": ["mine_expedition"],
+  "seconds": 1800,
+  "steps": [{"tool": "mine_expedition", "args": {
+    "block": "${block}", "item": "${item}", "count": "${count}",
+    "goal": "deliver", "delivery": "${delivery}", "mode": "${mode}", "terrain": "${terrain}"
+  }}],
+  "verification": "服务器挖除回执、新掉落实体与拾取回执、完整背包增量以及实际交付分别记录。运行前仍待当前实例验证。",
+  "recovery": "停止后检查世界隔离的mining_status，先核实未知步骤与背包，再用相同请求和job_id明确resume。"
+}

@@ -29,7 +29,7 @@ public final class InteractionOutcome {
   private final BlockPos[] positions;
   private final List<Watch> watches = new ArrayList<>();
   private final Map<String, Integer> inventoryBefore = new LinkedHashMap<>();
-  private final List<ItemStack> slotBefore = new ArrayList<>();
+  private final Map<Integer, ItemStack> slotBefore = new LinkedHashMap<>();
   private final Set<Integer> knownEntities = new LinkedHashSet<>();
   private final Map<Integer, String[]> freshEntities = new LinkedHashMap<>();
   private final DropSensor sensor = new DropSensor();
@@ -58,9 +58,10 @@ public final class InteractionOutcome {
     if (player == null || mc().level == null) return;
     PlayerEvidence.begin();
     var inventory = player.getInventory();
-    for (int i = 0; i < 36; i++) {
+    for (int i = 0; i < 41; i++) {
+      if (i >= 36 && i < 40) continue;
       ItemStack stack = inventory.getItem(i);
-      slotBefore.add(stack.copy());
+      slotBefore.put(i, stack.copy());
       if (!stack.isEmpty())
         inventoryBefore.merge(WorldSense.fingerprint(stack), stack.getCount(), Integer::sum);
     }
@@ -140,7 +141,8 @@ public final class InteractionOutcome {
     out.add("inventory", inventory);
     out.addProperty(
         "inventory_source",
-        "post-action server slot receipts matching current main inventory; no causal attribution");
+        "post-action server slot receipts matching main inventory and offhand; no causal"
+            + " attribution");
     JsonArray dropped = new JsonArray();
     for (String[] row : freshEntities.values()) {
       JsonObject item = new JsonObject();
@@ -165,13 +167,14 @@ public final class InteractionOutcome {
     Map<String, Integer> counts = new LinkedHashMap<>();
     var player = mc().player;
     if (player == null) return counts;
-    for (int i = 0; i < slotBefore.size(); i++) {
+    for (var entry : slotBefore.entrySet()) {
+      int i = entry.getKey();
       ItemStack current = player.getInventory().getItem(i);
       ItemStack stack =
           PlayerEvidence.slotConfirmed(i)
                   && ItemStack.matches(current, PlayerEvidence.inventorySlot(i))
               ? current
-              : slotBefore.get(i);
+              : entry.getValue();
       if (!stack.isEmpty())
         counts.merge(WorldSense.fingerprint(stack), stack.getCount(), Integer::sum);
     }

@@ -46,6 +46,22 @@ class ToolSchemasTest {
   }
 
   @Test
+  void miningAdvertisesItsActualGoalAndExecutionChoices() {
+    JsonObject mining = null;
+    for (var tool : ToolSchemas.all()) {
+      var function = tool.getAsJsonObject().getAsJsonObject("function");
+      if (function.get("name").getAsString().equals("mine_expedition")) mining = function;
+    }
+    assertNotNull(mining);
+    var properties = mining.getAsJsonObject("parameters").getAsJsonObject("properties");
+    assertEquals(3, properties.getAsJsonObject("goal").getAsJsonArray("enum").size());
+    assertEquals(3, properties.getAsJsonObject("mode").getAsJsonArray("enum").size());
+    assertEquals(2, properties.getAsJsonObject("terrain").getAsJsonArray("enum").size());
+    assertFalse(Rules.WRITE.contains("mining_status"));
+    assertTrue(SessionPlan.TOOLS.contains("mine_expedition"));
+  }
+
+  @Test
   void fullInventoryAndIncompleteSamplingNeverProveSweepClear() {
     assertTrue(PickupCapacity.sweepClear(0, false, false));
     assertFalse(PickupCapacity.sweepClear(0, false, true));

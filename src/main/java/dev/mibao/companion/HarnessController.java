@@ -195,10 +195,16 @@ public final class HarnessController {
 
   public static JsonObject status() {
     var o = Actions.observe();
+    o.addProperty("contract_version", 1);
+    o.add("death_recovery", DeathRecovery.observe());
+    o.addProperty("death_phase", DeathRecovery.observe().get("phase").getAsString());
+    o.addProperty("respawn_policy", DeathRecovery.observe().get("respawn_policy").getAsString());
     o.addProperty("enabled", Agent.enabled);
     o.addProperty("epoch_reason", Agent.lastEpochReason);
     o.add("cooperation", Cooperation.view());
     o.addProperty("paused", Agent.paused);
+    for (var e : PauseControl.observe().entrySet()) o.add(e.getKey(), e.getValue());
+    o.add("decision", DecisionService.status());
     o.addProperty("busy", busy());
     o.addProperty("pending_tool", Agent.pendingTool);
     o.addProperty("driver", Store.config.driver);
@@ -324,8 +330,20 @@ public final class HarnessController {
                     "task_status",
                     "task_result",
                     "task_cancel",
+                    "resume_control",
+                    "pause_control",
+                    "permission_status",
+                    "decision_status",
+                    "config_reload",
                     "observe_compact",
                     "integration_status",
+                    "inspect_client",
+                    "inspect_landing",
+                    "column_probe",
+                    "light_survey",
+                    "find_blocks",
+                    "vehicle_state",
+                    "mining_status",
                     "command_status")
                 .contains(tool))
           throw new IllegalArgumentException("[BUSY] 当前暂停/忙碌/待审批；先查状态或回执，不叠加写动作");

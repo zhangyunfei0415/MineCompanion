@@ -8,6 +8,11 @@ import net.minecraft.world.phys.*;
 /** Use the first actual outline hit and its face, rather than synthesizing a hit through a wall. */
 public final class Reach {
   public static BlockHitResult faceFrom(BlockPos pos, Vec3 eye, Direction face) {
+    return faceFrom(pos, eye, face, hit -> true);
+  }
+
+  private static BlockHitResult faceFrom(
+      BlockPos pos, Vec3 eye, Direction face, java.util.function.Predicate<BlockHitResult> accept) {
     var mc = Minecraft.getInstance();
     if (!mc.level.hasChunkAt(pos)) return null;
     double range = mc.gameMode.getPickRange() - .05;
@@ -15,7 +20,7 @@ public final class Reach {
     var shape = mc.level.getBlockState(pos).getShape(mc.level, pos);
     if (shape.isEmpty()) {
       var fluid = hitFrom(pos, eye);
-      return fluid != null && fluid.getDirection() == face ? fluid : null;
+      return fluid != null && fluid.getDirection() == face && accept.test(fluid) ? fluid : null;
     }
     var boxes = shape.toAabbs();
     int budget = 0;
@@ -60,7 +65,8 @@ public final class Reach {
         if (hit.getType() == HitResult.Type.BLOCK
             && hit.getBlockPos().equals(pos)
             && hit.getDirection() == face
-            && eye.distanceTo(hit.getLocation()) <= range) return hit;
+            && eye.distanceTo(hit.getLocation()) <= range
+            && accept.test(hit)) return hit;
       }
     }
     return null;
@@ -76,8 +82,17 @@ public final class Reach {
   }
 
   public static BlockHitResult placementFrom(BlockPos target, Vec3 eye, Direction onlyFace) {
+    return placementFrom(target, eye, onlyFace, hit -> true);
+  }
+
+  static BlockHitResult placementFrom(
+      BlockPos target,
+      Vec3 eye,
+      Direction onlyFace,
+      java.util.function.Predicate<BlockHitResult> accept) {
     var mc = Minecraft.getInstance();
-    if (!mc.level.hasChunkAt(target) || !mc.level.getBlockState(target).canBeReplaced()) return null;
+    if (!mc.level.hasChunkAt(target) || !mc.level.getBlockState(target).canBeReplaced())
+      return null;
     double half = mc.player.getBbWidth() / 2.0, feet = eye.y - mc.player.getEyeHeight();
     if (new AABB(
             eye.x - half,
@@ -89,7 +104,9 @@ public final class Reach {
         .intersects(new AABB(target))) return null;
     if (!mc.level.getBlockState(target).isAir()) {
       BlockHitResult replace = hitFrom(target, eye);
-      if (replace != null && (onlyFace == null || replace.getDirection() == onlyFace)) return replace;
+      if (replace != null
+          && (onlyFace == null || replace.getDirection() == onlyFace)
+          && accept.test(replace)) return replace;
     }
     for (Direction face :
         onlyFace == null
@@ -106,7 +123,7 @@ public final class Reach {
       if (!mc.level.hasChunkAt(support)) continue;
       var shape = mc.level.getBlockState(support).getShape(mc.level, support);
       if (shape.isEmpty()) continue;
-      var hit = faceFrom(support, eye, face);
+      var hit = faceFrom(support, eye, face, accept);
       if (hit != null && support.relative(face).equals(target)) return hit;
     }
     return null;
@@ -141,8 +158,8 @@ public final class Reach {
                     mc.player));
         if (fluidHit.getType() == HitResult.Type.BLOCK
             && fluidHit.getBlockPos().equals(pos)
-            && eye.distanceTo(fluidHit.getLocation())
-                <= mc.gameMode.getPickRange() - .05) return fluidHit;
+            && eye.distanceTo(fluidHit.getLocation()) <= mc.gameMode.getPickRange() - .05)
+          return fluidHit;
       }
       return null;
     }

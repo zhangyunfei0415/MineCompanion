@@ -42,6 +42,9 @@ public final class SkillPackage {
           || args.has("object")
           || args.has("gui_view"))
         throw new IllegalArgumentException("可共享技能不能固化世界坐标或旧菜单编号，请绑定命名地点");
+      for (String key : List.of("entity_id", "screen_view", "quest_view", "ae_view"))
+        if (args.has(key) && !args.get(key).getAsString().matches("\\$\\{[A-Za-z0-9_]+}"))
+          throw new IllegalArgumentException("可共享技能的临时实体/界面编号须由当前观察参数绑定：" + key);
     }
     if (definition.toString().length() > 100_000) throw new IllegalArgumentException("技能包过大");
   }

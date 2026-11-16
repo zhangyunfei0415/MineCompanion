@@ -7,11 +7,36 @@ import org.junit.jupiter.api.Test;
 class GameCommandPolicyTest {
   private final CommandProfile profile = new CommandProfile();
 
-  @Test void teleportAcceptsFiniteDecimalsAndKeepsRadiusChecks() {
+  @Test
+  void boundedCoordinatesPreserveQuotedSnbtAndWhitespace() {
+    profile.customCommands = true;
+    String input = "setblock  ~  ~-1 ~ minecraft:chest{CustomName:'\"one   two @a\"'}";
+    assertEquals(
+        "setblock  10  63 20 minecraft:chest{CustomName:'\"one   two @a\"'}",
+        GameCommandPolicy.parse(input, profile, 10, 64, 20).command());
+    assertEquals(
+        "minecraft:chest", GameCommandPolicy.parse(input, profile, 10, 64, 20).expectedBlock());
+  }
+
+  @Test
+  void malformedTextAndProtocolOverflowAreRejectedBeforeSending() {
+    profile.customCommands = true;
+    for (String input : new String[] {"summon pig ~ ~ ~{a:[1}", "say " + "x".repeat(253), "/"})
+      assertThrows(
+          IllegalArgumentException.class, () -> GameCommandPolicy.parse(input, profile, 0, 64, 0));
+    assertFalse(CommandWords.broadSelector("say \"@a\""));
+    assertEquals(
+        "say I'm here", GameCommandPolicy.parse("say I'm here", profile, 0, 64, 0).command());
+    assertTrue(CommandWords.broadSelector("give @a stone"));
+  }
+
+  @Test
+  void teleportAcceptsFiniteDecimalsAndKeepsRadiusChecks() {
     var plan = GameCommandPolicy.parse("tp @s -10.5 64.25 ~2.5", profile, 0, 64, 0);
     assertArrayEquals(new double[] {-10.5, 64.25, 2.5}, plan.targetPosition());
     for (String coordinate : new String[] {"NaN", "Infinity", "999.5"})
-      assertThrows(IllegalArgumentException.class,
+      assertThrows(
+          IllegalArgumentException.class,
           () -> GameCommandPolicy.parse("tp @s " + coordinate + " 64 0", profile, 0, 64, 0));
   }
 

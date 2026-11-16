@@ -16,10 +16,18 @@ public final class UseHandJob extends Actions.Job {
   private final InventorySession verify = new InventorySession(false);
   private boolean baselineReady;
   private int phase, held, beforeCount;
+  private int beforeItemTotal;
   private long lease;
   private boolean usingSeen;
   private ItemStack before;
-  private final java.util.Set<java.util.UUID> projectiles = new java.util.HashSet<>();
+  private long started;
+  private net.minecraft.world.phys.Vec3 usedTarget;
+  private boolean expectedUseSeen;
+
+  void suspend() {
+    releaseUse();
+    if (phase == 1) phase = 2;
+  }
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -49,7 +57,16 @@ public final class UseHandJob extends Actions.Job {
     int total = 0;
     for (int i = 0; i <= 40; i++) {
       var s = mc().player.getInventory().getItem(i);
-      if (!s.isEmpty() && s.is(before.getItem())) total += s.getCount();
+      if (ItemStack.isSameItemSameTags(s, before)) total += s.getCount();
+    }
+    return total;
+  }
+
+  private int itemTotal() {
+    int total = 0;
+    for (int i = 0; i <= 40; i++) {
+      var stack = mc().player.getInventory().getItem(i);
+      if (stack.is(before.getItem())) total += stack.getCount();
     }
     return total;
   }
@@ -104,8 +121,9 @@ public final class UseHandJob extends Actions.Job {
       }
       before = stack().copy();
       beforeCount = count();
-      for (var entity : mc().level.getEntities(mc().player, mc().player.getBoundingBox().inflate(32),
-          e -> e instanceof net.minecraft.world.entity.projectile.Projectile)) projectiles.add(entity.getUUID());
+      beforeItemTotal = itemTotal();
+      started = System.nanoTime();
+      usedTarget = mc().player.pick(5, 1, true).getLocation();
       mc().gameMode.useItem(mc().player, hand);
       usingSeen = mc().player.isUsingItem();
       if (usingSeen) {
@@ -118,6 +136,10 @@ public final class UseHandJob extends Actions.Job {
     Actions.status =
         "使用物品 · " + (phase == 1 ? "维持 " + held + " / " + duration + "刻" : "已释放，核对实际结果");
     if (phase == 1) {
+      expectedUseSeen |=
+          mc().player.isUsingItem()
+              && mc().player.getUsedItemHand() == hand
+              && ItemStack.isSameItemSameTags(mc().player.getUseItem(), before);
       boolean changed = !stack().is(before.getItem()) || stack().getCount() < before.getCount();
       if (mc().screen != null) {
         finish("部分完成：[INPUT_INTERRUPTED] 使用期间界面改变，已释放。");
@@ -137,8 +159,10 @@ public final class UseHandJob extends Actions.Job {
     if (mc().screen != null) {
       releaseUse();
       finish(
-          "输入已执行并释放：已打开 " + mc().screen.getTitle().getString()
-              + " (" + mc().screen.getClass().getName()
+          "输入已执行并释放：已打开 "
+              + mc().screen.getTitle().getString()
+              + " ("
+              + mc().screen.getClass().getName()
               + ")；请inspect_gui/quest_book_state核对，界面打开不代表奖励或生产完成，不重复使用。");
       return;
     }
@@ -158,17 +182,75 @@ public final class UseHandJob extends Actions.Job {
     facts.addProperty("using_seen", usingSeen);
     facts.addProperty("held_ticks", held);
     facts.addProperty("input_released", true);
-    boolean projectileSeen = !mc().level.getEntities(mc().player, mc().player.getBoundingBox().inflate(48),
-        e -> e instanceof net.minecraft.world.entity.projectile.Projectile projectile
-            && projectile.getOwner() == mc().player && !projectiles.contains(e.getUUID())).isEmpty();
-    boolean stateChanged = stack().is(before.getItem()) && !ItemStack.isSameItemSameTags(before, stack());
-    boolean sustained = usingSeen && held >= duration && before.getItem() instanceof ShieldItem;
+    boolean projectileSeen =
+        EntitySpawnEvidence.ownedProjectile(
+            projectileTypes(before.getItem()), mc().player.getId(), started);
+    boolean stateChanged =
+        before.getItem() instanceof CrossbowItem
+            && !CrossbowItem.isCharged(before)
+            && stack().is(before.getItem())
+            && CrossbowItem.isCharged(stack());
+    boolean sustained =
+        expectedUseSeen
+            && held >= duration
+            && (before.getItem() instanceof ShieldItem || before.getItem() instanceof SpyglassItem);
     facts.addProperty("owned_projectile_seen", projectileSeen);
     facts.addProperty("held_item_state_changed", stateChanged);
-    boolean confirmed = after < beforeCount || projectileSeen || stateChanged || sustained;
-    finish(new ActionResult(confirmed ? ActionResult.Status.verified : ActionResult.Status.unverified,
-        confirmed ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
-        "服务器背包已核对，物品特殊效果按现场继续观察", facts).json());
+    boolean consumed =
+        FieldProof.consumed(
+            before.isDamageableItem(), beforeCount, after, beforeItemTotal, itemTotal());
+    facts.addProperty("consumption_observed", consumed);
+    facts.addProperty("item_type_total_before", beforeItemTotal);
+    facts.addProperty("item_type_total_after", itemTotal());
+    facts.addProperty("crossbow_loaded", stateChanged);
+    facts.addProperty("sustained_use_observed", sustained);
+    facts.addProperty("effect_scope", "使用/装填/消耗证据；命中、伤害和特殊效果需另行观察");
+    boolean vehicle =
+        before.getItem() instanceof BoatItem
+            && EntitySpawnEvidence.placedEntity(
+                before,
+                usedTarget,
+                started,
+                Math.max(0, beforeCount - after),
+                mc().player.isCreative());
+    facts.addProperty("new_vehicle_spawn_correlated", vehicle);
+    boolean confirmed =
+        (consumed && !(before.getItem() instanceof BoatItem))
+            || vehicle
+            || projectileSeen
+            || stateChanged
+            || sustained;
+    finish(
+        new ActionResult(
+                confirmed ? ActionResult.Status.verified : ActionResult.Status.unverified,
+                confirmed ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
+                "已核对指定物品的使用证据与同步背包",
+                facts)
+            .json());
+  }
+
+  private static java.util.Set<net.minecraft.world.entity.EntityType<?>> projectileTypes(
+      Item item) {
+    var arrow = net.minecraft.world.entity.EntityType.ARROW;
+    var spectral = net.minecraft.world.entity.EntityType.SPECTRAL_ARROW;
+    if (item instanceof CrossbowItem)
+      return java.util.Set.of(
+          arrow, spectral, net.minecraft.world.entity.EntityType.FIREWORK_ROCKET);
+    if (item instanceof BowItem) return java.util.Set.of(arrow, spectral);
+    if (item instanceof TridentItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.TRIDENT);
+    if (item instanceof FishingRodItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.FISHING_BOBBER);
+    if (item instanceof SnowballItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.SNOWBALL);
+    if (item instanceof EggItem) return java.util.Set.of(net.minecraft.world.entity.EntityType.EGG);
+    if (item instanceof EnderpearlItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.ENDER_PEARL);
+    if (item instanceof ThrowablePotionItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.POTION);
+    if (item instanceof ExperienceBottleItem)
+      return java.util.Set.of(net.minecraft.world.entity.EntityType.EXPERIENCE_BOTTLE);
+    return java.util.Set.of();
   }
 
   private void releaseUse() {

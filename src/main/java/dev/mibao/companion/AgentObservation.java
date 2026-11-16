@@ -9,6 +9,9 @@ final class AgentObservation {
   static JsonObject current() {
     var mc = Minecraft.getInstance();
     var o = Actions.compact();
+    o.addProperty("contract_version", 1);
+    for (var e : PauseControl.observe().entrySet()) o.add(e.getKey(), e.getValue());
+    o.add("death_recovery", DeathRecovery.observe());
     if (mc.player == null) return o;
     o.addProperty("observed_at", System.currentTimeMillis());
     o.addProperty("health", mc.player.getHealth());

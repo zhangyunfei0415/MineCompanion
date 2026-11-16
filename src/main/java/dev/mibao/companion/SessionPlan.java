@@ -8,6 +8,14 @@ public final class SessionPlan {
   public static final Set<String> TOOLS =
       Set.of(
           "fish",
+          "mine_expedition",
+          "use_hand",
+          "use_entity",
+          "move_inventory",
+          "vehicle_control",
+          "build_platform",
+          "build_bridge",
+          "smelt_batch",
           "illuminate_area",
           "light_survey",
           "find_blocks",

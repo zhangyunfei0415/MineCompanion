@@ -63,7 +63,29 @@ public final class ClientEvidence {
                           PlayerEvidence.slot(p.getContainerId(), p.getSlot(), stack);
                         };
                   } else if (msg instanceof ClientboundAddEntityPacket p) {
-                    receipt = () -> EntitySpawnEvidence.record(p);
+                    receipt =
+                        () -> {
+                          EntitySpawnEvidence.record(p);
+                          MiningExpedition.observeItem(p.getId());
+                        };
+                  } else if (msg instanceof ClientboundSetEntityDataPacket p) {
+                    receipt =
+                        () -> {
+                          if (Actions.job instanceof FishingJob fishing)
+                            fishing.observeLoot(p.id());
+                          if (Actions.job instanceof DropInventoryJob drop)
+                            drop.observeLoot(p.id());
+                          MiningExpedition.observeItem(p.id());
+                        };
+                  } else if (msg instanceof ClientboundTakeItemEntityPacket p) {
+                    receipt =
+                        () -> {
+                          if (Actions.job instanceof FishingJob fishing)
+                            fishing.pickup(p.getItemId(), p.getPlayerId(), p.getAmount());
+                          if (Actions.job instanceof DropInventoryJob drop)
+                            drop.pickup(p.getItemId(), p.getPlayerId(), p.getAmount());
+                          MiningExpedition.pickup(p.getItemId(), p.getPlayerId(), p.getAmount());
+                        };
                   } else if (msg instanceof ClientboundSetHealthPacket p) {
                     receipt = () -> InventoryEvidence.health(p.getFood());
                   } else if (msg instanceof ClientboundDamageEventPacket p) {
@@ -78,6 +100,7 @@ public final class ClientEvidence {
                         () -> {
                           WorldSense.blockChanged(p.getPos(), p.getBlockState());
                           PlayerEvidence.block(p.getPos(), p.getBlockState());
+                          MiningExpedition.blockReceipt(p.getPos(), p.getBlockState());
                         };
                   } else if (msg instanceof ClientboundSectionBlocksUpdatePacket p) {
                     receipt =
@@ -86,6 +109,7 @@ public final class ClientEvidence {
                                 (pos, state) -> {
                                   WorldSense.blockChanged(pos, state);
                                   PlayerEvidence.block(pos, state);
+                                  MiningExpedition.blockReceipt(pos, state);
                                 });
                   }
                   if (receipt == null) return null;

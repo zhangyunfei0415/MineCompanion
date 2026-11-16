@@ -44,7 +44,7 @@ public final class PlayerEvidence {
   public static void begin() {
     reset();
     var p = Minecraft.getInstance().player;
-    for (int i = 0; i < 36; i++) inventory.put(i, p.getInventory().getItem(i).copy());
+    for (int i = 0; i < 41; i++) inventory.put(i, p.getInventory().getItem(i).copy());
   }
 
   public static void slot(int menuId, int slot, ItemStack stack) {
@@ -54,7 +54,7 @@ public final class PlayerEvidence {
       cursor(stack);
       return;
     }
-    if (menuId == -2 && slot >= 0 && slot < 36) {
+    if (menuId == -2 && slot >= 0 && slot < 41) {
       inventory.put(slot, stack.copy());
       receivedSlots.add(slot);
       revision++;
@@ -64,7 +64,7 @@ public final class PlayerEvidence {
     if (menu.containerId == menuId && slot >= 0 && slot < menu.slots.size()) {
       var s = menu.slots.get(slot);
       int i = s.getContainerSlot();
-      if (s.container == p.getInventory() && i < 36) {
+      if (s.container == p.getInventory() && i >= 0 && i < 41) {
         inventory.put(i, stack.copy());
         receivedSlots.add(i);
         revision++;
@@ -98,7 +98,10 @@ public final class PlayerEvidence {
 
   public static Map<String, Integer> confirmed(String filter) {
     Map<String, Integer> out = new HashMap<>();
-    inventory.values().forEach(s -> add(out, s, filter));
+    inventory.forEach(
+        (slot, stack) -> {
+          if (slot < 36) add(out, stack, filter);
+        });
     return out;
   }
 

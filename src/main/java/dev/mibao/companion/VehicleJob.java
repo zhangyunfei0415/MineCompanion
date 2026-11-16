@@ -17,16 +17,23 @@ public final class VehicleJob extends Actions.Job {
   public VehicleJob(String control, int ticks, Consumer<String> done) {
     super(done);
     if (!Set.of("forward", "back", "left", "right", "jump", "sneak").contains(control))
-      throw new IllegalArgumentException("[INVALID_ARGUMENT] control为forward/back/left/right/jump/sneak");
+      throw new IllegalArgumentException(
+          "[INVALID_ARGUMENT] control为forward/back/left/right/jump/sneak");
     this.control = control;
     duration = InputPolicy.ticks(ticks);
   }
 
   void tick() {
     var mc = Minecraft.getInstance();
-    if (mc.screen != null) { finish("部分完成：[SCREEN_BLOCKING] 骑乘输入中断"); return; }
+    if (mc.screen != null) {
+      finish("部分完成：[SCREEN_BLOCKING] 骑乘输入中断");
+      return;
+    }
     if (!started) {
-      if (!mc.player.isPassenger()) { finish("失败：[NOT_MOUNTED] 当前没有骑乘，请先use_entity上车"); return; }
+      if (!mc.player.isPassenger()) {
+        finish("失败：[NOT_MOUNTED] 当前没有骑乘，请先use_entity上车");
+        return;
+      }
       origin = mc.player.position();
       generation = PlayerControls.generation;
       PlayerControls.hold(PlayerControls.motion(control));
@@ -44,9 +51,13 @@ public final class VehicleJob extends Actions.Job {
     evidence.addProperty("distance", mc.player.position().distanceTo(origin));
     evidence.addProperty("control", control);
     boolean verified = control.equals("sneak") ? dismounted : moved;
-    finish(new ActionResult(verified ? ActionResult.Status.verified : ActionResult.Status.unverified,
-        verified ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
-        "骑乘输入已释放，按实际位移或下车状态核对", evidence).json());
+    finish(
+        new ActionResult(
+                verified ? ActionResult.Status.verified : ActionResult.Status.unverified,
+                verified ? ActionResult.Code.NONE : ActionResult.Code.USE_UNCONFIRMED,
+                "骑乘输入已释放，按实际位移或下车状态核对",
+                evidence)
+            .json());
   }
 
   public static JsonObject state() {
@@ -57,7 +68,22 @@ public final class VehicleJob extends Actions.Job {
     if (vehicle != null) {
       result.addProperty("entity_id", vehicle.getId());
       result.addProperty("uuid", vehicle.getUUID().toString());
-      result.addProperty("type", net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(vehicle.getType()).toString());
+      result.addProperty(
+          "type",
+          net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+              .getKey(vehicle.getType())
+              .toString());
+      result.addProperty("controlling_passenger", vehicle.getControllingPassenger() == player);
+      result.addProperty("on_ground", vehicle.onGround());
+      result.addProperty("in_water", vehicle.isInWater());
+      result.add(
+          "velocity",
+          Store.GSON.toJsonTree(
+              new double[] {
+                vehicle.getDeltaMovement().x,
+                vehicle.getDeltaMovement().y,
+                vehicle.getDeltaMovement().z
+              }));
     }
     return result;
   }

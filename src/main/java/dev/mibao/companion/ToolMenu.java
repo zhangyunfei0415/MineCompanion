@@ -7,6 +7,7 @@ import java.util.*;
 public final class ToolMenu {
   private static final Set<String> COMMON =
       Set.of(
+          "decision_select",
           "observe_compact",
           "permission_status",
           "integration_status",
@@ -106,6 +107,8 @@ public final class ToolMenu {
                   "find_blocks",
                   "light_survey",
                   "mine_resource",
+                  "mine_expedition",
+                  "mining_status",
                   "mine_batch",
                   "collect_mined",
                   "chop_wood",
@@ -130,6 +133,7 @@ public final class ToolMenu {
                   "unstick"),
           "gui",
               Set.of(
+                  "gui_action",
                   "vanilla_menu_select",
                   "inspect_screen",
                   "inspect_gui",

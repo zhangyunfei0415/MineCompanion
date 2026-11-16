@@ -107,6 +107,9 @@ public final class Agent {
   }
 
   public static void manualPause() {
+    PauseControl.source = "human";
+    PauseControl.harnessPaused = false;
+    DecisionService.invalidate();
     if (!enabled) return;
     lastEpochReason = "人工暂停，接管与连接保留";
     cooperativeIntervention();
@@ -129,6 +132,27 @@ public final class Agent {
     stopInternal(why, false);
   }
 
+  static void suspendForDeath() {
+    PauseControl.harnessPaused = false;
+    DecisionService.invalidate();
+    stopInternal("角色死亡，旧作业已作废；按已选策略等待正常重生", true, true);
+    paused = true;
+    PauseControl.source = "death_recovery";
+  }
+
+  static void resumeAfterDeath(String retained) {
+    controlDimension = mc().level.dimension().location().toString();
+    task = retained;
+    paused = false;
+    history.clear();
+    if (!retained.isBlank())
+      history.add(
+          message("user", "死亡后已重生，原目标：" + retained + "。先观察当前背包、死亡点与现场，重评未完成工作；旧点击/投料/订单不得重放。"));
+    nextRun = System.currentTimeMillis() + 1000;
+    state = retained.isBlank() ? "已重生，接管保留并待命" : "已重生，保留目标并重新观察规划";
+    Companion.notifyUser(state);
+  }
+
   /** Revoke external work without revoking the player's explicit takeover choice. */
   public static void harnessDisconnected(String why) {
     stopInternal(why, enabled);
@@ -139,6 +163,8 @@ public final class Agent {
   }
 
   private static void stopInternal(String why, boolean keepTakeover, boolean preserveHarness) {
+    DecisionService.invalidate();
+    PauseControl.harnessPaused = false;
     Cooperation.reset();
     lastEpochReason = why;
     if (enabled) CompanionIdentity.record("halt", why + "；未完成动作不自动恢复");
@@ -260,13 +286,24 @@ public final class Agent {
     }
   }
 
+  static void cancelPendingMiningStep() {
+    approval = null;
+    rejection = null;
+    pendingTool = "";
+    pendingArgs = "";
+  }
+
   public static void pause(boolean value) {
+    DecisionService.invalidate();
+    PauseControl.harnessPaused = false;
     if (!enabled) {
       Companion.notifyUser(
           "AI 尚未接管，请先在 " + Companion.PANEL.getTranslatedKeyMessage().getString() + " 开启");
       return;
     }
     paused = value;
+    PauseControl.source = value ? "human" : "none";
+    if (value && Actions.job instanceof UseHandJob use) use.suspend();
     Navigator.release();
     state = value ? "已暂停；继续后从当前步骤核实" : "已继续，正在核实现状";
     Companion.notifyUser(state);
@@ -1004,7 +1041,8 @@ public final class Agent {
         + "；长期记忆="
         + recall("")
         + "；技能="
-        + Store.data.skills.keySet();
+        + Store.data.skills.keySet()
+        + "。连续矿物补给优先mine_expedition，先明确goal=blocks/items/deliver和目标item。旧mine_resource的count仍是方块数；新作业可查mining_status区分实际产量、交付、未知步骤和历史记录。只允许在本世界命名来源取料；恢复须按返回request和job_id明确resume，不把未知动作直接重发。";
   }
 
   public static String recall(String query) {
@@ -1240,6 +1278,7 @@ public final class Agent {
   public static void execute(
       String tool, JsonObject args, java.util.function.Consumer<String> callback) {
     final java.util.function.Consumer<String> done = ActionTrace.wrap(tool, args, callback);
+    if (Rules.WRITE.contains(tool)) DecisionService.invalidate();
     if (!Rules.TOOLS.contains(tool)) {
       done.accept("错误：未知工具");
       return;
@@ -1248,7 +1287,10 @@ public final class Agent {
       done.accept("失败：AI 没有控制权");
       return;
     }
-    if (HealthRecovery.restricted() && !HealthRecovery.allowed(tool)) {
+    if (HealthRecovery.restricted()
+        && !HealthRecovery.allowed(tool)
+        && !java.util.Set.of("task_cancel", "pause_control", "decision_status", "permission_status")
+            .contains(tool)) {
       done.accept("失败：[RECOVERY_REQUIRED] 生命恢复中，请先观察、进食或等待恢复。");
       return;
     }
@@ -1334,11 +1376,14 @@ public final class Agent {
               "farm_cycle",
               "chop_wood",
               "mine_batch",
+              "mine_expedition",
               "collect_mined",
               "place_block",
               "build_platform",
               "build_bridge",
               "use_hand",
+              "fish",
+              "illuminate_area",
               "go_to",
               "mine_resource",
               "mine_blocks",
@@ -1581,12 +1626,30 @@ public final class Agent {
                 InventoryMemory.observe(str(a, "item", ""), number(a, "min_count", 1)).toString());
         case "organize_inventory" -> Actions.job = new InventoryCompactJob(done);
         case "permission_status" -> done.accept(PermissionView.current().toString());
+        case "decision_status" -> done.accept(DecisionService.status().toString());
+        case "config_reload" -> done.accept(Store.reloadDecisionConfig().toString());
+        case "inspect_landing" ->
+            done.accept(
+                LandingSafety.inspect(
+                        a.has("x") ? a.get("x").getAsDouble() : mc().player.getX(),
+                        a.has("y") ? a.get("y").getAsDouble() : mc().player.getY(),
+                        a.has("z") ? a.get("z").getAsDouble() : mc().player.getZ())
+                    .toString());
+        case "decision_select" -> DecisionService.choose(a, done);
+        case "resume_control" -> done.accept(PauseControl.resume());
+        case "pause_control" -> {
+          pause(true);
+          PauseControl.harnessPaused = true;
+          PauseControl.source = "harness";
+          done.accept(PauseControl.observe().toString());
+        }
         case "inspect_client" ->
             done.accept(
                 ClientDebug.inspect(
                         a.has("x") && a.has("y") && a.has("z") ? Actions.target(a) : null)
                     .toString());
         case "report_plan" -> {
+          DecisionService.invalidate();
           ProgressBoard.report(str(a, "goal", ""), str(a, "current", ""), str(a, "next", ""));
           done.accept("规划摘要已更新；计划不代表已执行或已完成。");
         }
@@ -1642,9 +1705,21 @@ public final class Agent {
           done.accept(o.toString());
         }
         case "look_at" -> {
-          double x = a.get("x").getAsDouble(),
-              y = a.get("y").getAsDouble(),
-              z = a.get("z").getAsDouble();
+          var targetArgs = a.deepCopy();
+          if (a.has("entity_id")) {
+            var entity = mc().level.getEntity(number(a, "entity_id", -1));
+            if (entity == null || !entity.isAlive())
+              throw new IllegalArgumentException("[ENTITY_NOT_FOUND] 目标实体已失效，请重新inspect_scene");
+            var center = entity.getBoundingBox().getCenter();
+            targetArgs.addProperty("x", center.x);
+            targetArgs.addProperty("y", center.y);
+            targetArgs.addProperty("z", center.z);
+          }
+          if (!targetArgs.has("x") || !targetArgs.has("y") || !targetArgs.has("z"))
+            throw new IllegalArgumentException("[INVALID_ARGUMENT] look_at需要entity_id或x/y/z");
+          double x = targetArgs.get("x").getAsDouble(),
+              y = targetArgs.get("y").getAsDouble(),
+              z = targetArgs.get("z").getAsDouble();
           var point = new net.minecraft.world.phys.Vec3(x, y, z);
           if (!Double.isFinite(x)
               || !Double.isFinite(y)
@@ -1663,18 +1738,20 @@ public final class Agent {
           if (production != null) throw new IllegalArgumentException("已有生产流程运行中");
           production =
               new ProductionTask(
-                  tool.equals("craft_item")
-                      ? "craft"
-                      : tool.equals("smelt_item") ? "smelt" : "workshop",
-                  tool.equals("prepare_workshop") ? "" : SkillCatalog.required(a, "item"),
-                  SkillCatalog.bounded(a, "count", 1, 1, 64),
-                  str(a, "source", Store.data.productionSource),
-                  routine instanceof LogisticsTask,
-                  presetResult(
                       tool.equals("craft_item")
                           ? "craft"
                           : tool.equals("smelt_item") ? "smelt" : "workshop",
-                      done));
+                      tool.equals("prepare_workshop") ? "" : SkillCatalog.required(a, "item"),
+                      SkillCatalog.bounded(a, "count", 1, 1, 64),
+                      str(a, "source", Store.data.productionSource),
+                      routine instanceof LogisticsTask,
+                      presetResult(
+                          tool.equals("craft_item")
+                              ? "craft"
+                              : tool.equals("smelt_item") ? "smelt" : "workshop",
+                          done))
+                  .cookingStation(
+                      tool.equals("smelt_item") ? str(a, "station", "furnace") : "furnace");
         }
         case "craft_batch" -> {
           var id = new net.minecraft.resources.ResourceLocation(SkillCatalog.required(a, "recipe"));
@@ -1689,27 +1766,7 @@ public final class Agent {
         }
         case "smelt_batch" -> {
           String input = SkillCatalog.required(a, "item");
-          var recipe =
-              mc()
-                  .level
-                  .getRecipeManager()
-                  .getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.SMELTING)
-                  .stream()
-                  .filter(
-                      r ->
-                          r.getId().getNamespace().equals("minecraft")
-                              && java.util.Arrays.stream(r.getIngredients().get(0).getItems())
-                                  .anyMatch(
-                                      s ->
-                                          !s.hasTag()
-                                              && net.minecraft.core.registries.BuiltInRegistries
-                                                  .ITEM
-                                                  .getKey(s.getItem())
-                                                  .toString()
-                                                  .equals(input)))
-                  .sorted(java.util.Comparator.comparing(r -> r.getId().toString()))
-                  .findFirst()
-                  .orElseThrow(() -> new IllegalArgumentException("没有普通熔炼配方"));
+          var recipe = CookingStation.current().recipe(input);
           Actions.job =
               new SmeltJob(input, SkillCatalog.bounded(a, "count", 1, 1, 64), recipe, done);
         }
@@ -1753,7 +1810,8 @@ public final class Agent {
                             : null,
                         SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
                         WriteTrace.placed(done))
-                    .face(str(a, "face", "auto"));
+                    .face(str(a, "face", "auto"))
+                    .state(obj(a, "state"));
         case "wait_menu" ->
             Actions.job =
                 new MenuWaitJob(
@@ -2027,15 +2085,21 @@ public final class Agent {
                   .toString();
           Actions.job =
               new MiningJob(
-                  id,
-                  1,
-                  24,
-                  p,
-                  a.has("confirm") && a.get("confirm").getAsBoolean(),
-                  SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
-                  WriteTrace.written(p, done)).groundDrops(!str(a, "drop_policy", "allow_ground").equals("require_capacity"));
+                      id,
+                      1,
+                      24,
+                      p,
+                      a.has("confirm") && a.get("confirm").getAsBoolean(),
+                      SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
+                      WriteTrace.written(p, done))
+                  .groundDrops(
+                      DropCapacityPolicy.allowGround(str(a, "drop_policy", "allow_ground")));
         }
-        case "mine_batch" ->
+        case "mine_expedition" -> Actions.job = new MiningExpedition(a, done);
+        case "mining_status" -> done.accept(MiningExpedition.inspect(a).toString());
+        case "mine_batch" -> {
+          if (a.has("expedition_id")) Actions.job = MiningExpedition.batch(a, done);
+          else
             Actions.job =
                 new MiningJob(
                         SkillCatalog.required(a, "block"),
@@ -2045,9 +2109,13 @@ public final class Agent {
                     .requireAxe(a.has("require_axe") && a.get("require_axe").getAsBoolean())
                     .naturalTree(a.has("natural_tree") && a.get("natural_tree").getAsBoolean())
                     .withKey(str(a, "hold_key", ""));
+        }
         case "collect_mined" -> {
-          if (resource == null) throw new IllegalArgumentException("没有当前采集流程");
-          Actions.job = resource.collection(done);
+          if (a.has("expedition_id")) Actions.job = MiningExpedition.collection(a, done);
+          else {
+            if (resource == null) throw new IllegalArgumentException("没有当前采集流程");
+            Actions.job = resource.collection(done);
+          }
         }
         case "hunt_mobs" -> {
           String style = str(a, "style", "melee");
@@ -2100,15 +2168,18 @@ public final class Agent {
         case "inspect_block" -> InspectBlock.run(a, done);
         case "column_probe" -> done.accept(ColumnProbe.inspect(a).toString());
         case "light_survey", "find_blocks" -> {
-          if (Actions.job != null) throw new IllegalArgumentException("[BUSY] 区域查询需等待当前动作结束");
-          Actions.job = new RegionSurveyJob(a, tool.equals("light_survey"), done);
+          RegionQueries.request(a, tool.equals("light_survey"), done);
         }
         case "illuminate_area" -> Actions.job = new IlluminateJob(a, done);
         case "fish" -> Actions.job = new FishingJob(a, done);
         case "vehicle_state" -> done.accept(VehicleJob.state().toString());
-        case "vehicle_control" -> Actions.job = new VehicleJob(SkillCatalog.required(a, "control"),
-            SkillCatalog.bounded(a, "ticks", 20, 1, 200), done);
-        case "vanilla_menu_select" -> done.accept(VanillaMenuModel.select(a));
+        case "vehicle_control" ->
+            Actions.job =
+                new VehicleJob(
+                    SkillCatalog.required(a, "control"),
+                    SkillCatalog.bounded(a, "ticks", 20, 1, 200),
+                    done);
+        case "vanilla_menu_select", "gui_action" -> done.accept(VanillaMenuModel.select(a));
         case "inspect_menu" ->
             done.accept(
                 Actions.inspectMenu(

@@ -34,6 +34,8 @@ public final class MenuRefresh {
                 EnchantmentMenu.class,
                 MerchantMenu.class,
                 BrewingStandMenu.class,
+                BeaconMenu.class,
+                LecternMenu.class,
                 GrindstoneMenu.class,
                 StonecutterMenu.class,
                 LoomMenu.class,
@@ -80,15 +82,31 @@ public final class MenuRefresh {
     if (m instanceof AnvilMenu || m instanceof GrindstoneMenu)
       return index < 2 ? "combine_input" : index == 2 ? "combine_result" : "player_inventory";
     if (m instanceof BrewingStandMenu)
-      return index < 3 ? "potion" : index == 3 ? "brewing_ingredient" : index == 4 ? "brewing_fuel" : "player_inventory";
+      return index < 3
+          ? "potion"
+          : index == 3 ? "brewing_ingredient" : index == 4 ? "brewing_fuel" : "player_inventory";
+    if (m instanceof BeaconMenu) return index == 0 ? "beacon_payment" : "player_inventory";
+    if (m instanceof LecternMenu) return index == 0 ? "lectern_book" : "unknown";
     if (m instanceof StonecutterMenu)
       return index == 0 ? "stonecut_input" : index == 1 ? "stonecut_result" : "player_inventory";
     if (m instanceof LoomMenu)
-      return index == 0 ? "banner" : index == 1 ? "dye" : index == 2 ? "pattern_item" : index == 3 ? "banner_result" : "player_inventory";
+      return index == 0
+          ? "banner"
+          : index == 1
+              ? "dye"
+              : index == 2 ? "pattern_item" : index == 3 ? "banner_result" : "player_inventory";
     if (m instanceof SmithingMenu)
-      return index == 0 ? "smithing_template" : index == 1 ? "smithing_base" : index == 2 ? "smithing_addition" : index == 3 ? "smithing_result" : "player_inventory";
+      return index == 0
+          ? "smithing_template"
+          : index == 1
+              ? "smithing_base"
+              : index == 2
+                  ? "smithing_addition"
+                  : index == 3 ? "smithing_result" : "player_inventory";
     if (m instanceof CartographyTableMenu)
-      return index == 0 ? "map_input" : index == 1 ? "map_material" : index == 2 ? "map_result" : "player_inventory";
+      return index == 0
+          ? "map_input"
+          : index == 1 ? "map_material" : index == 2 ? "map_result" : "player_inventory";
     return MachineObservation.role(m.getClass().getName(), index);
   }
 }

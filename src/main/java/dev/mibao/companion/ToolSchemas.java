@@ -8,6 +8,29 @@ import com.google.gson.*;
 public final class ToolSchemas {
   public static JsonArray all() {
     JsonArray out = new JsonArray();
+    var mining =
+        schema(
+            out,
+            "mine_expedition",
+            "连续采矿作业。goal=blocks/items/deliver，count为相应挖除/新增/交付数量；block为ID/#标签，item为目标物品ID/指纹。mode=surface/vein/baritone，terrain=detour/modify，modify需允许导航破坏。半径2..32，高度范围1..64，目标与方块预算1..4096，seconds30..7200；工具偏好auto/fortune/silk。按矿区边界、耐久、新掉落拾取和库存核验，满包归仓再返回；source补料箱、delivery交付箱，支持job_id与明确resume。可用task_submit异步启动，结果查mining_status，停止用task_cancel或急停",
+            "block:s!,item:s,goal:s,count:i,mode:s,terrain:s,radius:i,vertical_range:i,max_blocks:i,seconds:i,min_durability:i,free_slots:i,delivery:s,source:s,tool_policy:s,auto_craft:b,lighting:b,return_home:b,job_id:s,resume:b");
+    var miningProperties = mining.getAsJsonObject("properties");
+    for (var entry :
+        java.util.Map.of(
+                "goal",
+                java.util.List.of("blocks", "items", "deliver"),
+                "mode",
+                java.util.List.of("surface", "vein", "baritone"),
+                "terrain",
+                java.util.List.of("detour", "modify"),
+                "tool_policy",
+                java.util.List.of("auto", "fortune", "silk"))
+            .entrySet()) {
+      miningProperties
+          .getAsJsonObject(entry.getKey())
+          .add("enum", new com.google.gson.Gson().toJsonTree(entry.getValue()));
+    }
+    schema(out, "mining_status", "查询当前或指定job_id采矿账本，区分挖除、回执关联新增、交付、未知步骤和历史记录；忙碌时可读", "job_id:s");
     schema(
         out,
         "select_tool_profile",
@@ -37,7 +60,7 @@ public final class ToolSchemas {
         schema(
             out,
             "task_submit",
-            "异步提交现有连续执行器任务；tool为work_session/craft_item/smelt_item/restock/transport/farm_cycle/build_platform/build_bridge/run_library_skill/command_skill_run，task_id相同参数只查回执不重放；返回接收不等于完成",
+            "异步提交现有动作或连续任务，合法tool见decision_status.supported_candidate_tools；相同task_id和参数只查回执不重放；返回接收不等于完成",
             "task_id:s,tool:s!");
     var taskArgs = new JsonObject();
     taskArgs.addProperty("type", "object");
@@ -201,8 +224,8 @@ public final class ToolSchemas {
     schema(
         out,
         "attack_block",
-        "break_block的同义入口，非任意左键/非实体攻击；仍按拆除策略和权限核验，同样自动精确站位并带候选诊断",
-        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i");
+        "break_block的同义入口，仍按拆除策略和权限核验；drop_policy=allow_ground默认允许满包拆除后留地，require_capacity要求容量；未知掉落不猜数量",
+        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i,drop_policy:s");
     schema(out, "task_timeline", "只读当前世界任务过程摘要，分页；模型说明与工具事实分开", "offset:i,limit:i");
     schema(out, "report_progress", "公开工作说明或方案调整，一两句；不代替执行结果", "message:s!");
     schema(out, "resume_order", "明确请求续做历史统一委托；先复核剩余目标，不重放旧点击", "record_id:s!");
@@ -345,6 +368,26 @@ public final class ToolSchemas {
         "合并主背包9..35槽中相同ID+NBT的可堆叠物品，最多128组合并；不动快捷栏、装备和副手，不丢弃、不存箱。每次点击取得新完整服务器快照，异常停止保留鼠标物品",
         "");
     schema(out, "permission_status", "查看集中权限、连接和自卫策略；权限只能由玩家修改", "");
+    schema(out, "decision_status", "查看局部判断层位置、协议、用量与最近结果，不含凭据", "");
+    schema(out, "config_reload", "从本机settings.json重载判断层连接配置与位置，保留现有游戏授权和控制；无效配置不应用", "");
+    schema(out, "inspect_landing", "检查已加载落点的碰撞、支撑和危险，未加载为未知；不填坐标时检查玩家精确当前位置", "x:n,y:n,z:n");
+    schema(out, "resume_control", "恢复仍有授权的暂停；人工暂停需玩家预先允许Harness恢复，急停后不能恢复", "");
+    schema(out, "pause_control", "暂停当前执行并保留授权与连接，可用resume_control恢复本工具暂停", "");
+    var decision =
+        schema(
+            out,
+            "decision_select",
+            "调用已配置判断层，从2..12个现有动作/任务候选中选择。候选含id,description,tool,args，合法工具见decision_status。submit默认false；开启自动提交且submit=true时经原权限提交一次，结果查task_id。候选由规划者提供",
+            "goal:s,submit:b");
+    var candidates = new JsonObject();
+    candidates.addProperty("type", "array");
+    candidates.addProperty("minItems", 2);
+    candidates.addProperty("maxItems", 12);
+    var candidate = new JsonObject();
+    candidate.addProperty("type", "object");
+    candidate.addProperty("additionalProperties", true);
+    candidates.add("items", candidate);
+    decision.getAsJsonObject("properties").add("candidates", candidates);
     schema(out, "capability_catalog", "按工具名或family查询统一能力、依赖和运行前提；不代表未知机器已支持", "query:s");
     schema(out, "runtime_stats", "本次游戏中的动作/模型/附图/截图计数分别记录；不是计费金额", "");
     schema(out, "list_library", "读取文件夹技能目录、参数、依赖和本世界验证记录", "query:s");
@@ -449,8 +492,8 @@ public final class ToolSchemas {
     schema(
         out,
         "smelt_item",
-        "在附近原版熔炉熔炼输入物品count个；缺炉可制作并放置。炉输入/燃料/产物先全空，随身材料和同种煤/木炭充足；投料及取出经服务器核验，等待有上限",
-        "item:s!,count:i");
+        "附近原版熔炼，station=furnace/blast_furnace/smoker，默认furnace；item是输入，count为输入量。缺站可从随身普通材料制作放置，按炉型选择原版配方；支持可核对普通燃料，容器型燃料需手工通用交互。投料/产物/退出逐步核验",
+        "item:s!,count:i,station:s,source:s");
     schema(out, "prepare_workshop", "查找/从随身普通材料制作并放置工作台和熔炉，缺少材料不自动挖矿；每次放置/制作仍独立授权，不消耗材料假装测试", "");
     schema(
         out,
@@ -458,7 +501,10 @@ public final class ToolSchemas {
         "仅在已打开的玩家/原版工作台执行一批普通原版/模组工作台配方；客户端普通点击/右拖摆料，核验服务器材料消耗及产物，合成栏须空。通常优先craft_item完成整次流程",
         "recipe:s!");
     schema(
-        out, "smelt_batch", "仅在已打开的空普通熔炉执行一批输入及煤/木炭投料和取出；通常优先smelt_item完成整次流程", "item:s!,count:i");
+        out,
+        "smelt_batch",
+        "在已打开的空原版熔炉/高炉/烟熏炉执行匹配炉型配方的一批输入、普通燃料投放与产物核对；优先smelt_item完成寻找站点至退出",
+        "item:s!,count:i");
     schema(out, "list_presets", "查询内置技能参数、前置条件、步骤、核验和失败恢复；技能算法共享，地图绑定仍按世界隔离", "");
     JsonObject preset =
         schema(
@@ -481,11 +527,18 @@ public final class ToolSchemas {
         "use_hand",
         "真实使用当前或指定主/副手物品；mode=tap/hold，ticks1..200，hand=main/off。一次激活，有界维持后释放；消耗可验收，技能效果需另观察。key.use不通过白名单工具",
         "item:s,hand:s,mode:s,ticks:i");
-    schema(
-        out,
-        "place_block",
-        "在空位正常放1个方块；自动精确站位到可点击支撑面，失败回执带目标、候选位置列表与每个候选拒绝原因；成功回执附block_after写入后状态；生存从背包准备并核对消耗，创造只用现有快捷栏材料并核对服务器方块，不要求消耗。x/y/z是新方块位置，不填自动找近处可见安全空位；face为auto/up/down/north/south/east/west，表示支撑面的朝外法线；自动潜行避免开箱。max_radius=站位搜索半径1..5，默认3",
-        "item:s!,x:i,y:i,z:i,face:s,max_radius:i");
+    var placement =
+        schema(
+            out,
+            "place_block",
+            "正常放置一格，x/y/z为新方块位置，face为支撑面朝外法线，max_radius1..5。可选state对象如{facing:east}/{axis:x}/{half:top}，按真实站位/命中和客户端预测筛选，服务器实际属性不符则不记完成。门/床核对两格。生存核对消耗，创造可准备现有背包材料，不生成材料。附block_after",
+            "item:s!,x:i,y:i,z:i,face:s,max_radius:i");
+    var desiredState = new JsonObject();
+    desiredState.addProperty("type", "object");
+    var stateValue = new JsonObject();
+    stateValue.addProperty("type", "string");
+    desiredState.add("additionalProperties", stateValue);
+    placement.getAsJsonObject("properties").add("state", desiredState);
     schema(
         out,
         "wait_menu",
@@ -570,14 +623,47 @@ public final class ToolSchemas {
         "go_to",
         "前往地点/object或坐标，Baritone可用时支持长途；省略y时解析附近已加载支撑面，column_probe可查高度；exact=true精确落点",
         "place:s,object:s,x:i,y:i,z:i,exact:b");
-    schema(out, "column_probe", "查询附近列的安全支撑面与浮点脚部高度，未加载返回未知；radius0..2，vertical_range1..64", "x:i,z:i,reference_y:i,vertical_range:i,radius:i");
-    schema(out, "light_survey", "分帧读取已加载区域各表面方块光与天空光，返回暗区及未知覆盖", "x:i,y:i,z:i,radius:i,vertical_range:i,min_light:i");
-    schema(out, "find_blocks", "分帧按准确方块ID或#标签搜索客户端已加载区域，未加载单独统计", "block:s!,x:i,y:i,z:i,radius:i,vertical_range:i");
-    schema(out, "illuminate_area", "本地连续给暗处插普通火把，实际放置后重新查询光照；count为最多消耗数，默认16", "x:i,y:i,z:i,radius:i,vertical_range:i,min_light:i,count:i");
-    schema(out, "fish", "站在岸边面向水域后启动本地自动钓鱼，count为钓获次数，seconds为时间预算；支持main/off", "count:i,seconds:i,hand:s");
-    schema(out, "vanilla_menu_select", "按最新inspect_gui的vanilla_options选择交易/附魔/切石/织布选项一次，结果需刷新槽位核对", "gui_view:i!,index:i!");
+    schema(
+        out,
+        "column_probe",
+        "查询附近列的安全支撑面与浮点脚部高度，未加载返回未知；radius0..2，vertical_range1..64",
+        "x:i,z:i,reference_y:i,vertical_range:i,radius:i");
+    schema(
+        out,
+        "light_survey",
+        "分帧读取已加载区域各表面方块光与天空光，返回暗区及未知覆盖",
+        "x:i,y:i,z:i,radius:i,vertical_range:i,min_light:i");
+    schema(
+        out,
+        "find_blocks",
+        "分帧按准确方块ID或#标签搜索客户端已加载区域，未加载单独统计",
+        "block:s!,x:i,y:i,z:i,radius:i,vertical_range:i");
+    schema(
+        out,
+        "illuminate_area",
+        "本地给暗处插普通火把，分帧保存表面缓存、局部更新和最终整区核验；count为最多消耗数，默认16。source可指定本世界补料箱，缺火把时按权限取料一次，未知范围不算覆盖",
+        "x:i,y:i,z:i,radius:i,vertical_range:i,min_light:i,count:i,source:s");
+    schema(
+        out,
+        "fish",
+        "本地钓鱼，自动准备/替换随身鱼竿、寻找附近8格内水面与安全岸边并瞄准；auto_prepare=false保留手动站位朝向。count为钓获次数，seconds为预算，main/off可选。delivery指定本世界箱，满包/完成时按权限交付本批核实钓获；收线、拾取回执和精确库存共同核验",
+        "count:i,seconds:i,hand:s,auto_prepare:b,delivery:s");
+    schema(
+        out,
+        "vanilla_menu_select",
+        "按最新inspect_gui的vanilla_options选择交易/附魔/切石/织布index；讲台operation=page(index从0起)/take；信标primary效果ID与可选secondary。只发送一次，刷新槽位/效果核对",
+        "gui_view:i!,index:i,operation:s,primary:s,secondary:s");
+    schema(
+        out,
+        "gui_action",
+        "自绘原版界面的语义选项接口，与vanilla_menu_select共用index和最新gui_view；织布机所有图案及附魔选项由inspect_gui.self_drawn_controls列出，适用于滚动后不可见的选项",
+        "gui_view:i!,index:i!,operation:s,primary:s,secondary:s");
     schema(out, "vehicle_state", "读取当前骑乘实体与状态", "");
-    schema(out, "vehicle_control", "骑乘时有界按当前绑定控制；control为forward/back/left/right/jump/sneak，sneak用于下车；按位移/下车核对", "control:s!,ticks:i");
+    schema(
+        out,
+        "vehicle_control",
+        "骑乘时有界按当前绑定控制；control为forward/back/left/right/jump/sneak，sneak用于下车；按位移/下车核对",
+        "control:s!,ticks:i");
     schema(
         out,
         "deposit",

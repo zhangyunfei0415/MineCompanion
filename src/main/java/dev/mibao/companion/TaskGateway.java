@@ -11,28 +11,17 @@ import net.minecraft.client.Minecraft;
 final class TaskGateway {
   private static final String RUN = UUID.randomUUID().toString();
   private static String activeId = "";
-  private static final Set<String> TASKS =
-      Set.of(
-          "fish",
-          "illuminate_area",
-          "work_session",
-          "craft_item",
-          "smelt_item",
-          "restock",
-          "transport",
-          "farm_cycle",
-          "build_platform",
-          "build_bridge",
-          "run_library_skill",
-          "command_skill_run");
+
+  static boolean supports(String tool) {
+    return TaskActions.ALLOWED.contains(tool);
+  }
 
   static JsonObject submit(JsonObject input) {
     String id = Agent.str(input, "task_id", UUID.randomUUID().toString());
     if (!id.matches("[A-Za-z0-9_.-]{1,80}"))
       throw new IllegalArgumentException("[INVALID_ARGUMENT] task_id为1..80字母数字/._-");
     String tool = SkillCatalog.required(input, "tool");
-    if (!TASKS.contains(tool))
-      throw new IllegalArgumentException("[TASK_UNSUPPORTED] 使用现有连续任务入口：" + TASKS);
+    if (!supports(tool)) throw new IllegalArgumentException(TaskActions.unsupported(tool));
     JsonObject args = Agent.obj(input, "args").deepCopy();
     String signature = TaskIdentity.signature(tool, args);
     String key = "task:" + id;
@@ -52,12 +41,15 @@ final class TaskGateway {
     record.addProperty("task_id", id);
     record.addProperty("tool", tool);
     record.addProperty("signature", signature);
+    if (input.has("decision_context"))
+      record.add("decision_context", input.get("decision_context"));
     record.addProperty("run", RUN);
     record.addProperty("epoch", Agent.epoch);
     record.addProperty(
         "dimension", Minecraft.getInstance().level.dimension().location().toString());
     record.addProperty("scope", Store.scope());
     record.addProperty("status", "submitted");
+    record.addProperty("current_phase", "已提交：" + tool);
     record.addProperty("started_at", System.currentTimeMillis());
     Store.data.checkpoints.put(key, record);
     long detailed = Store.data.checkpoints.values().stream().filter(v -> v.has("result")).count();
@@ -85,6 +77,7 @@ final class TaskGateway {
     }
     Store.save();
     activeId = id;
+    Actions.status = "任务已提交：" + tool;
     Agent.execute(
         tool,
         args,
@@ -95,6 +88,7 @@ final class TaskGateway {
           record.addProperty("ended_at", System.currentTimeMillis());
           record.add("outcome", ActionOutcome.describe(result));
           record.addProperty("result", TaskTimeline.clean(result));
+          record.addProperty("current_phase", TaskTimeline.clean(result));
           Store.save();
           if (activeId.equals(id)) activeId = "";
         });
@@ -123,8 +117,10 @@ final class TaskGateway {
     var current = receipt(id);
     if (!Agent.str(current, "status", "").equals("submitted")
         || !current.get("active").getAsBoolean()) return "任务已结束或旧执行结果未知；没有停止其他新任务";
-    Agent.manualPause();
     var r = Store.data.checkpoints.get("task:" + id);
+    if (Actions.job instanceof SmeltJob job) r.add("recovery", job.recoveryEvidence());
+    else if (Agent.production != null) r.add("recovery", Agent.production.recoveryEvidence());
+    Agent.manualPause();
     r.addProperty("status", "cancelled");
     Store.save();
     return "任务停止并保留接管/连接；明确继续前不执行。已发送动作请查现场，不重放。";

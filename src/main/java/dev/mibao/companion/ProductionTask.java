@@ -36,7 +36,15 @@ public final class ProductionTask {
   private final Deque<CraftingRecipe> queue = new ArrayDeque<>();
   private final TaskCard card = new TaskCard();
   private final Map<String, CraftingRecipe> recipes = new HashMap<>();
-  private SmeltingRecipe smelting;
+  private AbstractCookingRecipe smelting;
+  private JsonObject smeltReceipt;
+  private CookingStation cooking = CookingStation.named("furnace");
+
+  public ProductionTask cookingStation(String station) {
+    cooking = CookingStation.named(station);
+    return this;
+  }
+
   private SupplyWait materialWait;
   private Map<String, Integer> failedStock;
   private long nextMaterialCheck;
@@ -92,7 +100,99 @@ public final class ProductionTask {
   }
 
   public void fail(String why) {
+    if (mode.equals("smelt") && why.startsWith("{")) {
+      var detail = com.google.gson.JsonParser.parseString(why).getAsJsonObject();
+      end("部分完成：生产停止；" + Agent.str(detail, "detail", "请核对熔炼证据"));
+      return;
+    }
     end("部分完成：生产停止；已确认制作 " + batches + " 批。" + why);
+  }
+
+  public JsonObject recoveryEvidence() {
+    if (Actions.job instanceof SmeltJob job) return job.recoveryEvidence();
+    if (smeltReceipt != null) return smeltReceipt.deepCopy();
+    var r = new JsonObject();
+    r.add("recovered_items", new JsonObject());
+    r.addProperty("recovery_target", "unknown");
+    r.addProperty("recovery_verified", false);
+    r.addProperty("detail", "尚无本次熔炼同步回执；未观察的炉内库存未知，先核对背包、鼠标及目标炉");
+    return r;
+  }
+
+  private boolean requestFuelSupply() {
+    if (sourceTried || supplySource.isBlank()) return false;
+    sourceTried = true;
+    try {
+      var target = new JsonObject();
+      target.addProperty("place", supplySource);
+      supplyBox = Actions.target(target);
+      if (!mc().level.hasChunkAt(supplyBox)
+          || !Rules.standardStorage(
+              BuiltInRegistries.BLOCK
+                  .getKey(mc().level.getBlockState(supplyBox).getBlock())
+                  .toString())) throw new IllegalArgumentException("补料箱未加载或实际已非普通仓库");
+      var open = new JsonObject();
+      open.addProperty("x", supplyBox.getX());
+      open.addProperty("y", supplyBox.getY());
+      open.addProperty("z", supplyBox.getZ());
+      child(
+          "close_screen",
+          new JsonObject(),
+          () ->
+              child(
+                  "open_container",
+                  open,
+                  () -> {
+                    if (!MenuContext.matches(supplyBox)
+                        || !MenuContext.synchronizedNow()
+                        || !MenuContext.kind().equals("storage"))
+                      throw new IllegalArgumentException("燃料补料箱未取得同步内容，未投料");
+                    Map<String, Integer> owned = stock(),
+                        combined = new HashMap<>(owned),
+                        durations = new HashMap<>();
+                    for (var slot : mc().player.containerMenu.slots) {
+                      var stack = slot.getItem();
+                      int duration = SmeltJob.burnTime(stack, cooking);
+                      if (duration <= 0) continue;
+                      String id = key(stack);
+                      durations.put(id, duration);
+                      if (slot.container != mc().player.getInventory())
+                        combined.merge(id, stack.getCount(), Integer::sum);
+                    }
+                    String existing =
+                        smeltReceipt.get("fuel_in_furnace").getAsInt() > 0
+                            ? smeltReceipt.get("fuel_id").getAsString()
+                            : "";
+                    if (!existing.isBlank())
+                      durations.put(existing, smeltReceipt.get("fuel_ticks_per_item").getAsInt());
+                    var plan =
+                        SmeltFuelPlan.choose(
+                            count * smelting.getCookingTime(),
+                            existing,
+                            smeltReceipt.get("fuel_in_furnace").getAsInt(),
+                            combined,
+                            durations,
+                            item,
+                            count);
+                    if (plan.missing() > 0)
+                      throw new IllegalArgumentException(
+                          "补料箱与背包合计燃料仍不足，缺" + plan.fuel() + "×" + plan.missing());
+                    int needed =
+                        Math.max(
+                            0,
+                            plan.toAdd()
+                                - Math.max(
+                                    0,
+                                    owned.getOrDefault(plan.fuel(), 0)
+                                        - (plan.fuel().equals(item) ? count : 0)));
+                    if (needed > 0) suppliesNeeded.add(Map.entry(plan.fuel(), needed));
+                    WorkLedger.add("preparation", "补料箱燃料已实际打开核对，计划取" + plan.fuel() + "×" + needed);
+                  }));
+      return true;
+    } catch (RuntimeException e) {
+      smeltReceipt.addProperty("supply_problem", Rules.clean(e.getMessage(), 160));
+      return false;
+    }
   }
 
   private static boolean plain(net.minecraft.world.item.ItemStack s, String id) {
@@ -337,7 +437,7 @@ public final class ProductionTask {
         var block = mc().level.getBlockState(p).getBlock();
         if (block == net.minecraft.world.level.block.Blocks.CRAFTING_TABLE
             && (table == null || p.distSqr(center) < table.distSqr(center))) table = p;
-        if (block == net.minecraft.world.level.block.Blocks.FURNACE
+        if (block == cooking.block()
             && (furnace == null || p.distSqr(center) < furnace.distSqr(center))) furnace = p;
       }
       card.phase = "分帧寻找附近工作台/熔炉";
@@ -391,16 +491,7 @@ public final class ProductionTask {
         return;
       } else {
         if (mode.equals("smelt")) {
-          smelting =
-              mc().level.getRecipeManager().getAllRecipesFor(RecipeType.SMELTING).stream()
-                  .filter(
-                      r ->
-                          r.getId().getNamespace().equals("minecraft")
-                              && Arrays.stream(r.getIngredients().get(0).getItems())
-                                  .anyMatch(s -> plain(s, item)))
-                  .sorted(Comparator.comparing(r -> r.getId().toString()))
-                  .findFirst()
-                  .orElse(null);
+          smelting = cooking.recipe(item);
           if (smelting == null) {
             fail(
                 diagnosisText(
@@ -414,7 +505,7 @@ public final class ProductionTask {
                   .getKey(smelting.getResultItem(mc().level.registryAccess()).getItem())
                   .toString();
         }
-        if (furnace == null && !carrying("minecraft:furnace")) plan("minecraft:furnace", 1);
+        if (furnace == null && !carrying(cooking.id())) plan(cooking.id(), 1);
         if (mode.equals("workshop")
             && table == null
             && !carrying("minecraft:crafting_table")
@@ -505,8 +596,8 @@ public final class ProductionTask {
 
   private boolean station(boolean crafting) {
     BlockPos pos = crafting ? table : furnace;
-    String id = crafting ? "minecraft:crafting_table" : "minecraft:furnace";
-    Class<?> kind = crafting ? CraftingMenu.class : FurnaceMenu.class;
+    String id = crafting ? "minecraft:crafting_table" : cooking.id();
+    Class<?> kind = crafting ? CraftingMenu.class : cooking.menu();
     if (pos != null && !mc().level.hasChunkAt(pos))
       throw new IllegalArgumentException("已选工作站区块未加载，仍未知，不复制放置新站点");
     if (pos != null
@@ -574,7 +665,7 @@ public final class ProductionTask {
         var state = mc().level.getBlockState(pos);
         if (state.is(net.minecraft.world.level.block.Blocks.CRAFTING_TABLE)
             && (table == null || pos.distSqr(center) < table.distSqr(center))) table = pos;
-        if (state.is(net.minecraft.world.level.block.Blocks.FURNACE)
+        if (state.is(cooking.block())
             && (furnace == null || pos.distSqr(center) < furnace.distSqr(center))) furnace = pos;
       }
   }
@@ -587,6 +678,7 @@ public final class ProductionTask {
     d.addProperty("requested", count);
     d.addProperty("confirmed_batches", batches);
     d.addProperty("remaining_batches", queue.size());
+    if (mode.equals("smelt")) d.add("recovery", recoveryEvidence());
     RecoveryLedger.put("production", phase, uncertain, d, dimension);
   }
 
@@ -600,6 +692,13 @@ public final class ProductionTask {
         r -> {
           if (finished || epoch != Agent.epoch) return;
           pending = false;
+          if (tool.equals("smelt_batch") && r.startsWith("{")) {
+            smeltReceipt = com.google.gson.JsonParser.parseString(r).getAsJsonObject();
+            if (Agent.str(smeltReceipt, "reason_code", "").equals("MISSING_FUEL")
+                && requestFuelSupply()) {
+              return;
+            }
+          }
           if (Rules.actionFailed(r)) {
             fail(r);
             return;
@@ -632,6 +731,15 @@ public final class ProductionTask {
     card.outcome = r.startsWith("成功") ? "complete" : "blocked";
     card.problem = r.startsWith("成功") ? "" : r;
     card.ended = System.currentTimeMillis();
-    done.accept(r);
+    if (mode.equals("smelt")) {
+      var receipt = recoveryEvidence();
+      boolean success = r.startsWith("成功");
+      receipt.addProperty("status", success ? "verified" : "partial");
+      receipt.addProperty("business_success", success);
+      if (success) receipt.addProperty("reason_code", "NONE");
+      if (!r.startsWith("{")) receipt.addProperty("detail", r);
+      receipt.addProperty("confirmed_output", verifiedOutput);
+      done.accept(receipt.toString());
+    } else done.accept(r);
   }
 }

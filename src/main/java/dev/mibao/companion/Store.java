@@ -55,9 +55,21 @@ public final class Store {
 
   public static class Config {
     public boolean huntResources = true;
+    public String deathRecovery = "PAUSE";
     public int harnessLeaseSeconds = 3600;
     public boolean autoOpenDoors = true;
     public boolean navigationBreak = false, navigationPlace = false;
+    public boolean navigationDetourOnly = false, harnessResumeHumanPause = false;
+    public String decisionMode = "OFF", decisionCloudProvider = "GOOGLE";
+    public String decisionCloudEndpoint =
+        "https://generativelanguage.googleapis.com/v1beta/decisions";
+    public String decisionCloudModel = "gemini-decision-1", decisionCloudKey = "";
+    public String decisionLocalEndpoint = "http://127.0.0.1:11434/v1/chat/completions";
+    public String decisionLocalModel = "", decisionLocalKey = "";
+    public String decisionLocalProtocol = "OPENAI";
+    public boolean decisionAutoSubmit = false;
+    public boolean safeTeleport = true;
+    public boolean protectCriticalCommandBlocks = true;
     public boolean apiStreaming = true, processDetailed = false;
     public boolean craftGestures = true;
     public String controlMode = "AI", cooperativeResume = "AUTO";
@@ -349,6 +361,35 @@ public final class Store {
 
   public static String scope() {
     return worldKey;
+  }
+
+  public static JsonObject reloadDecisionConfig() throws java.io.IOException {
+    Config loaded;
+    try {
+      loaded = GSON.fromJson(Files.readString(ROOT.resolve("settings.json")), Config.class);
+      if (loaded == null
+          || !java.util.Set.of("OFF", "LOCAL", "CLOUD").contains(loaded.decisionMode))
+        throw new IllegalArgumentException("invalid decision mode");
+      if (!loaded.decisionMode.equals("OFF")) DecisionWire.profile(loaded);
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("[CONFIG_INVALID] 判断配置格式、模式或地址无效；保留当前配置");
+    }
+    config.decisionMode = loaded.decisionMode;
+    config.decisionCloudProvider = loaded.decisionCloudProvider;
+    config.decisionCloudEndpoint = loaded.decisionCloudEndpoint;
+    config.decisionCloudModel = loaded.decisionCloudModel;
+    config.decisionCloudKey = loaded.decisionCloudKey;
+    config.decisionLocalProtocol = loaded.decisionLocalProtocol;
+    config.decisionLocalEndpoint = loaded.decisionLocalEndpoint;
+    config.decisionLocalModel = loaded.decisionLocalModel;
+    config.decisionLocalKey = loaded.decisionLocalKey;
+    config.decisionAutoSubmit = loaded.decisionAutoSubmit;
+    DecisionService.invalidate();
+    var out = new JsonObject();
+    out.addProperty("status", "reloaded");
+    out.addProperty("section", "decision");
+    out.addProperty("mode", config.decisionMode);
+    return out;
   }
 
   public static void connect() {

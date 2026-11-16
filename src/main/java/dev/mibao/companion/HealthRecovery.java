@@ -32,6 +32,15 @@ public final class HealthRecovery {
 
   public static boolean allowed(String tool) {
     return java.util.Set.of(
+            "observe_compact",
+            "decision_select",
+            "decision_status",
+            "permission_status",
+            "task_status",
+            "task_result",
+            "task_cancel",
+            "inspect_screen",
+            "resume_control",
             "recipe_status",
             "search_items",
             "lookup_recipes",

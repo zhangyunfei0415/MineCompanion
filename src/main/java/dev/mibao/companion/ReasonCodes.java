@@ -20,7 +20,17 @@ public final class ReasonCodes {
             || raw.startsWith("返回键已发送")
             || raw.startsWith("{")
             || raw.startsWith("[") && !raw.matches("^\\[[A-Z][A-Z0-9_]*].*");
-    if (nominal) code = "NONE";
+    String structuredCode = "";
+    if (raw.startsWith("{")) {
+      try {
+        var result = JsonParser.parseString(raw).getAsJsonObject();
+        if (result.has("reason_code")) structuredCode = result.get("reason_code").getAsString();
+      } catch (RuntimeException ignored) {
+        // Non-JSON legacy messages continue through the textual compatibility classifier.
+      }
+    }
+    if (structuredCode.matches("[A-Z][A-Z0-9_]*")) code = structuredCode;
+    else if (nominal) code = "NONE";
     else if (matcher.find()) code = matcher.group(1);
     else if (raw.startsWith("输入已执行并释放：已打开")) code = "NONE";
     else if (raw.contains("PROTECTED_KEY")) code = "PROTECTED_KEY";
@@ -66,6 +76,7 @@ public final class ReasonCodes {
             .contains(code));
     var alternatives = new JsonArray();
     switch (code) {
+      case "TASK_UNSUPPORTED" -> TaskActions.ALLOWED.forEach(alternatives::add);
       case "NOT_REACHABLE", "DOOR_BLOCKED", "NO_SUPPORT_FACE", "UNLOADED_TARGET" ->
           alternatives.add("inspect_client");
       case "CURSOR_OCCUPIED" -> alternatives.add("stow_cursor");

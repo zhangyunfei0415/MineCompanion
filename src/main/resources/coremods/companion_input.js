@@ -67,8 +67,29 @@ function injectPointer(method, kind) {
     }
     method.maxStack+=2;return method;
 }
+function injectMiningBoundary(method) {
+    var code = new InsnList();
+    var original = new LabelNode();
+    code.add(new VarInsnNode(Opcodes.ALOAD, 1));
+    code.add(new MethodInsnNode(Opcodes.INVOKESTATIC, 'dev/mibao/companion/MiningExpedition', 'permitBreak', '(Lnet/minecraft/core/BlockPos;)Z', false));
+    code.add(new JumpInsnNode(Opcodes.IFNE, original));
+    code.add(new InsnNode(Opcodes.ICONST_0));
+    code.add(new InsnNode(Opcodes.IRETURN));
+    code.add(original);
+    method.instructions.insert(code);
+    method.maxStack += 1;
+    return method;
+}
 function initializeCoreMod() {
     return {
+        'companion_mining_start': {
+            target: {type:'METHOD', class:'net.minecraft.client.multiplayer.MultiPlayerGameMode', methodName:ASMAPI.mapMethod('m_105269_'), methodDesc:'(Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;)Z'},
+            transformer: injectMiningBoundary
+        },
+        'companion_mining_continue': {
+            target: {type:'METHOD', class:'net.minecraft.client.multiplayer.MultiPlayerGameMode', methodName:ASMAPI.mapMethod('m_105283_'), methodDesc:'(Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/Direction;)Z'},
+            transformer: injectMiningBoundary
+        },
         'companion_pointer_x':{target:{type:'METHOD',class:'net.minecraft.client.MouseHandler',methodName:ASMAPI.mapMethod('m_91589_'),methodDesc:'()D'},transformer:function(m){return injectPointer(m,'x');}},
         'companion_pointer_y':{target:{type:'METHOD',class:'net.minecraft.client.MouseHandler',methodName:ASMAPI.mapMethod('m_91594_'),methodDesc:'()D'},transformer:function(m){return injectPointer(m,'y');}},
         'companion_pointer_left':{target:{type:'METHOD',class:'net.minecraft.client.MouseHandler',methodName:ASMAPI.mapMethod('m_91560_'),methodDesc:'()Z'},transformer:function(m){return injectPointer(m,0);}},

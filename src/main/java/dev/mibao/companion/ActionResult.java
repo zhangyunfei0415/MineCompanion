@@ -4,10 +4,41 @@ import com.google.gson.JsonObject;
 
 /** Versioned business result, independent of display wording and transport completion. */
 public record ActionResult(Status status, Code code, String detail, JsonObject evidence) {
-  public enum Status { verified, partial, unverified, rejected, cancelled }
+  public enum Status {
+    verified,
+    partial,
+    unverified,
+    rejected,
+    cancelled
+  }
+
   public enum Code {
-    NONE, USE_UNCONFIRMED, ENTITY_USE_UNCONFIRMED, NO_CAPACITY,
-    INVALID_START_STANCE, NO_PATH, MENU_NOT_SYNCED, STALE_VIEW, POLICY_DENIED
+    NONE,
+    USE_UNCONFIRMED,
+    ENTITY_USE_UNCONFIRMED,
+    NO_CAPACITY,
+    INVALID_START_STANCE,
+    NO_PATH,
+    MENU_NOT_SYNCED,
+    STALE_VIEW,
+    POLICY_DENIED,
+    INCOMPLETE_COVERAGE,
+    FISHING_UNCONFIRMED,
+    TIME_BUDGET,
+    MINING_CARGO_CHANGED,
+    MINING_PICKUP_UNCONFIRMED,
+    MINING_NO_PROGRESS,
+    MINING_RETURN_FAILED,
+    MINING_FOOD_UNCONFIRMED,
+    MINING_FOOD_REQUIRED,
+    MINING_NO_PATH,
+    MINING_TOOL_REQUIRED,
+    MINING_TOOL_PREPARATION_FAILED,
+    MINING_SUPPLY_FAILED,
+    MINING_TRANSFER_LIMIT,
+    MINING_TRANSFER_UNCONFIRMED,
+    MINING_STAGE_FAILED,
+    MINING_TARGET_INCOMPLETE
   }
 
   public String json() {

@@ -24,7 +24,9 @@ public final class SkillLibrary {
       Path folder = root().resolve("skills");
       Files.createDirectories(folder);
       Files.createDirectories(root().resolve("knowledge"));
-      for (String name : List.of("transport", "craft", "smelt", "farm", "gather", "illuminate", "fish")) {
+      for (String name :
+          List.of(
+              "transport", "craft", "smelt", "farm", "gather", "illuminate", "fish", "mining")) {
         Path target = folder.resolve("builtin-" + name + ".json");
         if (!Files.exists(target))
           try (var in =
@@ -132,14 +134,18 @@ public final class SkillLibrary {
         SkillSteps.prepare(
             session.getAsJsonArray("steps"), false, Store.data.places.keySet(), new JsonObject());
     session.add("steps", steps);
+    var worldData = Store.data;
+    String worldScope = Store.scope();
     Agent.execute(
         "work_session",
         session,
         result -> {
+          if (Store.data != worldData || !worldScope.equals(Store.scope())) return;
           var check = Store.data.skillChecks.computeIfAbsent(key(p), k -> new Store.SkillCheck());
-          if (result.startsWith("成功：")) check.successes++;
+          boolean success = StepEvidence.complete("work_session", result);
+          if (success) check.successes++;
           else check.failures++;
-          check.status = result.startsWith("成功：") ? "当前世界与环境流程核验通过" : "失败或未完成，需复核";
+          check.status = success ? "当前世界与环境流程核验通过" : "失败或未完成，需复核";
           Store.save();
           done.accept(result);
         });

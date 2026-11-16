@@ -63,6 +63,9 @@ public final class DynamicScene {
       o.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
       o.addProperty("player_vehicle", mc.player.getVehicle() == e);
       o.addProperty("passengers", e.getPassengers().size());
+      o.addProperty("pose", e.getPose().name());
+      o.addProperty("on_ground", e.onGround());
+      o.addProperty("on_fire", e.isOnFire());
       o.addProperty("visible", mc.player.hasLineOfSight(e));
       o.add("position", vec(e.position()));
       o.add("velocity", vec(e.getDeltaMovement()));
@@ -82,6 +85,32 @@ public final class DynamicScene {
             Objects.equals(CombatEvidence.focus, e.getUUID())
                 || Objects.equals(HuntJob.focus, e.getUUID()));
       }
+      if (e instanceof AgeableMob ageable) o.addProperty("baby", ageable.isBaby());
+      if (e instanceof net.minecraft.world.entity.animal.Sheep sheep) {
+        o.addProperty("sheared", sheep.isSheared());
+        o.addProperty("wool_color", sheep.getColor().getName());
+      }
+      if (e instanceof TamableAnimal pet) {
+        o.addProperty("tamed", pet.isTame());
+        o.addProperty("sitting", pet.isInSittingPose());
+        if (pet.getOwnerUUID() != null) o.addProperty("owner_uuid", pet.getOwnerUUID().toString());
+      }
+      if (e instanceof net.minecraft.world.entity.animal.horse.AbstractHorse horse) {
+        o.addProperty("tamed", horse.isTamed());
+        o.addProperty("saddled", horse.isSaddled());
+      }
+      if (e instanceof net.minecraft.world.entity.animal.Pig pig)
+        o.addProperty("saddled", pig.isSaddled());
+      if (e instanceof net.minecraft.world.entity.monster.Strider strider)
+        o.addProperty("saddled", strider.isSaddled());
+      if (e instanceof net.minecraft.world.entity.npc.Villager villager) {
+        o.addProperty(
+            "profession",
+            BuiltInRegistries.VILLAGER_PROFESSION
+                .getKey(villager.getVillagerData().getProfession())
+                .toString());
+        o.addProperty("trade_level", villager.getVillagerData().getLevel());
+      }
       if (e instanceof ItemEntity item) {
         o.add("stack", Actions.item(item.getItem()));
         int capacity = 0;
@@ -93,6 +122,11 @@ public final class DynamicScene {
         }
         o.addProperty("inventory_capacity_for_stack", capacity);
         o.addProperty("capacity_sufficient", capacity >= item.getItem().getCount());
+      }
+      if (e instanceof net.minecraft.world.entity.decoration.ItemFrame frame) {
+        o.add("displayed_item", Actions.item(frame.getItem()));
+        o.addProperty("item_rotation", frame.getRotation());
+        o.addProperty("facing", frame.getDirection().getName());
       }
       entries.add(o);
     }

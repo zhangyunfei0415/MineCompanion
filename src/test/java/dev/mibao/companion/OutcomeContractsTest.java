@@ -6,6 +6,16 @@ import org.junit.jupiter.api.Test;
 
 class OutcomeContractsTest {
   @Test
+  void explicitPartialAndCancelledKeepTheirTypedOutcome() {
+    for (String status : new String[] {"partial", "cancelled"})
+      assertEquals(
+          status,
+          ActionOutcome.describe("{\"status\":\"" + status + "\",\"business_success\":false}")
+              .get("outcome")
+              .getAsString());
+  }
+
+  @Test
   void dispatchedAndRejectedNeverTurnIntoBusinessSuccess() {
     String dispatched = "{\"status\":\"dispatched\",\"business_success\":false}";
     String rejected = "{\"status\":\"rejected\",\"business_success\":false}";

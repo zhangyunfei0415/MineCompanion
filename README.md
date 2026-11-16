@@ -8,7 +8,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## 下载与安装
 
-在 [Releases](https://github.com/zhangyunfei0415/MineCompanion/releases) 下载 `MineCompanion-0.8.1-Alpha.zip`，解压后将其中 `logistics-companion-0.8.1.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。ZIP 附带许可证与第三方源码资料。使用 Java 17，Forge 47.4.x。首次安装或升级时关闭游戏，并备份旧配置与记忆。
+在 [Releases](https://github.com/zhangyunfei0415/MineCompanion/releases) 下载 `MineCompanion-0.8.2-Alpha.zip`，解压后将其中 `logistics-companion-0.8.2.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。ZIP 附带许可证与第三方源码资料。使用 Java 17，Forge 47.4.x。首次安装或升级时关闭游戏，并备份旧配置与记忆。
 
 模组显示名和内部 ID 暂沿用 Logistics Companion / `logistics_companion`，公开项目名采用 MineCompanion。
 
@@ -23,15 +23,21 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 - 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
 - 原有近战、自卫与弓箭执行功能。
 
+### 0.8.2 新增
+
+连续采矿、工具准备、产物账本和归仓；可选云端/本地判断接口；扩展日常动作候选、暂停与死亡恢复诊断、自绘 GUI 语义选项。最新构建补充熔炼投料前燃料核算、中止材料归属证据、菜单共享视图和采矿阻挡恢复建议。
+
+配置和测试见 [R44–R47 交付说明](RELEASE-0.8.2-R44-R47-20261117.md)、[判断层说明](RELEASE-0.8.2.md) 和 [能力补全说明](RELEASE-0.8.2-CAPABILITIES-20261115.md)。
+
 ### 0.8.1 新增
 
 区域光照查询、暗处插普通火把、按方块 ID／标签搜索，以及岸边自动钓鱼初版。补充切石／织布选项、附魔条件、流体射线、到达结果与物品使用核验。
 
 ## Alpha 状态
 
-当前版本为 **0.8.1 / field-skills-20261112-01**。Windows 开发环境编译通过，110 个 JUnit 测试类、585 项测试通过。
+当前版本为 **0.8.2 / smelt-recovery-20261117-01**。Windows 开发环境编译通过，116 个 JUnit 测试类、619 项测试通过。
 
-已有实机记录覆盖箱子和熔炉、交易、酿造、弓弩、Baritone 长距等场景。0.8.1 新照明、钓鱼及交互修改仍需实机验证。模组兼容性取决于版本、菜单同步方式和服务器规则。
+已有实机记录覆盖箱子和熔炉、交易、酿造、弓弩、Baritone 长距，以及判断层调用等场景。本次熔炼、共享菜单视图及采矿恢复修改仍需游戏内复测，原报告的物品缺口尚未实机重现。模组兼容性取决于版本、菜单同步方式和服务器规则。
 
 钓鱼初版需要预先站稳岸边、面向水面并准备鱼竿。照明初版为普通火把的区域任务，后续继续扩展随行照明、自动补料和复杂地形恢复。
 

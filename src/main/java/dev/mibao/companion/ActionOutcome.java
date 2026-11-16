@@ -21,10 +21,15 @@ public final class ActionOutcome {
           String status = result.get("status").getAsString();
           if (status.equals("verified")) state = "verified";
           else if (status.equals("rejected")) state = "failed";
+          else if (status.equals("cancelled")) state = "cancelled";
+          else if (status.equals("partial")) state = "partial";
           else if (java.util.Set.of("unverified", "dispatched", "position_changed", "state_matches")
               .contains(status)) state = "partial";
         }
-        if (!state.equals("failed")
+        boolean explicitPartial =
+            result.has("status") && result.get("status").getAsString().equals("partial");
+        if (!java.util.Set.of("failed", "cancelled").contains(state)
+            && !explicitPartial
             && result.has("business_success")
             && !result.get("business_success").getAsBoolean()) state = "reported_effect_unverified";
       } catch (RuntimeException ignored) {

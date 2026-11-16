@@ -14,9 +14,12 @@ public final class GameCommandPolicy {
       long volume) {
     public double[] targetPosition() {
       if (!root.equals("tp") && !root.equals("teleport")) return null;
-      String[] parts = command.split("\\s+");
+      String[] parts =
+          CommandWords.parse(command).stream().map(CommandWords.Word::text).toArray(String[]::new);
       if (parts.length != 5 || !parts[1].equals("@s")) return null;
-      return new double[] {Double.parseDouble(parts[2]), Double.parseDouble(parts[3]), Double.parseDouble(parts[4])};
+      return new double[] {
+        Double.parseDouble(parts[2]), Double.parseDouble(parts[3]), Double.parseDouble(parts[4])
+      };
     }
   }
 
@@ -38,19 +41,23 @@ public final class GameCommandPolicy {
 
   public static Plan parse(String input, CommandProfile profile, double x, double y, double z) {
     int[] blockOrigin = {(int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z)};
-    if (input == null
-        || input.isBlank()
-        || input.length() > 1024
-        || input.chars().anyMatch(Character::isISOControl))
-      throw new IllegalArgumentException("[INVALID_ARGUMENT] 指令须为单行1..1024字符");
+    if (input == null || input.isBlank() || input.chars().anyMatch(Character::isISOControl))
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 指令须为单行文本");
     String s = input.strip();
     if (s.startsWith("/")) s = s.substring(1);
+    if (s.isBlank() || s.length() > 256)
+      throw new IllegalArgumentException("[COMMAND_LENGTH] Java 1.20.1指令协议上限为256字符，不截断发送");
     String[] p = s.split("\\s+");
     String root = p[0];
     if (!root.matches("[a-z0-9_.:-]+"))
       throw new IllegalArgumentException("[INVALID_ARGUMENT] 指令名不合法");
     String name = root.startsWith("minecraft:") ? root.substring(10) : root;
-    if (!profile.broadSelectors && s.matches("(?s).*@[aerp](?:\\b|\\[).*"))
+    var words =
+        Set.of("tp", "teleport", "setblock", "fill", "clone", "summon").contains(name)
+            ? CommandWords.parse(s)
+            : java.util.List.<CommandWords.Word>of();
+    if (!words.isEmpty()) p = words.stream().map(CommandWords.Word::text).toArray(String[]::new);
+    if (!profile.broadSelectors && CommandWords.broadSelector(s))
       throw new IllegalArgumentException("[COMMAND_SELECTOR_DENIED] 当前未允许广泛对象选择器；@s可用");
     Set<String> players =
         new HashSet<>(
@@ -81,8 +88,12 @@ public final class GameCommandPolicy {
         String value = p[i + 2];
         double target;
         try {
-          target = value.equals("~") ? base[i] : value.startsWith("~")
-              ? base[i] + Double.parseDouble(value.substring(1)) : Double.parseDouble(value);
+          target =
+              value.equals("~")
+                  ? base[i]
+                  : value.startsWith("~")
+                      ? base[i] + Double.parseDouble(value.substring(1))
+                      : Double.parseDouble(value);
         } catch (NumberFormatException e) {
           throw new IllegalArgumentException("[COMMAND_BOUNDS] 传送坐标需要数字或~数字");
         }
@@ -90,7 +101,7 @@ public final class GameCommandPolicy {
           throw new IllegalArgumentException("[COMMAND_BOUNDS] 传送目标超出配置范围");
         p[i + 2] = Double.toString(target);
       }
-      return new Plan(String.join(" ", p), name, null, "", "", true, 0);
+      return new Plan(CommandWords.replace(s, words, p), name, null, "", "", true, 0);
     }
     if (area || tp || name.equals("summon")) {
       try {
@@ -123,9 +134,11 @@ public final class GameCommandPolicy {
         }
         if (name.equals("setblock") || name.equals("fill")) {
           String spec = p[name.equals("fill") ? 7 : 4];
-          if (!spec.matches("[a-z0-9_.:-]+(?:\\[[a-z0-9_=,.-]+\\])?"))
-            throw new IllegalArgumentException("方块使用ID与可选[state]，不接受机器NBT模板");
-          block = spec.split("\\[", 2)[0];
+          if (!spec.matches("[a-z0-9_.:-]+(?:\\[[a-z0-9_=,.-]+\\])?(?:\\{.*\\})?"))
+            throw new IllegalArgumentException("方块须为ID、可选[state]和可选NBT");
+          if (spec.contains("{") && !profile.customCommands)
+            throw new IllegalArgumentException("方块NBT需要本世界自定义指令开关");
+          block = spec.split("[\\[{]", 2)[0];
           if (!block.contains(":")) block = "minecraft:" + block;
         }
       } catch (IndexOutOfBoundsException | NumberFormatException e) {
@@ -150,7 +163,7 @@ public final class GameCommandPolicy {
           p[7 + i] = Integer.toString(coordinate(p[7 + i], blockOrigin[i]));
     }
     return new Plan(
-        bounds == null ? s : String.join(" ", p),
+        bounds == null ? s : CommandWords.replace(s, words, p),
         name,
         bounds,
         block,

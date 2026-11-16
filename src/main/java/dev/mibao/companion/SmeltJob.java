@@ -1,12 +1,13 @@
 package dev.mibao.companion;
 
+import com.google.gson.*;
 import java.util.*;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.SmeltingRecipe;
+import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 
 /**
  * Empty vanilla furnace only. Exact input/fuel, synchronized clicks, bounded wait and output
@@ -15,6 +16,7 @@ import net.minecraft.world.item.crafting.SmeltingRecipe;
 public final class SmeltJob extends Actions.Job {
   private final String input;
   private final int count, cookingTicks;
+  private final CookingStation station;
   private int fuel;
   private final ItemStack output;
   private final long deadline;
@@ -26,15 +28,20 @@ public final class SmeltJob extends Actions.Job {
   private Map<String, Integer> baseline, expected, clickExpected;
   private final Set<String> involved = new HashSet<>();
   private final Deque<int[]> clicks = new ArrayDeque<>();
+  private JsonObject fuelEvidence = new JsonObject();
+  private int inputBefore = -1, outputBefore;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
   }
 
-  public SmeltJob(String input, int count, SmeltingRecipe recipe, Consumer<String> done) {
+  public SmeltJob(String input, int count, AbstractCookingRecipe recipe, Consumer<String> done) {
     super(done);
     this.input = input;
     this.count = count;
+    station = CookingStation.current();
+    if (recipe.getType() != station.recipes())
+      throw new IllegalArgumentException("[WRONG_RECIPE_TYPE] 炉型与配方不符");
     cookingTicks = count * recipe.getCookingTime();
     fuel = (count * recipe.getCookingTime() + 1599) / 1600;
     output = recipe.getResultItem(mc().level.registryAccess()).copy();
@@ -72,8 +79,8 @@ public final class SmeltJob extends Actions.Job {
       return;
     }
     if (phase == 0) {
-      if (m.getClass() != FurnaceMenu.class) {
-        finish("失败：当前不是原版普通熔炉菜单");
+      if (m.getClass() != station.menu()) {
+        finish("失败：[WRONG_FURNACE] 当前炉型与任务不符");
         return;
       }
       menu = m;
@@ -126,6 +133,8 @@ public final class SmeltJob extends Actions.Job {
         have = LogisticsRuntime.usable(input, have);
       }
       var existing = m.getSlot(1).getItem();
+      inputBefore = countItem(input);
+      outputBefore = countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString());
       int oldFuel = existing.getCount();
       Map<String, Integer> available = new LinkedHashMap<>();
       Map<String, Integer> durations = new HashMap<>();
@@ -137,31 +146,42 @@ public final class SmeltJob extends Actions.Job {
         available.merge(id, stack.getCount(), Integer::sum);
         durations.put(id, duration);
       }
-      if (oldFuel > 0) {
-        fuelId = BuiltInRegistries.ITEM.getKey(existing.getItem()).toString();
-        durations.put(fuelId, burnTime(existing));
-      } else {
-        fuelId = available.keySet().stream()
-            .sorted(Comparator.comparingInt((String id) -> durations.get(id)).reversed())
-            .filter(id -> {
-              int stock = available.get(id) - (id.equals(input) ? count : 0);
-              if (Agent.routine instanceof LogisticsTask) stock = LogisticsRuntime.usable(id, stock);
-              return stock >= (cookingTicks + durations.get(id) - 1) / durations.get(id);
-            }).findFirst().orElse("");
-      }
-      if (fuelId.isEmpty()) {
-        finish("失败：[MISSING_FUEL] 缺少可用于本批熔炼的燃料，支持煤、木炭和普通木质燃料");
-        return;
-      }
-      fuel = (cookingTicks + durations.get(fuelId) - 1) / durations.get(fuelId);
-      addedFuel = Math.max(0, fuel - oldFuel);
+      String existingId =
+          oldFuel > 0 ? BuiltInRegistries.ITEM.getKey(existing.getItem()).toString() : "";
+      if (oldFuel > 0) durations.put(existingId, burnTime(existing));
+      if (Agent.routine instanceof LogisticsTask)
+        available.replaceAll((id, n) -> LogisticsRuntime.usable(id, n));
+      var plan =
+          SmeltFuelPlan.choose(
+              cookingTicks, existingId, oldFuel, available, durations, input, count);
+      fuelId = plan.fuel();
+      fuel = plan.required();
+      addedFuel = plan.toAdd();
       fuelLimit = Math.max(fuel, oldFuel);
-      int stock = available.getOrDefault(fuelId, 0) - (fuelId.equals(input) ? count : 0);
-      if (Agent.routine instanceof LogisticsTask) stock = LogisticsRuntime.usable(fuelId, stock);
-      if (have < count || stock < addedFuel) {
-        finish("失败：[MISSING_MATERIAL] 需要输入 " + count + " 与燃料 " + fuelId + " ×" + addedFuel);
+      fuelEvidence.addProperty("fuel_id", fuelId);
+      fuelEvidence.addProperty("fuel_ticks_per_item", durations.getOrDefault(fuelId, 1600));
+      fuelEvidence.addProperty("fuel_available", plan.inFurnace() + plan.inInventory());
+      fuelEvidence.addProperty("fuel_required", plan.required());
+      fuelEvidence.addProperty("fuel_in_furnace", plan.inFurnace());
+      fuelEvidence.addProperty("fuel_in_inventory", plan.inInventory());
+      fuelEvidence.addProperty("fuel_to_add", plan.toAdd());
+      fuelEvidence.addProperty("fuel_missing", plan.missing());
+      fuelEvidence.addProperty("input_available", have);
+      fuelEvidence.addProperty("input_required", count);
+      fuelEvidence.add("accepted_fuels_observed", new Gson().toJsonTree(durations));
+      if (have < count || plan.missing() > 0) {
+        finish(
+            have < count
+                ? "失败：[MISSING_INPUT] 输入" + input + "需要" + count + "，背包可用" + have
+                : "失败：[MISSING_FUEL] 燃料"
+                    + fuelId
+                    + "缺"
+                    + plan.missing()
+                    + "；可用普通木板、原木、煤、木炭、煤炭块、烈焰棒，以当前炉型燃烧时长为准");
         return;
       }
+      inputBefore = countItem(input);
+      outputBefore = countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString());
       if (RestockTask.latest != null && "production".equals(RestockTask.latest.kind)) {
         RestockTask.latest.target = count * output.getCount();
         RestockTask.latest.current = 0;
@@ -284,12 +304,106 @@ public final class SmeltJob extends Actions.Job {
   }
 
   private String fuelId;
-  private static int burnTime(ItemStack stack) {
+
+  private int countItem(String id) {
+    int total = 0;
+    for (var stack : mc().player.getInventory().items)
+      if (plain(stack, id)) total += stack.getCount();
+    var m = mc().player.containerMenu;
+    if (m == menu)
+      for (int i = 0; i < 3; i++)
+        if (plain(m.getSlot(i).getItem(), id)) total += m.getSlot(i).getItem().getCount();
+    if (plain(m.getCarried(), id)) total += m.getCarried().getCount();
+    return total;
+  }
+
+  private JsonObject receipt(String text) {
+    var r = new JsonObject();
+    r.addProperty("status", text.startsWith("成功") ? "verified" : "partial");
+    r.addProperty("business_success", text.startsWith("成功"));
+    r.addProperty("recovery_action", "preserved_not_moved");
+    r.addProperty("detail", text);
+    r.addProperty("reason_code", ReasonCodes.describe(text).get("reason_code").getAsString());
+    fuelEvidence.entrySet().forEach(e -> r.add(e.getKey(), e.getValue()));
+    var recovered = new JsonObject();
+    var m = mc().player.containerMenu;
+    boolean same = m == menu && MenuContext.synchronizedNow();
+    int inCursor = plain(m.getCarried(), input) ? m.getCarried().getCount() : 0;
+    int inFurnace =
+        same && plain(m.getSlot(0).getItem(), input) ? m.getSlot(0).getItem().getCount() : 0;
+    int produced =
+        same
+            ? Math.max(
+                0,
+                countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString())
+                    - outputBefore)
+            : 0;
+    var balance =
+        SmeltBalance.check(count, inputBefore, countItem(input), produced, output.getCount());
+    boolean inputAlsoFuel = input.equals(fuelId);
+    int missing = same && inputBefore >= 0 && !inputAlsoFuel ? balance.unaccounted() : 0;
+    if (same && inputBefore >= 0 && !inputAlsoFuel)
+      recovered.addProperty(input, balance.remaining());
+    r.add("recovered_items", recovered);
+    r.addProperty(
+        "recovery_target",
+        !same
+            ? "unknown"
+            : inCursor > 0
+                ? "cursor"
+                : inFurnace > 0
+                    ? MenuContext.source() == null
+                        ? "furnace:menu#" + m.containerId
+                        : "furnace@"
+                            + MenuContext.source().getX()
+                            + ","
+                            + MenuContext.source().getY()
+                            + ","
+                            + MenuContext.source().getZ()
+                    : "inventory");
+    r.addProperty("recovery_verified", same && inputBefore >= 0 && missing == 0 && !inputAlsoFuel);
+    var evidence = new JsonObject();
+    evidence.addProperty("input_on_cursor", inCursor);
+    evidence.addProperty("input_in_furnace", inFurnace);
+    evidence.addProperty("input_total_before", inputBefore);
+    evidence.addProperty("input_total_now", same ? countItem(input) : -1);
+    evidence.addProperty(
+        "input_in_inventory", Math.max(0, countItem(input) - inCursor - inFurnace));
+    evidence.addProperty("output_observed", produced);
+    evidence.addProperty("unaccounted_input", missing);
+    evidence.addProperty("synchronized", same);
+    evidence.addProperty("input_also_fuel", inputAlsoFuel);
+    r.add("evidence", evidence);
+    if (missing > 0) {
+      r.addProperty("reason_code", "ITEMS_UNACCOUNTED");
+      r.addProperty("status", "partial");
+      r.addProperty("business_success", false);
+    }
+    return r;
+  }
+
+  @Override
+  void finish(String text) {
+    super.finish(receipt(text).toString());
+  }
+
+  JsonObject recoveryEvidence() {
+    return receipt("部分完成：保留当前材料归属，请先核对现场");
+  }
+
+  private int burnTime(ItemStack stack) {
+    return burnTime(stack, station);
+  }
+
+  static int burnTime(ItemStack stack, CookingStation station) {
     if (stack.isEmpty() || stack.hasTag() || stack.isDamageableItem()) return 0;
     // Container-returning fuels need their own inventory ledger, so keep them separate.
     if (stack.hasCraftingRemainingItem()) return 0;
-    return net.minecraftforge.common.ForgeHooks.getBurnTime(stack, net.minecraft.world.item.crafting.RecipeType.SMELTING);
+    return FieldProof.fuelTicks(
+        net.minecraftforge.common.ForgeHooks.getBurnTime(stack, station.recipes()),
+        station.menu() != FurnaceMenu.class);
   }
+
   private int addedFuel, fuelLimit;
 
   private void issue(int slot, int button, ClickType type) {
@@ -304,6 +418,6 @@ public final class SmeltJob extends Actions.Job {
 
   @Override
   String interrupted() {
-    return "熔炼已停止控制；已投入的炉内材料可能继续加工，保留界面及鼠标物品，请重新观察。";
+    return receipt("部分完成：熔炼停止，输入槽/鼠标/背包归属见evidence；炉内可继续加工，旧投料不得重放").toString();
   }
 }

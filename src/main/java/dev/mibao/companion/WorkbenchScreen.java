@@ -714,6 +714,7 @@ public final class WorkbenchScreen extends Screen {
   }
 
   private void connection() {
+    decisionSettings();
     strategyControls(true);
     text(
         "当前规划入口 · "
@@ -785,6 +786,107 @@ public final class WorkbenchScreen extends Screen {
 
   private String draft(String key, String fallback) {
     return drafts.getOrDefault("api/" + key, fallback);
+  }
+
+  private void decisionSettings() {
+    button(
+        "从settings.json重载判断配置",
+        () -> {
+          try {
+            Store.reloadDecisionConfig();
+            status = "判断配置已从磁盘重载";
+          } catch (Exception e) {
+            status = "判断配置读取失败，保留现有配置";
+          }
+          rebuild();
+        });
+    text("局部判断层 · 本地服务需另行启动，云端与本地配置分别保留");
+    button(
+        "判断位置 · " + Store.config.decisionMode,
+        () -> {
+          var modes = java.util.List.of("OFF", "CLOUD", "LOCAL");
+          Store.config.decisionMode =
+              modes.get((modes.indexOf(Store.config.decisionMode) + 1) % modes.size());
+          Store.save();
+          rebuild();
+        });
+    toggle(
+        "允许判断后提交候选任务（仍检查游戏权限）",
+        () -> Store.config.decisionAutoSubmit,
+        v -> Store.config.decisionAutoSubmit = v);
+    boolean local = Store.config.decisionMode.equals("LOCAL");
+    String prefix = local ? "decision/local/" : "decision/cloud/";
+    button(
+        "判断协议 · "
+            + (local ? Store.config.decisionLocalProtocol : Store.config.decisionCloudProvider),
+        () -> {
+          var protocols = java.util.List.of("GOOGLE", "JEV", "OPENAI");
+          String old =
+              local ? Store.config.decisionLocalProtocol : Store.config.decisionCloudProvider;
+          String next = protocols.get((protocols.indexOf(old) + 1) % protocols.size());
+          if (local) Store.config.decisionLocalProtocol = next;
+          else {
+            Store.config.decisionCloudProvider = next;
+            if (next.equals("GOOGLE")) {
+              Store.config.decisionCloudEndpoint =
+                  "https://generativelanguage.googleapis.com/v1beta/decisions";
+              Store.config.decisionCloudModel = "gemini-decision-1";
+            } else if (next.equals("JEV")) {
+              Store.config.decisionCloudEndpoint = "https://api.typesafe.ai/v1/systemone";
+              Store.config.decisionCloudModel = "jev-latest";
+            }
+          }
+          drafts.keySet().removeIf(k -> k.startsWith(prefix));
+          Store.save();
+          rebuild();
+        });
+    field(
+        prefix + "endpoint",
+        "判断接口完整URL",
+        local ? Store.config.decisionLocalEndpoint : Store.config.decisionCloudEndpoint,
+        v -> {});
+    field(
+        prefix + "model",
+        "判断模型ID",
+        local ? Store.config.decisionLocalModel : Store.config.decisionCloudModel,
+        v -> {});
+    var key =
+        field(
+            prefix + "key",
+            "判断API Key（本地可留空）",
+            local ? Store.config.decisionLocalKey : Store.config.decisionCloudKey,
+            v -> {});
+    key.setFormatter(
+        (s, i) ->
+            net.minecraft.util.FormattedCharSequence.forward(
+                "*".repeat(s.length()), net.minecraft.network.chat.Style.EMPTY));
+    button(
+        "保存判断连接配置",
+        () -> {
+          saveDrafts();
+          if (local) {
+            Store.config.decisionLocalEndpoint =
+                drafts.getOrDefault(prefix + "endpoint", Store.config.decisionLocalEndpoint).trim();
+            Store.config.decisionLocalModel =
+                drafts.getOrDefault(prefix + "model", Store.config.decisionLocalModel).trim();
+            Store.config.decisionLocalKey =
+                drafts.getOrDefault(prefix + "key", Store.config.decisionLocalKey).trim();
+          } else {
+            Store.config.decisionCloudEndpoint =
+                drafts.getOrDefault(prefix + "endpoint", Store.config.decisionCloudEndpoint).trim();
+            Store.config.decisionCloudModel =
+                drafts.getOrDefault(prefix + "model", Store.config.decisionCloudModel).trim();
+            Store.config.decisionCloudKey =
+                drafts.getOrDefault(prefix + "key", Store.config.decisionCloudKey).trim();
+          }
+          drafts.keySet().removeIf(k -> k.startsWith(prefix));
+          Store.save();
+          status = "判断配置已保存；decision_select用于验证连接及选择";
+          rebuild();
+        });
+    button(
+        "判断层状态与最近结果",
+        () -> minecraft.setScreen(new NoticeScreen(this, DecisionService.status().toString())));
   }
 
   private void discardApi() {
@@ -891,6 +993,7 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void inputSettings() {
+    text("导航地形策略也可在权限与行为页集中设置");
     flowField("input/keys", "LIMITED模组按键白名单", Store.config.allowedKeys, 2000, v -> {});
     row(
         "保存按键白名单",
@@ -909,13 +1012,18 @@ public final class WorkbenchScreen extends Screen {
     toggle("后台游戏输入", () -> Store.config.backgroundInput, v -> Store.config.backgroundInput = v);
     toggle("导航：允许破坏地形", () -> Store.config.navigationBreak, v -> Store.config.navigationBreak = v);
     toggle("导航：允许垫脚与搭路", () -> Store.config.navigationPlace, v -> Store.config.navigationPlace = v);
-    button("导航：仅绕行", () -> {
-      Store.config.navigationBreak = false;
-      Store.config.navigationPlace = false;
-      Store.save();
-      rebuild();
-    });
-    button("查看导航后端", () -> minecraft.setScreen(new NoticeScreen(this, BaritoneNavigation.status().toString())));
+    button(
+        "导航：仅绕行",
+        () -> {
+          Store.config.navigationDetourOnly = true;
+          Store.config.navigationBreak = false;
+          Store.config.navigationPlace = false;
+          Store.save();
+          rebuild();
+        });
+    button(
+        "查看导航后端",
+        () -> minecraft.setScreen(new NoticeScreen(this, BaritoneNavigation.status().toString())));
     button(
         "查看输入能力与注册按键",
         () ->
@@ -937,6 +1045,23 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void advancedPermissions() {
+    button(
+        "死亡处理 · "
+            + switch (Store.config.deathRecovery) {
+              case "RESPAWN_IDLE" -> "正常重生后待命";
+              case "REASSESS" -> "正常重生后重评原目标";
+              default -> "等待人工重生，保留接管与连接";
+            },
+        () -> {
+          Store.config.deathRecovery =
+              switch (Store.config.deathRecovery) {
+                case "PAUSE" -> "RESPAWN_IDLE";
+                case "RESPAWN_IDLE" -> "REASSESS";
+                default -> "PAUSE";
+              };
+          Store.save();
+          rebuild();
+        });
     field("trusted", "授权玩家（保存后生效）", Store.config.trusted, v -> {});
     button(
         "保存授权玩家",
@@ -973,6 +1098,27 @@ public final class WorkbenchScreen extends Screen {
   }
 
   private void permissions() {
+    toggle(
+        "fill/setblock覆盖关键方块需显式confirm",
+        () -> Store.config.protectCriticalCommandBlocks,
+        v -> Store.config.protectCriticalCommandBlocks = v);
+    toggle(
+        "传送落点预检（未加载落点按未知拒绝，可按需关闭）",
+        () -> Store.config.safeTeleport,
+        v -> Store.config.safeTeleport = v);
+    text("导航地形策略（完全放权允许开路，显式仅绕行优先）");
+    toggle(
+        "导航仅绕行：禁止破坏和搭路",
+        () -> Store.config.navigationDetourOnly,
+        v -> Store.config.navigationDetourOnly = v);
+    toggle(
+        "有限权限：允许导航破坏地形", () -> Store.config.navigationBreak, v -> Store.config.navigationBreak = v);
+    toggle(
+        "有限权限：允许垫脚与搭路", () -> Store.config.navigationPlace, v -> Store.config.navigationPlace = v);
+    toggle(
+        "允许 Harness 恢复人工暂停（急停仍需重新授权）",
+        () -> Store.config.harnessResumeHumanPause,
+        v -> Store.config.harnessResumeHumanPause = v);
     toggle(
         "显示 Agent 虚拟指针（不移动系统鼠标）",
         () -> Store.config.agentPointerVisible,

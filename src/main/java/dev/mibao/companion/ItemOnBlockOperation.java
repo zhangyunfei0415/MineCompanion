@@ -237,6 +237,12 @@ public final class ItemOnBlockOperation {
         return success("egg_consumed_and_matching_server_entity_spawned", consumed);
       return fail("[USE_UNCONFIRMED] 刷怪蛋消耗=" + consumed + "；没有取得唯一匹配的新实体服务器同步，先观察，不重放");
     }
+    if (EntitySpawnEvidence.placedEntityType(before) != null) {
+      if (EntitySpawnEvidence.placedEntity(
+          before, usedPosition, usedAt, consumed, mc().player.isCreative()))
+        return success("matching_server_entity_spawn_and_item_use", consumed);
+      return fail("[USE_UNCONFIRMED] 放置实体未取得唯一匹配的新实体同步；先观察，不重放");
+    }
     if (BlockUseProof.verified(effect, false, true))
       return success(BlockUseProof.outcome(true, consumed), consumed);
     if (outcome.confirmed()) return success("interaction_evidence", consumed);

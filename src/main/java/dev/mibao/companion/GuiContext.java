@@ -28,6 +28,7 @@ public final class GuiContext {
 
   private static void require() {
     if (!(mc().screen instanceof AbstractContainerScreen)
+            && !(mc().screen instanceof net.minecraft.client.gui.screens.inventory.LecternScreen)
         || mc().player.containerMenu.slots.size() > 512)
       throw new IllegalArgumentException("仅支持当前物品GUI且最多512槽；其他界面或虚拟仓储需专用适配");
   }
@@ -58,6 +59,8 @@ public final class GuiContext {
     if (!contents)
       s = new StringBuilder(m.containerId + ":" + mc().screen.width + ":" + mc().screen.height);
     if (contents) {
+      if (m instanceof net.minecraft.world.inventory.LecternMenu lectern)
+        s.append("|page:").append(lectern.getPage());
       for (var slot : m.slots)
         s.append('|')
             .append(slot.getItem().getCount())
@@ -118,10 +121,25 @@ public final class GuiContext {
     out.addProperty("gui_height", screen.height);
     out.addProperty("vanilla_resync_supported", MenuRefresh.supported());
     out.add("vanilla_options", VanillaMenuModel.observe());
-    var ac = (AbstractContainerScreen<?>) screen;
+    var semanticControls = new JsonArray();
+    var options = out.getAsJsonObject("vanilla_options");
+    for (String kind : new String[] {"patterns", "enchant_options", "offers", "recipes"}) {
+      if (!options.has(kind) || !options.get(kind).isJsonArray()) continue;
+      for (var option : options.getAsJsonArray(kind)) {
+        var control = option.getAsJsonObject().deepCopy();
+        control.addProperty("kind", kind);
+        control.addProperty("tool", "gui_action");
+        control.addProperty("gui_view", view);
+        control.addProperty("coordinate_independent", true);
+        semanticControls.add(control);
+      }
+    }
+    out.add("self_drawn_controls", semanticControls);
     var geometry = new JsonObject();
-    geometry.addProperty("gui_left", ac.getGuiLeft());
-    geometry.addProperty("gui_top", ac.getGuiTop());
+    if (screen instanceof AbstractContainerScreen<?> ac) {
+      geometry.addProperty("gui_left", ac.getGuiLeft());
+      geometry.addProperty("gui_top", ac.getGuiTop());
+    }
     geometry.addProperty("gui_scale", mc().getWindow().getGuiScale());
     geometry.addProperty("framebuffer_width", mc().getMainRenderTarget().width);
     geometry.addProperty("framebuffer_height", mc().getMainRenderTarget().height);
@@ -175,6 +193,20 @@ public final class GuiContext {
     return out;
   }
 
+  static void captureMenuSnapshot(JsonObject result) {
+    if (!(mc().screen instanceof AbstractContainerScreen<?>)
+        || mc().player.containerMenu.slots.size() > 512) return;
+    screen = mc().screen;
+    widgets.clear();
+    collect(screen, 0);
+    stamp = stamp();
+    widgetStamp = stamp(false);
+    observed = mc().player.containerMenu.slots.stream().map(s -> s.getItem().copy()).toList();
+    observedCursor = mc().player.containerMenu.getCarried().copy();
+    view = result.get("view_id").getAsLong();
+    result.addProperty("gui_view", view);
+  }
+
   public static void validate(long expected) {
     require();
     widgets.clear();
@@ -194,6 +226,8 @@ public final class GuiContext {
   }
 
   public static void validateSlot(long expected, int slot) {
+    require();
+    MenuContext.validateStored(expected, slot);
     validateWidgets(expected);
     var m = mc().player.containerMenu;
     if (slot < 0
@@ -275,18 +309,21 @@ public final class GuiContext {
         || !Double.isFinite(y)
         || !GuiGeometry.inside(x, y, 0, 0, screen.width, screen.height))
       throw new IllegalArgumentException("坐标不在当前GUI中");
-    var ac = (AbstractContainerScreen<?>) screen;
     boolean target = false;
-    for (var slot : mc().player.containerMenu.slots)
-      if (GuiGeometry.inside(x, y, ac.getGuiLeft() + slot.x, ac.getGuiTop() + slot.y, 16, 16))
-        throw new IllegalArgumentException("坐标命中物品槽，须用gui_slot取得服务器核验");
+    if (screen instanceof AbstractContainerScreen<?> ac)
+      for (var slot : mc().player.containerMenu.slots)
+        if (GuiGeometry.inside(x, y, ac.getGuiLeft() + slot.x, ac.getGuiTop() + slot.y, 16, 16))
+          throw new IllegalArgumentException("坐标命中物品槽，须用gui_slot取得服务器核验");
     for (var widget : widgets.values())
       if (widget.active
           && widget.visible
           && GuiGeometry.inside(
               x, y, widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight()))
         target = true;
-    if (!target) throw new IllegalArgumentException("未命中已观察到的可用控件；自绘控件需适配，不盲点背景");
+    if (!target)
+      throw new IllegalArgumentException(
+          "[GUI_SEMANTIC_ACTION_REQUIRED]"
+              + " 未命中已观察控件；织布图案/附魔等请用inspect_gui.self_drawn_controls的gui_action和index");
     int button = SkillCatalog.bounded(a, "button", 0, 0, 1);
     boolean handled = screen.mouseClicked(x, y, button);
     screen.mouseReleased(x, y, button);

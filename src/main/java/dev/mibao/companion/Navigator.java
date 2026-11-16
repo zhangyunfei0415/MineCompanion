@@ -31,6 +31,16 @@ public final class Navigator {
   private ArrivalGate arrival = new ArrivalGate();
   private boolean placement;
   private Direction requiredFace, placementFace;
+  private java.util.function.Predicate<Vec3> placementStance = eye -> true;
+  private java.util.function.Predicate<BlockHitResult> placementHit = hit -> true;
+
+  Navigator placementIntent(
+      java.util.function.Predicate<Vec3> stance, java.util.function.Predicate<BlockHitResult> hit) {
+    placementStance = stance;
+    placementHit = hit;
+    return this;
+  }
+
   private boolean exactStance;
   private int maxRadius = 3;
   private int scannedCandidates, standCandidates, visibleCandidates, bothCandidates;
@@ -191,10 +201,11 @@ public final class Navigator {
   }
 
   private boolean visible(BlockPos goal, Vec3 eye) {
+    if (placement && !placementStance.test(eye)) return false;
     return (requiredFace != null
             ? Reach.faceFrom(goal, eye, requiredFace)
             : placement
-                ? Reach.placementFrom(goal, eye, placementFace)
+                ? Reach.placementFrom(goal, eye, placementFace, placementHit)
                 : topFace ? Reach.topFrom(goal, eye) : Reach.hitFrom(goal, eye))
         != null;
   }
@@ -381,10 +392,13 @@ public final class Navigator {
     }
     if (++ticks > (baritone ? 12000 : 2400)) return fail("[NAVIGATION_TIMEOUT] 导航时间预算耗尽");
     double arrivalY = exact ? surfaceY(target) : target.getY();
-    if (baritone && !exact && Math.abs(p.getX() - target.getX() - .5) <= 2
+    if (baritone
+        && !exact
+        && Math.abs(p.getX() - target.getX() - .5) <= 2
         && Math.abs(p.getZ() - target.getZ() - .5) <= 2) {
       BlockPos surface = ColumnProbe.nearest(target.getX(), target.getZ(), target.getY(), 3);
-      if (surface != null) arrivalY = foot(surface).y;
+      if (surface != null && Math.abs(foot(surface).y - target.getY()) <= .65)
+        arrivalY = foot(surface).y;
     }
     boolean range =
         pickupBox != null
@@ -430,8 +444,15 @@ public final class Navigator {
       if (!replan(standingCell())) return -1;
       return 0;
     }
-    if (stuck > 100) return fail("路线受阻或尚未到达目标高度，请检查地形");
+    if (stuck > 100 && !baritone) return fail("路线受阻或尚未到达目标高度，请检查地形");
     if (baritone) {
+      if (ticks > 100
+          && !external.active()
+          && p.blockPosition().distSqr(target) <= 64
+          && mc().level.hasChunkAt(target)) {
+        external.stop();
+        return startLocal(target) ? 0 : -1;
+      }
       if (stuck > 200 || (ticks > 100 && !external.active()))
         return fail("[NO_PATH] Baritone 已停止或连续十秒没有位移；请观察路径与目标");
       return 0;
@@ -616,7 +637,7 @@ public final class Navigator {
    * Support cell under the player's actual AABB footprint. Edge-standing (for example on a furnace
    * rim while blockPosition() points at air) still needs a valid start stance.
    */
-  private static BlockPos standingCell() {
+  static BlockPos standingCell() {
     var player = mc().player;
     if (player == null) return BlockPos.ZERO;
     var box = player.getBoundingBox();
