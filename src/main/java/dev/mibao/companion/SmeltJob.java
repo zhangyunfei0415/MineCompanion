@@ -15,6 +15,7 @@ import net.minecraft.world.item.crafting.AbstractCookingRecipe;
  */
 public final class SmeltJob extends Actions.Job {
   private final String input;
+  private final ProductionTask owner = Agent.production;
   private final int count, cookingTicks;
   private final CookingStation station;
   private int fuel;
@@ -29,7 +30,12 @@ public final class SmeltJob extends Actions.Job {
   private final Set<String> involved = new HashSet<>();
   private final Deque<int[]> clicks = new ArrayDeque<>();
   private JsonObject fuelEvidence = new JsonObject();
-  private int inputBefore = -1, outputBefore;
+  private int inputBefore = -1, confirmedTaken;
+  private MaterialSnapshot lastSynchronized;
+
+  private record MaterialSnapshot(
+      int inventory, int cursor, int furnace, int producedInFurnace, int confirmedTaken,
+      String furnaceLocation, long observedAt) {}
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -97,6 +103,7 @@ public final class SmeltJob extends Actions.Job {
       if (++wait > 160) finish("部分完成：熔炉菜单8秒内没有完整稳定同步，停止保留现场");
       return;
     }
+    if (phase != 1) captureMaterialSnapshot();
     if (clickPending) {
       boolean same =
           ItemStack.matches(cursor, m.getCarried())
@@ -134,7 +141,7 @@ public final class SmeltJob extends Actions.Job {
       }
       var existing = m.getSlot(1).getItem();
       inputBefore = countItem(input);
-      outputBefore = countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString());
+      captureMaterialSnapshot();
       int oldFuel = existing.getCount();
       Map<String, Integer> available = new LinkedHashMap<>();
       Map<String, Integer> durations = new HashMap<>();
@@ -180,8 +187,6 @@ public final class SmeltJob extends Actions.Job {
                     + "；可用普通木板、原木、煤、木炭、煤炭块、烈焰棒，以当前炉型燃烧时长为准");
         return;
       }
-      inputBefore = countItem(input);
-      outputBefore = countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString());
       if (RestockTask.latest != null && "production".equals(RestockTask.latest.kind)) {
         RestockTask.latest.target = count * output.getCount();
         RestockTask.latest.current = 0;
@@ -291,6 +296,10 @@ public final class SmeltJob extends Actions.Job {
         InventoryTolerance.confirms(expected, CraftBatchJob.inventory(), involved)
             && !m.getSlot(2).hasItem()
             && m.getCarried().isEmpty();
+    if (verified) {
+      confirmedTaken = count * output.getCount();
+      captureMaterialSnapshot();
+    }
     if (verified && RestockTask.latest != null && "production".equals(RestockTask.latest.kind))
       RestockTask.latest.progress = "已取出并核实 " + (count * output.getCount()) + " 个产物";
     finish(
@@ -317,6 +326,40 @@ public final class SmeltJob extends Actions.Job {
     return total;
   }
 
+  private void captureMaterialSnapshot() {
+    var player = mc().player;
+    var furnace = player.containerMenu;
+    int inventory = 0;
+    for (var stack : player.getInventory().items)
+      if (plain(stack, input)) inventory += stack.getCount();
+    var carried = furnace.getCarried();
+    var ingredient = furnace.getSlot(0).getItem();
+    var product = furnace.getSlot(2).getItem();
+    var source = MenuContext.source();
+    lastSynchronized =
+        new MaterialSnapshot(
+            inventory,
+            plain(carried, input) ? carried.getCount() : 0,
+            plain(ingredient, input) ? ingredient.getCount() : 0,
+            ItemStack.isSameItemSameTags(output, product) ? product.getCount() : 0,
+            confirmedTaken,
+            source == null ? "furnace:menu#" + furnace.containerId
+                : "furnace@" + source.getX() + "," + source.getY() + "," + source.getZ(),
+            System.currentTimeMillis());
+  }
+
+  private boolean hasCurrentEvidence() {
+    var mc = mc();
+    return lastSynchronized != null
+        && mc.level == world
+        && scope.equals(Store.scope())
+        && mc.player != null
+        && mc.player.containerMenu == menu
+        && mc.screen == screen
+        && !clickPending
+        && MenuContext.synchronizedNow();
+  }
+
   private JsonObject receipt(String text) {
     var r = new JsonObject();
     r.addProperty("status", text.startsWith("成功") ? "verified" : "partial");
@@ -326,20 +369,18 @@ public final class SmeltJob extends Actions.Job {
     r.addProperty("reason_code", ReasonCodes.describe(text).get("reason_code").getAsString());
     fuelEvidence.entrySet().forEach(e -> r.add(e.getKey(), e.getValue()));
     var recovered = new JsonObject();
-    var m = mc().player.containerMenu;
-    boolean same = m == menu && MenuContext.synchronizedNow();
-    int inCursor = plain(m.getCarried(), input) ? m.getCarried().getCount() : 0;
-    int inFurnace =
-        same && plain(m.getSlot(0).getItem(), input) ? m.getSlot(0).getItem().getCount() : 0;
-    int produced =
-        same
-            ? Math.max(
-                0,
-                countItem(BuiltInRegistries.ITEM.getKey(output.getItem()).toString())
-                    - outputBefore)
-            : 0;
+    boolean same = hasCurrentEvidence();
+    if (same) captureMaterialSnapshot();
+    var snapshot = lastSynchronized;
+    int inCursor = snapshot == null ? -1 : snapshot.cursor();
+    int inFurnace = snapshot == null ? -1 : snapshot.furnace();
+    int inInventory = snapshot == null ? -1 : snapshot.inventory();
+    int total = snapshot == null ? -1 : inCursor + inFurnace + inInventory;
+    int inOutput = snapshot == null ? -1 : snapshot.producedInFurnace();
+    int taken = snapshot == null ? 0 : snapshot.confirmedTaken();
+    int produced = snapshot == null ? -1 : inOutput + taken;
     var balance =
-        SmeltBalance.check(count, inputBefore, countItem(input), produced, output.getCount());
+        SmeltBalance.check(count, inputBefore, total, produced, output.getCount());
     boolean inputAlsoFuel = input.equals(fuelId);
     int missing = same && inputBefore >= 0 && !inputAlsoFuel ? balance.unaccounted() : 0;
     if (same && inputBefore >= 0 && !inputAlsoFuel)
@@ -352,26 +393,25 @@ public final class SmeltJob extends Actions.Job {
             : inCursor > 0
                 ? "cursor"
                 : inFurnace > 0
-                    ? MenuContext.source() == null
-                        ? "furnace:menu#" + m.containerId
-                        : "furnace@"
-                            + MenuContext.source().getX()
-                            + ","
-                            + MenuContext.source().getY()
-                            + ","
-                            + MenuContext.source().getZ()
+                    ? snapshot.furnaceLocation()
                     : "inventory");
     r.addProperty("recovery_verified", same && inputBefore >= 0 && missing == 0 && !inputAlsoFuel);
     var evidence = new JsonObject();
     evidence.addProperty("input_on_cursor", inCursor);
     evidence.addProperty("input_in_furnace", inFurnace);
     evidence.addProperty("input_total_before", inputBefore);
-    evidence.addProperty("input_total_now", same ? countItem(input) : -1);
-    evidence.addProperty(
-        "input_in_inventory", Math.max(0, countItem(input) - inCursor - inFurnace));
+    evidence.addProperty("input_total_now", same ? total : -1);
+    evidence.addProperty("input_in_inventory", inInventory);
     evidence.addProperty("output_observed", produced);
-    evidence.addProperty("unaccounted_input", missing);
+    evidence.addProperty("output_in_furnace", inOutput);
+    evidence.addProperty("output_taken_confirmed", taken);
+    evidence.addProperty("unaccounted_input", same && inputBefore >= 0 && !inputAlsoFuel ? missing : -1);
     evidence.addProperty("synchronized", same);
+    evidence.addProperty("source", same ? "current_menu" : snapshot == null ? "unknown" : "last_synchronized");
+    if (snapshot != null) {
+      evidence.addProperty("observed_at_ms", snapshot.observedAt());
+      evidence.addProperty("furnace", snapshot.furnaceLocation());
+    }
     evidence.addProperty("input_also_fuel", inputAlsoFuel);
     r.add("evidence", evidence);
     if (missing > 0) {
@@ -389,6 +429,10 @@ public final class SmeltJob extends Actions.Job {
 
   JsonObject recoveryEvidence() {
     return receipt("部分完成：保留当前材料归属，请先核对现场");
+  }
+
+  boolean belongsTo(ProductionTask task) {
+    return owner == task;
   }
 
   private int burnTime(ItemStack stack) {

@@ -8,6 +8,49 @@ import com.google.gson.*;
 public final class ToolSchemas {
   public static JsonArray all() {
     JsonArray out = new JsonArray();
+    schema(out, "follow_targets", "观察其他玩家。仅已追踪玩家有位置", "");
+    schema(out, "follow_start", "按UUID或精确用户名开启跟随，可使用已选目标；profile=follow/nether/end，末地门须明确允许", "target_uuid:s,player_name:s,profile:s,allow_end_portal:b");
+    schema(out, "follow_status", "查询跟随、最近站位、目标及停止所需follow_id", "");
+    schema(out, "follow_stop", "按follow_status给出的当前follow_id停止跟随", "follow_id:s!");
+    schema(out, "follow_enter_portal", "玩家明确指示进门后，沿已观察的门步行进入。可传当前 dimension；遵守陪伴预设、40格范围与路径支撑要求", "follow_id:s!,x:i!,y:i!,z:i!,dimension:s");
+    schema(out, "build_shelter", "在已加载的平地上建5×5带屋顶和门的小屋。坐标为西北角墙脚，下一格为地板。逐格核对，无材料或遇遮挡即保留现场。", "place:s,x:i,y:i,z:i,item:s,door:s,door_facing:s");
+    schema(out, "boat_to", "已坐在驾驶座时沿已加载平水分段驾驶到目标水面，最大32格。遇浅滩或障碍停，靠岸后可用vehicle_control下船。", "place:s,x:i,y:i,z:i");
+    schema(out, "elytra_land", "玩家离地后展开或接续鞘翅滑翔，指定已观察的3×3落地场，水平10..64格。boost=true只尝试用一次普通烟花。", "place:s,x:i,y:i,z:i,boost:b");
+    schema(out, "rest_at_bed", "正常使用已观察的床，检测实际睡眠状态；不把白天交互或多人等待算成跳夜。", "place:s,x:i,y:i,z:i");
+    schema(out, "recover_death_items", "前往本世界最近死亡点附近，拾取指定物品并回读背包。要求同维度和明确物品ID，不推断掉落归属。", "item:s!,count:i");
+    schema(out, "take_vanilla_output", "在已准备好的切石、织布、制图、砂轮、锻造或交易菜单中核对并取出一次预期产物，收好鼠标并回读背包。先inspect_gui，使用当前gui_view。", "item:s!,gui_view:i!");
+    schema(out, "brew_batch", "原版酿造（抗火/治疗），空酿造台、1到3个水瓶、下界疣、对应配料和燃料。可指定本世界已加载酿造台或使用当前已打开的酿造台。核对最终药水入包", "recipe:s,count:i,place:s,x:i,y:i,z:i");
+    schema(out, "enchant_item", "用空原版附魔台给一件随身物品附魔，按tier=1..3预检青金石及等级，核对最终NBT和入包。item为ID或指纹，多变体可用背包inventory_slot=0..35消歧。指定当前世界已加载工作站或用已开的对应菜单", "item:s!,tier:i,inventory_slot:i,place:s,x:i,y:i,z:i");
+    schema(out, "anvil_item", "用空原版铁砧改名或单材料修理一件物品。operation=rename需name，repair需material完整ID或指纹，有NBT的材料须指纹。max_cost=1..39。核对等级消耗和实际入包", "item:s!,operation:s!,name:s,material:s,max_cost:i,inventory_slot:i,place:s,x:i,y:i,z:i");
+    schema(out, "harvest_plants", "采收甘蔗、竹子、仙人掌、南瓜、西瓜、成熟可可、地狱疣或甜浆果。crop为方块ID；可可和地狱疣默认补种，拾取独立回报", "crop:s!,count:i,radius:i,replant:b");
+    schema(out, "harvest_honey", "对当前维度有烟雾且蜜量已满的蜂巢或蜂箱采收一次。mode=bottle/shears，分别报告蜂箱变化与入包。", "place:s,x:i,y:i,z:i,mode:s");
+    var miningPlan = schema(out, "plan_mining",
+        "采矿委托的只读规划工具。objective=collect从当前位置追脉；tunnel按宽度选截面，descend按target_y及max_straight_run选台阶，branches为鱼骨。施工可指定完整脚底x/y/z，先到入口再规划；省略则用当前站位。预览含支路支撑调整。执行返回的next_action，核对后再规划后续段。",
+        "objective:s,block:s,item:s,goal:s,count:i,delivery:s,source:s,radius:i,vertical_range:i,max_blocks:i,seconds:i,min_durability:i,free_slots:i,tool_policy:s,auto_craft:b,lighting:b,allow_prospect:b,x:i,y:i,z:i,direction:s,width:i,length:i,target_y:i,max_straight_run:i,branch_spacing:i,branch_length:i,max_break:i,return_home:b");
+    for (String tool : new String[] {"preview_mining_route", "excavate_mine_route"}) {
+      var route = schema(out, tool,
+          tool.equals("preview_mining_route")
+              ? "预览矿道几何与入口，不破坏世界。x/y/z为完整脚底坐标，缺省以当前站位为入口"
+              : "在入口逐段施工，需允许导航破坏并站在入口。独立记录清理量，不计作矿物交付；可用task_submit和task_cancel",
+          "preset:s,direction:s,x:i,y:i,z:i,length:i,branch_spacing:i,branch_length:i,max_break:i,seconds:i,return_home:b");
+      route.getAsJsonObject("properties").getAsJsonObject("preset").add(
+          "enum", new Gson().toJsonTree(java.util.Arrays.stream(MiningRoute.Preset.values())
+              .map(MiningRoute.Preset::id).toList()));
+      var properties = route.getAsJsonObject("properties");
+      var limits = new JsonObject();
+      limits.addProperty("type", "array");
+      limits.addProperty("maxItems", 8);
+      limits.addProperty("description", "鱼骨预览返回的每支路长度上限，原样提交；0表示跳过");
+      var length = new JsonObject();
+      length.addProperty("type", "integer");
+      length.addProperty("minimum", 0);
+      length.addProperty("maximum", 8);
+      limits.add("items", length);
+      properties.add("branch_limits", limits);
+      var directions = new JsonArray();
+      for (String direction : new String[] {"north", "east", "south", "west"}) directions.add(direction);
+      properties.getAsJsonObject("direction").add("enum", directions);
+    }
     var mining =
         schema(
             out,
@@ -15,6 +58,15 @@ public final class ToolSchemas {
             "连续采矿作业。goal=blocks/items/deliver，count为相应挖除/新增/交付数量；block为ID/#标签，item为目标物品ID/指纹。mode=surface/vein/baritone，terrain=detour/modify，modify需允许导航破坏。半径2..32，高度范围1..64，目标与方块预算1..4096，seconds30..7200；工具偏好auto/fortune/silk。按矿区边界、耐久、新掉落拾取和库存核验，满包归仓再返回；source补料箱、delivery交付箱，支持job_id与明确resume。可用task_submit异步启动，结果查mining_status，停止用task_cancel或急停",
             "block:s!,item:s,goal:s,count:i,mode:s,terrain:s,radius:i,vertical_range:i,max_blocks:i,seconds:i,min_durability:i,free_slots:i,delivery:s,source:s,tool_policy:s,auto_craft:b,lighting:b,return_home:b,job_id:s,resume:b");
     var miningProperties = mining.getAsJsonObject("properties");
+    var fallbacks = new JsonObject();
+    fallbacks.addProperty("type", "array");
+    fallbacks.addProperty("maxItems", 4);
+    fallbacks.addProperty("description", "经玩家指定的备用交付点。只在确认尚未开始转移时切换");
+    var destination = new JsonObject();
+    destination.addProperty("type", "string");
+    fallbacks.add("items", destination);
+    miningProperties.add("delivery_fallbacks", fallbacks);
+    miningPlan.getAsJsonObject("properties").add("delivery_fallbacks", fallbacks.deepCopy());
     for (var entry :
         java.util.Map.of(
                 "goal",
@@ -34,7 +86,7 @@ public final class ToolSchemas {
     schema(
         out,
         "select_tool_profile",
-        "精简API菜单下按需切换下一轮工具说明；profile=auto/logistics/farming/production/construction/gathering/combat/gui/commands/all。权限与Harness完整工具不变；只选相关组可节省上下文",
+        "精简API菜单下按需切换下一轮工具说明；profile=auto/follow/logistics/farming/production/construction/gathering/combat/gui/commands/all。权限与Harness完整工具不变；只选相关组可节省上下文",
         "profile:s!");
     schema(
         out,
@@ -71,7 +123,7 @@ public final class ToolSchemas {
           out,
           name,
           name.equals("task_cancel")
-              ? "取消当前任务并暂停，保留连接，不自动继续；旧任务不影响新任务"
+              ? "取消当前任务并释放执行占用，保留连接及原有暂停；旧任务不影响新任务"
               : "按本世界task_id查原任务回执/阶段；重启后未知任务不重放",
           "task_id:s!");
     schema(out, "observe_compact", "短现场：当前目标/阶段/背包指纹/菜单摘要；完整NBT和槽位按需读取", " ".strip());
@@ -369,7 +421,7 @@ public final class ToolSchemas {
         "");
     schema(out, "permission_status", "查看集中权限、连接和自卫策略；权限只能由玩家修改", "");
     schema(out, "decision_status", "查看局部判断层位置、协议、用量与最近结果，不含凭据", "");
-    schema(out, "config_reload", "从本机settings.json重载判断层连接配置与位置，保留现有游戏授权和控制；无效配置不应用", "");
+    schema(out, "config_reload", "从本机settings.json重载判断配置，返回实际 mode/provider/auto_submit；无效配置不应用", "");
     schema(out, "inspect_landing", "检查已加载落点的碰撞、支撑和危险，未加载为未知；不填坐标时检查玩家精确当前位置", "x:n,y:n,z:n");
     schema(out, "resume_control", "恢复仍有授权的暂停；人工暂停需玩家预先允许Harness恢复，急停后不能恢复", "");
     schema(out, "pause_control", "暂停当前执行并保留授权与连接，可用resume_control恢复本工具暂停", "");
@@ -532,7 +584,7 @@ public final class ToolSchemas {
             out,
             "place_block",
             "正常放置一格，x/y/z为新方块位置，face为支撑面朝外法线，max_radius1..5。可选state对象如{facing:east}/{axis:x}/{half:top}，按真实站位/命中和客户端预测筛选，服务器实际属性不符则不记完成。门/床核对两格。生存核对消耗，创造可准备现有背包材料，不生成材料。附block_after",
-            "item:s!,x:i,y:i,z:i,face:s,max_radius:i");
+              "item:s!,x:i,y:i,z:i,place:s,object:s,face:s,max_radius:i");
     var desiredState = new JsonObject();
     desiredState.addProperty("type", "object");
     var stateValue = new JsonObject();

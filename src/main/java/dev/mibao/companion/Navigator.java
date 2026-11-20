@@ -15,6 +15,7 @@ public final class Navigator {
   private BlockPos target;
   private String error = "";
   private boolean baritone, exact, topFace, localOnly, interaction;
+  private java.util.function.Predicate<BlockPos> allowedCell;
   private GridSearch search;
   private Set<BlockPos> goals = Set.of();
   private AABB pickupBox;
@@ -142,6 +143,15 @@ public final class Navigator {
     topFace = false;
     localOnly = true;
     return begin(goal, false);
+  }
+
+  boolean startFollow(BlockPos goal, java.util.function.Predicate<BlockPos> allowed) {
+    allowedCell = allowed;
+    return startExact(goal);
+  }
+
+  private boolean allowed(BlockPos p) {
+    return allowedCell == null || allowedCell.test(p);
   }
 
   public boolean startForInteraction(BlockPos goal) {
@@ -348,7 +358,7 @@ public final class Navigator {
               BlockPos at = goal.offset(dx, dy, dz);
               if (exact && !at.equals(goal)) continue;
               Vec3 v = foot(at);
-              if (stand(at)
+              if (allowed(at) && stand(at)
                   && ArrivalGate.candidate(
                       v.x,
                       v.y,
@@ -483,10 +493,11 @@ public final class Navigator {
       var axis = b.subtract(a);
       boolean aligned =
           axis.getX() == 0 ? Math.abs(p.getX() - av.x) < .14 : Math.abs(p.getZ() - av.z) < .14;
-      if (!aligned || !stand(b) || !traversable(a, b)) break;
+      if (!aligned || !allowed(b) || !stand(b) || !traversable(a, b)) break;
       index++;
     }
     BlockPos next = path.get(index);
+    if (!allowed(next)) return fail("[FOLLOW_ROUTE_CHANGED] 前方已超出允许的跟随通路");
     Vec3 destination = foot(next);
     Vec3 delta = destination.subtract(p.position());
     if (index == path.size() - 1 && safelyStanding && !range && delta.lengthSqr() < .0036) {
@@ -669,13 +680,21 @@ public final class Navigator {
   }
 
   private boolean traversable(BlockPos from, BlockPos to) {
+    return traversable(from, to, true);
+  }
+
+  static boolean openMiningStep(BlockPos from, BlockPos to) {
+    return stand(from) && stand(to) && traversable(from, to, false);
+  }
+
+  private static boolean traversable(BlockPos from, BlockPos to, boolean planning) {
     Vec3 a = foot(from), b = foot(to);
     if (!ArrivalGate.transition(a.y, b.y)) return false;
     double high = Math.max(a.y, b.y);
     for (int i = 0; i <= 4; i++) {
       double t = i / 4.0;
       Vec3 v = new Vec3(a.x + (b.x - a.x) * t, high, a.z + (b.z - a.z) * t);
-      if (!NavigationPassage.clear(body(v), true)) return false;
+      if (!NavigationPassage.clear(body(v), planning)) return false;
     }
     return true;
   }
@@ -704,7 +723,7 @@ public final class Navigator {
           for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}})
             for (int dy : new int[] {0, 1, -1, 2, -2}) {
               BlockPos q = p.offset(d[0], dy, d[1]);
-              if (q.distSqr(start) > 96 * 96 || blocked.contains(new Edge(p, q))) continue;
+              if (q.distSqr(start) > 96 * 96 || blocked.contains(new Edge(p, q)) || !allowed(q)) continue;
               if (searchStands.size() > 12000) searchStands.clear();
               if (searchStands.computeIfAbsent(q, Navigator::standPath) && traversable(p, q))
                 next.add(cell(q));

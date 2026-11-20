@@ -103,6 +103,15 @@ public final class HarnessSession {
     return r;
   }
 
+  JsonObject blocked(String id, String signature, long epoch, String tool, String result) {
+    var receipt = begin(id, signature, epoch, tool);
+    receipt.addProperty("state", "blocked");
+    receipt.addProperty("dispatched", false);
+    receipt.addProperty("result", result);
+    receipt.add("outcome", ActionOutcome.describe(result));
+    return receipt;
+  }
+
   public JsonObject receipt(String id, String currentScope) {
     var r = receipt(id).deepCopy();
     r.addProperty("historical_context", !r.get("scope").getAsString().equals(currentScope));

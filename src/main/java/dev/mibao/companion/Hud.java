@@ -29,7 +29,7 @@ public final class Hud {
             ? Actions.status
             : Agent.production != null && RestockTask.latest != null
                 ? RestockTask.latest.phase
-                : Agent.state;
+                : FollowControl.active() ? FollowControl.shortStatus() : Agent.state;
     v.detail = ActionSummary.describe(v.detail);
     if (Cooperation.active())
       v.detail = (Cooperation.yielding() ? "协同 · 人工操作中，连接保留 · " : "协同 · AI执行 · ") + v.detail;

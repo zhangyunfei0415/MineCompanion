@@ -26,7 +26,8 @@ public final class SkillLibrary {
       Files.createDirectories(root().resolve("knowledge"));
       for (String name :
           List.of(
-              "transport", "craft", "smelt", "farm", "gather", "illuminate", "fish", "mining")) {
+              "transport", "craft", "smelt", "farm", "gather", "illuminate", "fish", "mining",
+              "survival-start", "survival-mine-return", "survival-camp")) {
         Path target = folder.resolve("builtin-" + name + ".json");
         if (!Files.exists(target))
           try (var in =

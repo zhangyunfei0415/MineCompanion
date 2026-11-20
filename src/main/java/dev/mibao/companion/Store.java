@@ -16,6 +16,7 @@ public final class Store {
   public static final Path ROOT =
       Minecraft.getInstance().gameDirectory.toPath().resolve("config/logistics-companion");
   public static Config config = new Config();
+  private static JsonObject lastSavedConfig;
   public static Data data = new Data();
   private static final Map<String, Skill> sharedSkills = new LinkedHashMap<>();
   private static boolean libraryReadable = true;
@@ -149,6 +150,8 @@ public final class Store {
     public Map<String, UsageStats.Total> usageStats = new LinkedHashMap<>();
     public Map<String, JsonObject> inventoryMemories = new LinkedHashMap<>();
     public String resourceDelivery = "", productionSource = "";
+    public String followUuid = "", followName = "", followProfile = "follow";
+    public boolean followEndPortal;
     public List<WorkLedger.Entry> workLedger = new ArrayList<>();
     public Map<String, Place> places = new LinkedHashMap<>();
     public List<Fact> facts = new ArrayList<>();
@@ -333,6 +336,7 @@ public final class Store {
       config = new Config();
     }
     if (config == null) config = new Config();
+    lastSavedConfig = GSON.toJsonTree(config).getAsJsonObject();
     config.visionMode = VisionPolicy.mode(config.visionMode, config.vision);
     Learning.init();
     if (config.hudVersion < 1) {
@@ -374,6 +378,7 @@ public final class Store {
     } catch (RuntimeException e) {
       throw new IllegalArgumentException("[CONFIG_INVALID] 判断配置格式、模式或地址无效；保留当前配置");
     }
+    var beforeReload = GSON.toJsonTree(config).getAsJsonObject();
     config.decisionMode = loaded.decisionMode;
     config.decisionCloudProvider = loaded.decisionCloudProvider;
     config.decisionCloudEndpoint = loaded.decisionCloudEndpoint;
@@ -383,13 +388,27 @@ public final class Store {
     config.decisionLocalEndpoint = loaded.decisionLocalEndpoint;
     config.decisionLocalModel = loaded.decisionLocalModel;
     config.decisionLocalKey = loaded.decisionLocalKey;
-    config.decisionAutoSubmit = loaded.decisionAutoSubmit;
+    setDecisionAutoSubmit(loaded.decisionAutoSubmit);
     DecisionService.invalidate();
+    if (lastSavedConfig != null) {
+      lastSavedConfig =
+          SettingsChanges.merge(lastSavedConfig, beforeReload, GSON.toJsonTree(config).getAsJsonObject());
+    }
     var out = new JsonObject();
     out.addProperty("status", "reloaded");
     out.addProperty("section", "decision");
     out.addProperty("mode", config.decisionMode);
+    out.addProperty("applied", true);
+    out.addProperty("auto_submit", config.decisionAutoSubmit);
+    out.addProperty("provider", "LOCAL".equals(config.decisionMode)
+        ? config.decisionLocalProtocol : config.decisionCloudProvider);
     return out;
+  }
+
+  static void setDecisionAutoSubmit(boolean enabled) {
+    if (config.decisionAutoSubmit == enabled) return;
+    config.decisionAutoSubmit = enabled;
+    DecisionService.invalidate();
   }
 
   public static void connect() {
@@ -543,20 +562,55 @@ public final class Store {
     try {
       normalize(data);
       Files.createDirectories(ROOT);
-      atomic(ROOT.resolve("settings.json"), GSON.toJson(config));
+      try {
+        saveSettings();
+      } catch (Exception e) {
+        Companion.log("设置保存失败，保留磁盘上的文件：" + e.getClass().getSimpleName());
+      }
       Learning.save();
       atomic(ROOT.resolve("presets.json"), GSON.toJson(SkillCatalog.catalog()));
       if (libraryReadable)
         atomic(
             ROOT.resolve("skills.json"),
             GSON.toJson(MemoryLayout.library(GSON.toJsonTree(sharedSkills))));
-      if (worldReadable && !worldKey.equals("disconnected"))
-        atomic(
-            dataFile(),
-            GSON.toJson(MemoryLayout.world(GSON.toJsonTree(data).getAsJsonObject(), worldKey)));
+      if (worldReadable && !worldKey.equals("disconnected")) writeWorld();
     } catch (Exception e) {
       Companion.log("保存失败：" + e.getClass().getSimpleName());
     }
+  }
+
+  private static void saveSettings() throws Exception {
+    var path = ROOT.resolve("settings.json");
+    var current = GSON.toJsonTree(config).getAsJsonObject();
+    if (!Files.exists(path)) {
+      atomic(path, GSON.toJson(current));
+    } else {
+      if (current.equals(lastSavedConfig)) return;
+      var disk = JsonParser.parseString(Files.readString(path)).getAsJsonObject();
+      var merged = lastSavedConfig == null ? current : SettingsChanges.merge(disk, lastSavedConfig, current);
+      if (!merged.equals(disk)) atomic(path, GSON.toJson(merged));
+    }
+    lastSavedConfig = current;
+  }
+
+  /** Persist an accepted task ID before the first potentially irreversible action. */
+  static boolean saveWorld() {
+    if (!worldReadable || worldKey.equals("disconnected") || !hasControl()) return false;
+    try {
+      normalize(data);
+      Files.createDirectories(ROOT);
+      writeWorld();
+      return true;
+    } catch (Exception e) {
+      Companion.log("世界任务记录保存失败：" + e.getClass().getSimpleName());
+      return false;
+    }
+  }
+
+  private static void writeWorld() throws Exception {
+    atomic(
+        dataFile(),
+        GSON.toJson(MemoryLayout.world(GSON.toJsonTree(data).getAsJsonObject(), worldKey)));
   }
 
   private static void atomic(Path p, String text) throws Exception {

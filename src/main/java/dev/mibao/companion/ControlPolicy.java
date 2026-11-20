@@ -32,6 +32,8 @@ public final class ControlPolicy {
     return Set.of(
             "swim_out",
             "vehicle_control",
+            "boat_to",
+            "elytra_land",
             "unstick",
             "look_at",
             "use_hand",

@@ -3,7 +3,9 @@ plugins {
     id 'net.minecraftforge.gradle' version '6.0.54'
 }
 group = 'dev.mibao'
-version = '0.8.2'
+version = '0.8.4'
+def buildId = 'vanilla-survival-20261120-01'
+def buildValues = [modVersion: project.version.toString(), buildId: buildId]
 base { archivesName = 'logistics-companion' }
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; withSourcesJar() }
 minecraft {
@@ -42,8 +44,10 @@ dependencies {
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17; options.incremental = false }
 test { useJUnitPlatform() }
-jar { manifest { attributes 'Implementation-Version': project.version, 'Implementation-Build': 'smelt-recovery-20261117-01' }; finalizedBy 'reobfJar' }
+jar { manifest { attributes 'Implementation-Version': project.version, 'Implementation-Build': buildId }; finalizedBy 'reobfJar' }
 tasks.named('processResources') {
+    inputs.properties(buildValues)
+    filesMatching(['META-INF/mods.toml', 'minecompanion-build.properties']) { expand(buildValues) }
     from('vendor/baritone/baritone-api-forge-1.10.1.jar') { into 'META-INF/jarjar' }
     from('vendor/baritone/LICENSE') { into 'META-INF/licenses/baritone' }
     from('vendor/baritone/GPL-3.0.txt') { into 'META-INF/licenses/baritone' }

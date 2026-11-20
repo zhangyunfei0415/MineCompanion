@@ -255,6 +255,8 @@ public final class HarnessController {
     }
     if (name.equals("task")) {
       if (!Agent.enabled) throw new IllegalArgumentException("先在游戏中开启AI接管");
+      if (Agent.paused || Cooperation.yielding())
+        throw new IllegalArgumentException("[BUSY] 当前已暂停或交给玩家，请先恢复控制");
       Agent.submit(Agent.str(a, "text", ""), true);
       return ok("任务已接收，按当前API/HARNESS驱动处理");
     }
@@ -310,13 +312,16 @@ public final class HarnessController {
       case "action" -> {
         String tool = Agent.str(a, "tool", ""), id = Agent.str(a, "request_id", "");
         var args = Agent.obj(a, "args");
-        String signature = tool + ":" + args;
+        String signature = TaskIdentity.signature(tool, args);
         var existing = session.existing(id, signature);
         if (existing != null) return publicReceipt(existing);
         if (!a.has("epoch")
             || a.get("epoch").getAsLong() != Agent.epoch
             || !Agent.str(a, "scope", "").equals(scope()))
           throw new IllegalArgumentException("[STALE_EPOCH] 旧epoch/scope不可控制，请重新status观察");
+        if (!Rules.TOOLS.contains(tool)
+            || Set.of("finish", "run_skill", "save_skill", "read_web", "search_web").contains(tool))
+          throw new IllegalArgumentException("外部action仅允许已有游戏工具；不直接执行模型、网页或技能定义");
         if ((Agent.paused || Cooperation.yielding() || busy())
             && !Set.of(
                     "capability_probe",
@@ -330,6 +335,9 @@ public final class HarnessController {
                     "task_status",
                     "task_result",
                     "task_cancel",
+                    "follow_targets",
+                    "follow_status",
+                    "follow_stop",
                     "resume_control",
                     "pause_control",
                     "permission_status",
@@ -344,12 +352,12 @@ public final class HarnessController {
                     "find_blocks",
                     "vehicle_state",
                     "mining_status",
+                    "plan_mining",
+                    "preview_mining_route",
                     "command_status")
                 .contains(tool))
-          throw new IllegalArgumentException("[BUSY] 当前暂停/忙碌/待审批；先查状态或回执，不叠加写动作");
-        if (!Rules.TOOLS.contains(tool)
-            || Set.of("finish", "run_skill", "save_skill", "read_web", "search_web").contains(tool))
-          throw new IllegalArgumentException("外部action仅允许已有游戏工具；不直接执行模型、网页或技能定义");
+          return publicReceipt(session.blocked(id, signature, Agent.epoch, tool,
+              "失败：[BUSY] 当前暂停/忙碌/待审批；先查状态或回执，不叠加写动作"));
         var r = session.begin(id, signature, Agent.epoch, tool);
         Agent.localConversation = true;
         Hud.FEED.acknowledge();

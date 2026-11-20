@@ -55,6 +55,9 @@ public final class ActionTrace {
     flush();
     TaskTimeline.add("action", ActionSummary.step(tool), safe.toString());
     return result -> {
+      if (tool.equals("decision_select")
+          && (!r.get("phase").getAsString().equals("running")
+              || r.get("epoch").getAsLong() != Agent.epoch)) return;
       CommunityTasks.result(tool, result);
       RuntimeStrategy.result(tool, result);
       r.addProperty("finished", java.time.Instant.now().toString());

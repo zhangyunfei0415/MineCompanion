@@ -4,8 +4,19 @@ import com.google.gson.JsonObject;
 
 /** Recovery is separate from ordinary game actions and never grants takeover. */
 final class PauseControl {
-  static boolean harnessPaused;
-  static String source = "none";
+  enum Source {
+    NONE, HUMAN, HARNESS, SYSTEM, DEATH_RECOVERY;
+  }
+
+  static Source source = Source.NONE;
+
+  static boolean mayResume(Source owner, boolean allowHumanPause) {
+    return owner == Source.HARNESS || owner == Source.HUMAN && allowHumanPause;
+  }
+
+  static void pauseFromHarness() {
+    if (!Agent.paused) Agent.pause(true, Source.HARNESS);
+  }
 
   static JsonObject observe() {
     var o = new JsonObject();
@@ -16,12 +27,12 @@ final class PauseControl {
         Agent.enabled
             && Agent.paused
             && !dead
-            && (harnessPaused || Store.config.harnessResumeHumanPause);
+            && mayResume(source, Store.config.harnessResumeHumanPause);
     o.addProperty(
         "paused_by",
         !Agent.paused
             ? HealthRecovery.active() ? "guard" : "none"
-            : dead ? "death_recovery" : harnessPaused ? "harness" : source);
+            : dead ? "death_recovery" : source.name().toLowerCase(java.util.Locale.ROOT));
     o.addProperty("can_resume", canResume);
     o.addProperty("harness_resume_human_pause", Store.config.harnessResumeHumanPause);
     o.addProperty(
@@ -29,9 +40,9 @@ final class PauseControl {
         dead
             ? "PLAYER_DEAD"
             : Agent.paused
-                ? harnessPaused
+                ? source == Source.HARNESS
                     ? "HARNESS_PAUSED"
-                    : "human".equals(source) ? "HUMAN_PAUSED" : "SYSTEM_PAUSED"
+                    : source == Source.HUMAN ? "HUMAN_PAUSED" : "SYSTEM_PAUSED"
                 : HealthRecovery.active() ? "HEALTH_GUARD" : "NONE");
     o.addProperty(
         "resume_requirement",
@@ -59,10 +70,23 @@ final class PauseControl {
   }
 
   static String resume() {
-    if (!observe().get("can_resume").getAsBoolean())
-      return "[RESUME_REQUIRES_PLAYER] " + observe().get("resume_hint").getAsString();
-    Agent.pause(false);
-    harnessPaused = false;
-    return "暂停已恢复；先观察当前阶段和原任务回执，不重放未确认动作";
+    var before = observe();
+    boolean allowed = before.get("can_resume").getAsBoolean();
+    if (allowed) Agent.pause(false);
+    return resumeReceipt(allowed ? observe() : before, allowed).toString();
+  }
+
+  static JsonObject resumeReceipt(JsonObject observed, boolean changed) {
+    boolean resumed = observed.get("paused_by").getAsString().equals("none")
+        && observed.get("resume_requirement").getAsString().equals("none");
+    var result = observed.deepCopy();
+    result.addProperty("status", resumed ? "verified" : "rejected");
+    result.addProperty("reason_code", resumed ? "NONE" : "RESUME_REQUIRES_PLAYER");
+    result.addProperty("business_success", resumed);
+    result.addProperty("changed", changed);
+    result.addProperty("detail", resumed
+        ? changed ? "暂停已恢复；先重新观察并查询原任务回执" : "当前无需恢复"
+        : observed.get("resume_hint").getAsString());
+    return result;
   }
 }

@@ -55,6 +55,7 @@ public final class ResourceTask {
   public ResourceTask(
       String block, int count, int radius, boolean wood, String delivery, Consumer<String> done) {
     this.delivery = delivery == null ? "" : Rules.clean(delivery.trim(), 128);
+    Actions.requireDeliveryDimension(this.delivery);
     this.block = block;
     identifyDrops();
     this.count = count;
@@ -366,6 +367,12 @@ public final class ResourceTask {
     d.addProperty("mined", mined);
     d.addProperty("requested", count);
     d.addProperty("delivery", delivery);
+    d.addProperty("delivery_configured", !delivery.isBlank());
+    d.addProperty("delivery_target", delivery);
+    d.addProperty("delivery_transfer_state", phase);
+    if (resourceBaseline != null && finalInventory != null && gatheredProof)
+      d.add("pending_cargo", Store.GSON.toJsonTree(
+          GatheringCargo.available(resourceBaseline, finalInventory, this::allowedCargo)));
     d.add("delivered", Store.GSON.toJsonTree(delivered));
     RecoveryLedger.put("resource", phase, uncertain, d, dimension);
   }

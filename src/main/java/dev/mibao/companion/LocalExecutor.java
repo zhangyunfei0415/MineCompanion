@@ -8,6 +8,8 @@ public final class LocalExecutor {
   private static ExecutionPolicy.Lane lane = ExecutionPolicy.Lane.REST;
 
   private static void interruptInput(String message) {
+    FollowControl.suspend(message);
+    if (Actions.job instanceof MiningRouteJob route) route.suspendInput(message);
     if (Actions.job instanceof BaritoneMiningJob mining) mining.interruptedBy(message);
     if (Actions.job instanceof UseHandJob use) use.suspend();
     if (Actions.job instanceof PlatformJob building) building.interruptedBy(message);
@@ -80,6 +82,11 @@ public final class LocalExecutor {
     if (!defending) Actions.tick();
     Perception.tick();
     if (!defending) Agent.tick();
+    if (!defending && FollowControl.active()) {
+      if (mc.screen != null || HarnessController.busy() || !Agent.task.isBlank())
+        FollowControl.suspend("等待当前任务或界面结束");
+      else FollowControl.tick();
+    }
   }
 
   public static JsonObject observe() {
@@ -94,6 +101,7 @@ public final class LocalExecutor {
     if (Rules.actionFailed(problem)) o.add("recovery_advice", FailureAdvice.json(problem));
     if (Agent.session != null) o.add("work_session", Agent.session.observe());
     o.add("recovery", HealthRecovery.observe());
+    o.add("follow", FollowControl.status());
     o.add("pickup", CollectionJob.diagnostic());
     return o;
   }

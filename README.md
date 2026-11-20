@@ -8,7 +8,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## 下载与安装
 
-在 [Releases](https://github.com/zhangyunfei0415/MineCompanion/releases) 下载 `MineCompanion-0.8.2-Alpha.zip`，解压后将其中 `logistics-companion-0.8.2.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。ZIP 附带许可证与第三方源码资料。使用 Java 17，Forge 47.4.x。首次安装或升级时关闭游戏，并备份旧配置与记忆。
+在 [0.8.4 Alpha 发布页](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.4) 下载 `MineCompanion-0.8.4-Alpha.zip`。退出游戏后，将其中的 `logistics-companion-0.8.4.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。使用 Java 17 和 Forge 47.4.x。升级前备份旧 JAR、设置和记忆。安装 ZIP 随附许可证与第三方源码。
 
 模组显示名和内部 ID 暂沿用 Logistics Companion / `logistics_companion`，公开项目名采用 MineCompanion。
 
@@ -23,6 +23,15 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 - 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
 - 原有近战、自卫与弓箭执行功能。
 
+### 0.8.4 新增
+
+- 授权玩家可以用 `@小勤 跟着我` 启动跟随。下界与末地陪伴会记住当前观察到的门，沿安全路线接近，并在过门后尝试与同一玩家会合。
+- 内置原版开局、采铁归仓返矿和临时营地三套技能，支持本存档的命名地点。
+- 增加成熟可可、地狱疣、甜浆果、蜂箱采收、短程船和鞘翅、睡眠和指定物品回收。
+- 增加六类原版工作站的产物入包核验，完善已打开的工作站复用、采矿交付维度和转移错误回执。
+
+具体用法和实机验收场景见 [0.8.4 功能与验收说明](RELEASE-0.8.4-VANILLA-SURVIVAL-20261120.md)。
+
 ### 0.8.2 新增
 
 连续采矿、工具准备、产物账本和归仓；可选云端/本地判断接口；扩展日常动作候选、暂停与死亡恢复诊断、自绘 GUI 语义选项。最新构建补充熔炼投料前燃料核算、中止材料归属证据、菜单共享视图和采矿阻挡恢复建议。
@@ -35,11 +44,11 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## Alpha 状态
 
-当前版本为 **0.8.2 / smelt-recovery-20261117-01**。Windows 开发环境编译通过，116 个 JUnit 测试类、619 项测试通过。
+当前版本为 **0.8.4 / vanilla-survival-20261120-01**。Windows 开发环境编译通过，645 项自动化测试通过。
 
-已有实机记录覆盖箱子和熔炉、交易、酿造、弓弩、Baritone 长距，以及判断层调用等场景。本次熔炼、共享菜单视图及采矿恢复修改仍需游戏内复测，原报告的物品缺口尚未实机重现。模组兼容性取决于版本、菜单同步方式和服务器规则。
+已有实机记录覆盖基础跟随、采矿、熔炼、采收、酿造、附魔与铁砧。0.8.4 的自动过门会合、新生存技能和短程飞行还待实机复核。模组兼容性取决于版本、菜单同步方式和服务器规则。
 
-钓鱼初版需要预先站稳岸边、面向水面并准备鱼竿。照明初版为普通火把的区域任务，后续继续扩展随行照明、自动补料和复杂地形恢复。
+区域照明支持指定火把补料箱，钓鱼可以搜索已加载水面及岸边并处理换竿和卸货。连续卸货、随行照明和复杂地形恢复仍需按场景复核。
 
 ## 快速开始
 

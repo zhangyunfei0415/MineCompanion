@@ -35,6 +35,7 @@ final class LandingSafety {
     boolean supported = !mc.level.noCollision(mc.player, support);
     var feet = BlockPos.containing(x, y, z);
     var below = feet.below();
+    var blockers = new com.google.gson.JsonArray();
     boolean hazard = false;
     for (var p :
         BlockPos.betweenClosed(
@@ -43,6 +44,16 @@ final class LandingSafety {
       var state = mc.level.getBlockState(p);
       String id =
           net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+      if (!clear && blockers.size() < 8
+          && state.getCollisionShape(mc.level, p).toAabbs().stream()
+              .anyMatch(shape -> shape.move(p.getX(), p.getY(), p.getZ()).intersects(box))) {
+        var blocker = new JsonObject();
+        blocker.addProperty("x", p.getX());
+        blocker.addProperty("y", p.getY());
+        blocker.addProperty("z", p.getZ());
+        blocker.addProperty("block", id);
+        blockers.add(blocker);
+      }
       hazard |=
           !state.getFluidState().isEmpty()
               || java.util.Set.of(
@@ -60,6 +71,10 @@ final class LandingSafety {
     o.addProperty("clear_body", clear);
     o.addProperty("supported", supported);
     o.addProperty("hazard", hazard);
+    if (!clear) {
+      o.add("blocked_by", blockers);
+      o.addProperty("suggested_tool", "column_probe");
+    }
     o.addProperty(
         "support_block",
         net.minecraft.core.registries.BuiltInRegistries.BLOCK

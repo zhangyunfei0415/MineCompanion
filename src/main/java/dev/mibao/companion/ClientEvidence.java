@@ -10,10 +10,14 @@ public final class ClientEvidence {
   private static final String NAME = "logistics_companion_evidence";
   private static ClientPacketListener attached;
   private static boolean warned;
+  static long experienceRevision;
+  static int experienceLevel;
 
   public static void reset() {
     attached = null;
     warned = false;
+    experienceRevision = 0;
+    experienceLevel = -1;
     PlayerEvidence.reset();
     CombatEvidence.reset();
     InventoryEvidence.reset();
@@ -88,6 +92,11 @@ public final class ClientEvidence {
                         };
                   } else if (msg instanceof ClientboundSetHealthPacket p) {
                     receipt = () -> InventoryEvidence.health(p.getFood());
+                  } else if (msg instanceof ClientboundSetExperiencePacket p) {
+                    receipt = () -> {
+                      experienceLevel = p.getExperienceLevel();
+                      experienceRevision++;
+                    };
                   } else if (msg instanceof ClientboundDamageEventPacket p) {
                     receipt = () -> CombatEvidence.damage(p);
                   } else if (msg instanceof ClientboundEntityEventPacket p) {

@@ -27,6 +27,11 @@ public final class MiningExpedition extends Actions.Job {
   private final BlockPos home;
   private final JsonObject definition;
   private final JsonObject request;
+  private final List<String> deliveryTargets;
+  private int deliveryIndex;
+  private String transferState = "idle";
+  private JsonObject confirmedDestination;
+  private Map<String, Integer> pendingCargo = Map.of();
   private InventorySession sync = new InventorySession(false);
   private Map<String, Integer> baseline = Map.of(), batchBefore = Map.of();
   private List<BlockPos> batch = List.of();
@@ -42,6 +47,7 @@ public final class MiningExpedition extends Actions.Job {
       torchSupplies,
       moveFailures;
   private boolean pending, ended, finishing, compacted;
+  private int observedFreeSlots = -1;
   private boolean unknownWrite;
   private String childTool = "";
 
@@ -54,6 +60,9 @@ public final class MiningExpedition extends Actions.Job {
       normalized.addProperty("delivery", Store.data.resourceDelivery);
     if (!normalized.has("source")) normalized.addProperty("source", Store.data.productionSource);
     spec = MiningSpec.parse(normalized);
+    deliveryTargets = deliveries(normalized, spec.delivery());
+    if (!deliveryTargets.isEmpty() && deliveryTargets.stream().allMatch(Actions::otherDimension))
+      Actions.requireDeliveryDimension(deliveryTargets.get(0));
     if (spec.terrain().equals("modify") && !NavigationPermissions.canBreak())
       throw new IllegalArgumentException(
           "[NAVIGATION_BREAK_DISABLED] F8 / 设置 / 权限与行为：关闭仅绕行，并允许导航破坏及采集，或选择完全放权；terrain=detour可绕行");
@@ -62,6 +71,8 @@ public final class MiningExpedition extends Actions.Job {
       throw new IllegalArgumentException("[INVALID_ARGUMENT] job_id为1..80字母数字/._-");
     boolean resume = args.has("resume") && args.get("resume").getAsBoolean();
     definition = Store.GSON.toJsonTree(spec).getAsJsonObject();
+    if (deliveryTargets.size() > 1)
+      definition.add("delivery_targets", Store.GSON.toJsonTree(deliveryTargets));
     request = normalized.deepCopy();
     request.remove("resume");
     request.remove("job_id");
@@ -79,6 +90,8 @@ public final class MiningExpedition extends Actions.Job {
       baseline = quantities(old.getAsJsonObject("baseline"));
       ledger.received.putAll(quantities(old.getAsJsonObject("received")));
       ledger.delivered.putAll(quantities(old.getAsJsonObject("delivered")));
+      if (old.get("last_verified_delivery") instanceof JsonObject saved)
+        confirmedDestination = saved.deepCopy();
       for (var value : old.getAsJsonArray("broken")) broken.add(position(value.getAsJsonArray()));
     } else if (Store.data.checkpoints.keySet().stream().filter(k -> k.startsWith("mining:")).count()
         >= 128) throw new IllegalArgumentException("[MINING_LEDGER_FULL] 已有128项作业，请备份整理检查点");
@@ -97,6 +110,44 @@ public final class MiningExpedition extends Actions.Job {
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
+  }
+
+  private static List<String> deliveries(JsonObject args, String primary) {
+    if (!args.has("delivery_fallbacks"))
+      return primary.isBlank() ? List.of() : List.of(primary);
+    if (primary.isBlank() || !(args.get("delivery_fallbacks") instanceof JsonArray choices)
+        || choices.size() > 4)
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 备用交付点需要主交付点，最多4个");
+    var names = new LinkedHashSet<String>();
+    names.add(primary);
+    for (var choice : choices) {
+      if (!(choice instanceof JsonPrimitive p) || !p.isString()
+          || p.getAsString().isBlank() || p.getAsString().length() > 160)
+        throw new IllegalArgumentException("[INVALID_ARGUMENT] 备用交付点须为命名地点或已观察对象ID");
+      names.add(p.getAsString().strip());
+    }
+    return List.copyOf(names);
+  }
+
+  private JsonObject deliveryLocation(String name) {
+    var location = new JsonObject();
+    location.addProperty("name", name);
+    String knownDimension = Actions.namedDimension(name);
+    if (!knownDimension.isBlank()) location.addProperty("dimension", knownDimension);
+    try {
+      var lookup = new JsonObject();
+      lookup.addProperty("place", name);
+      var pos = Actions.target(lookup);
+      location.addProperty("dimension", dimension);
+      location.addProperty("x", pos.getX());
+      location.addProperty("y", pos.getY());
+      location.addProperty("z", pos.getZ());
+      location.addProperty("resolved", true);
+    } catch (IllegalArgumentException e) {
+      location.addProperty("resolved", false);
+      location.addProperty("detail", Rules.clean(e.getMessage(), 160));
+    }
+    return location;
   }
 
   private static BlockPos position(JsonArray array) {
@@ -159,6 +210,7 @@ public final class MiningExpedition extends Actions.Job {
 
   static void cancelActive() {
     if (latest != null && !latest.ended) {
+      latest.observeFreeSlots();
       latest.ended = true;
       latest.phase = "cancelled";
       latest.card.outcome = "cancelled";
@@ -429,7 +481,8 @@ public final class MiningExpedition extends Actions.Job {
       end(MINING_FOOD_REQUIRED, "采矿补给不足，需要普通食物或指定补料箱中的面包");
       return;
     }
-    if (freeSlots() < spec.freeSlots()) {
+    int available = freeSlots();
+    if (available < spec.freeSlots()) {
       if (!compacted) {
         compacted = true;
         dispatch("organize_inventory", new JsonObject(), r -> phase = "choose");
@@ -440,7 +493,7 @@ public final class MiningExpedition extends Actions.Job {
         phase = "unload";
         return;
       }
-      end(NO_CAPACITY, "背包空间不足，当前没有可交付的本批产物或未指定交付箱");
+      end(NO_CAPACITY, spec.capacityBlockDetail(available));
       return;
     }
     compacted = false;
@@ -585,6 +638,13 @@ public final class MiningExpedition extends Actions.Job {
     return count;
   }
 
+  private void observeFreeSlots() {
+    if (mc().level == world && mc().player != null) {
+      observedFreeSlots = freeSlots();
+      pendingCargo = ledger.cargo(baseline, PlayerEvidence.actual("*"));
+    }
+  }
+
   private boolean matchesOutput(String fp) {
     return spec.item().equals(fp) || !spec.item().contains("#") && fp.startsWith(spec.item() + "#");
   }
@@ -633,24 +693,39 @@ public final class MiningExpedition extends Actions.Job {
     }
     var entry = cargo.entrySet().iterator().next();
     int amount = Math.min(64, entry.getValue());
-    var args = new JsonObject();
-    args.addProperty("place", spec.delivery());
+    var destination = deliveryLocation(deliveryTargets.get(deliveryIndex));
+    if (!destination.get("resolved").getAsBoolean()) {
+      transferNotStarted(Agent.str(destination, "detail", "交付点无法解析"));
+      return;
+    }
+    var args = destination.deepCopy();
     args.addProperty("item", entry.getKey());
     args.addProperty("count", amount);
+    var key = WorldMemory.key(dimension, args.get("x").getAsInt(), args.get("y").getAsInt(),
+        args.get("z").getAsInt());
     Actions.lastTransfer = null;
+    transferState = "pending";
     dispatch(
         "deposit",
         args,
         result -> {
           var receipt = Actions.lastTransfer;
           boolean valid =
-              receipt != null && receipt.epoch() == epoch && receipt.item().equals(entry.getKey());
+              receipt != null && receipt.epoch() == epoch && receipt.item().equals(entry.getKey())
+                  && receipt.object().equals(key);
           boolean full =
               valid && ledger.transfer(entry.getKey(), amount, receipt.moved(), receipt.deposit());
           if (Rules.actionFailed(result) || !full) {
-            end(MINING_TRANSFER_UNCONFIRMED, result);
+            if (receipt == null && result.startsWith("失败：[TRANSFER_NOT_STARTED] ")) {
+              transferNotStarted(result);
+            } else {
+              transferState = "unconfirmed";
+              end(MINING_TRANSFER_UNCONFIRMED, result);
+            }
             return;
           }
+          transferState = "verified";
+          confirmedDestination = destination;
           checkpoint("delivery_verified", false);
           if (progress() >= spec.count()) {
             finishing = true;
@@ -658,6 +733,18 @@ public final class MiningExpedition extends Actions.Job {
           }
           phase = "unload";
         });
+  }
+
+  private void transferNotStarted(String detail) {
+    unknownWrite = false;
+    transferState = "not_started";
+    lastGuard = Rules.clean(detail, 300);
+    if (deliveryIndex + 1 < deliveryTargets.size()) {
+      deliveryIndex++;
+      phase = "unload";
+    } else {
+      end(NO_PATH, "尚未开始交付；已核实待交付物品仍在背包。原因：" + detail);
+    }
   }
 
   private void dispatch(String tool, JsonObject args, Consumer<String> continuation) {
@@ -719,6 +806,7 @@ public final class MiningExpedition extends Actions.Job {
   }
 
   JsonObject status() {
+    if (!ended) observeFreeSlots();
     var value = new JsonObject();
     value.addProperty("job_id", id);
     value.addProperty("dimension", dimension);
@@ -726,6 +814,18 @@ public final class MiningExpedition extends Actions.Job {
     value.addProperty("progress", progress());
     value.addProperty("goal", spec.goal());
     value.addProperty("requested", spec.count());
+    if (observedFreeSlots >= 0) value.addProperty("free_slots", observedFreeSlots);
+    value.addProperty("required_slots", spec.freeSlots());
+    value.addProperty("delivery_configured", !spec.delivery().isBlank());
+    value.addProperty("delivery_transfer_state", transferState);
+    value.add("pending_cargo", Store.GSON.toJsonTree(pendingCargo));
+    if (!deliveryTargets.isEmpty() && mc().level == world) {
+      value.add("delivery_target", deliveryLocation(deliveryTargets.get(deliveryIndex)));
+      var options = new JsonArray();
+      deliveryTargets.forEach(name -> options.add(deliveryLocation(name)));
+      value.add("delivery_targets", options);
+    }
+    if (confirmedDestination != null) value.add("last_verified_delivery", confirmedDestination.deepCopy());
     value.addProperty("broken_verified", broken.size());
     value.addProperty("pending", pending);
     value.addProperty("uncertain", pending || unknownWrite);
@@ -752,7 +852,8 @@ public final class MiningExpedition extends Actions.Job {
         && latest != null
         && latest.scope.equals(Store.scope())
         && latest.dimension.equals(mc().level.dimension().location().toString())
-        && (requested.isBlank() || latest.id.equals(requested))) return latest.status();
+        && (requested.isBlank() || latest.id.equals(requested)))
+      return requested.isBlank() ? addResourceStatus(latest.status()) : latest.status();
     if (requested.isBlank()) {
       var result = new JsonObject();
       var ids = new JsonArray();
@@ -762,7 +863,7 @@ public final class MiningExpedition extends Actions.Job {
           .forEach(k -> ids.add(k.substring(7)));
       result.add("job_ids", ids);
       result.addProperty("active", false);
-      return result;
+      return addResourceStatus(result);
     }
     var saved = Store.data.checkpoints.get("mining:" + requested);
     if (saved == null) throw new IllegalArgumentException("[MINING_JOB_UNKNOWN] 没有此世界采矿记录");
@@ -772,8 +873,17 @@ public final class MiningExpedition extends Actions.Job {
     return copy;
   }
 
+  private static JsonObject addResourceStatus(JsonObject result) {
+    if (mc().level != null) {
+      var resource = Store.data.checkpoints.get(mc().level.dimension().location() + "|resource");
+      if (resource != null) result.add("last_resource", resource.deepCopy());
+    }
+    return result;
+  }
+
   private void end(ActionResult.Code reason, String detail) {
     if (ended) return;
+    observeFreeSlots();
     boolean verified = progress() >= spec.count() && reason == NONE;
     phase = verified ? "complete" : "partial";
     ended = true;

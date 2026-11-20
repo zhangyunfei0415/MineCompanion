@@ -21,6 +21,40 @@ class WorkspaceTest {
   }
 
   @Test
+  void followOrdersRecognizeOnlyCompleteCommands() {
+    assertEquals(new ChatCommand.Follow(ChatCommand.FollowAction.START, ""),
+        ChatCommand.follow(" 跟我来！ "));
+    assertEquals(new ChatCommand.Follow(ChatCommand.FollowAction.START, "Lmao"),
+        ChatCommand.follow("跟随玩家　Lmao"));
+    assertEquals(ChatCommand.FollowAction.STOP, ChatCommand.follow("停止跟随").action());
+    assertEquals(ChatCommand.FollowAction.STATUS, ChatCommand.follow("跟随状态").action());
+    assertNull(ChatCommand.follow("先别跟我"));
+    assertNull(ChatCommand.follow("跟随 Lmao 后去采矿"));
+  }
+
+  @Test
+  void remoteFollowOrderMustStartThePlayersOwnMessage() {
+    assertEquals("跟我", ChatCommand.followMention(" ＠小勤：跟我！", "小勤"));
+    assertEquals("停止跟随", ChatCommand.followMention("@小勤 停止跟随", "小勤"));
+    assertEquals("", ChatCommand.followMention("<Alice> @小勤 跟我", "小勤"));
+    assertEquals("", ChatCommand.followMention("我刚才说过 @小勤 跟我", "小勤"));
+    assertEquals("", ChatCommand.followMention("@小勤甲 跟我", "小勤"));
+  }
+
+  @Test
+  void naturalFollowAndPortalOrdersDoNotCaptureCompoundGoals() {
+    assertEquals("跟着我", ChatCommand.followMention("@小勤 跟着我", "小勤"));
+    assertEquals(new ChatCommand.Follow(ChatCommand.FollowAction.PORTAL, "end"),
+        ChatCommand.follow("进入末地传送门"));
+    assertTrue(ChatCommand.incompleteFollow("跟随一下"));
+    assertFalse(ChatCommand.incompleteFollow("跟着我去挖铁"));
+    assertNull(ChatCommand.follow("跟着我去挖铁"));
+    assertTrue(FollowPolicy.freshPortal(120));
+    assertFalse(FollowPolicy.freshPortal(121));
+    assertFalse(FollowPolicy.freshPortal(-1));
+  }
+
+  @Test
   void editingMisspelledNameUsesStableRecord() {
     var members = new ArrayList<CommunityBoard.Member>();
     var a = MemberDirectory.save(members, "", "Alicee", "", "MEMBER", "", "DEFAULT");

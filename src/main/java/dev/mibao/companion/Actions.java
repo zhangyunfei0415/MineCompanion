@@ -58,7 +58,7 @@ public final class Actions {
 
     void stop() {
       Navigator.release();
-      if (mc().gameMode != null) mc().gameMode.stopDestroyBlock();
+      if (mc().player != null && mc().gameMode != null) mc().gameMode.stopDestroyBlock();
     }
 
     String interrupted() {
@@ -78,16 +78,26 @@ public final class Actions {
   }
 
   public static void cancel() {
-    MiningExpedition.cancelActive();
-    AgentPointer.clear();
-    if (job != null) {
-      String message = job.interrupted();
-      job.stop();
-      if (!message.isBlank()) Companion.notifyUser(message);
+    try {
+      MiningExpedition.cancelActive();
+      AgentPointer.clear();
+      var interrupted = job;
+      if (interrupted != null) {
+        String message;
+        try {
+          message = interrupted.interrupted();
+        } catch (RuntimeException e) {
+          message = "动作已停止；现场证据读取失败，请重新观察。";
+        } finally {
+          interrupted.stop();
+        }
+        if (!message.isBlank()) Companion.notifyUser(message);
+      }
+    } finally {
+      job = null;
+      Navigator.release();
+      status = "已停止";
     }
-    job = null;
-    Navigator.release();
-    status = "已停止";
   }
 
   public static void tick() {
@@ -325,12 +335,11 @@ public final class Actions {
 
   public static JsonObject inspectMenu(int offset, int limit) {
     JsonObject result = inspectMenuContents(offset, limit);
-    result.addProperty("menu_sync", MenuContext.syncStatus());
     GuiContext.captureMenuSnapshot(result);
     return result;
   }
 
-  private static JsonObject inspectMenuContents(int offset, int limit) {
+  static JsonObject inspectMenuContents(int offset, int limit) {
     var menu = mc().player.containerMenu;
     JsonObject o = new JsonObject();
     o.addProperty("menu_id", menu.containerId);
@@ -344,6 +353,7 @@ public final class Actions {
     for (int i = Math.max(0, offset); i < Math.min(menu.slots.size(), offset + limit); i++)
       slots.add(describeSlot(i));
     o.add("slots", slots);
+    o.addProperty("menu_sync", MenuContext.syncStatus());
     return o;
   }
 
@@ -454,6 +464,30 @@ public final class Actions {
         };
   }
 
+  private static final java.util.regex.Pattern WORLD_POSITION =
+      java.util.regex.Pattern.compile("([a-z0-9_.-]+:[a-z0-9_./-]+)@(-?[0-9]{1,8}),(-?[0-9]{1,8}),(-?[0-9]{1,8})");
+
+  static String namedDimension(String name) {
+    var point = Store.data.world.get(name);
+    if (point != null) return java.util.Objects.toString(point.dimension, "");
+    var place = Store.data.places.get(name);
+    if (place != null) return java.util.Objects.toString(place.dimension, "");
+    var position = WORLD_POSITION.matcher(name);
+    return position.matches() ? position.group(1) : "";
+  }
+
+  static boolean otherDimension(String name) {
+    if (name.isBlank()) return false;
+    String dimension = namedDimension(name);
+    return !dimension.isBlank() && !dimension.equals(mc().level.dimension().location().toString());
+  }
+
+  static void requireDeliveryDimension(String name) {
+    if (otherDimension(name))
+      throw new IllegalArgumentException("[DELIVERY_OTHER_DIMENSION] 交付箱在 "
+          + namedDimension(name) + "：" + name + "。请指定当前维度的交付箱。");
+  }
+
   public static BlockPos target(JsonObject args) {
     if (args.has("x")
         && args.has("z")
@@ -474,20 +508,28 @@ public final class Actions {
       String name = Agent.str(args, "object", Agent.str(args, "place", ""));
       var point = Store.data.world.get(name);
       if (point != null) {
-        if (!point.dimension.equals(mc().level.dimension().location().toString()))
-          throw new IllegalArgumentException("对象在其他维度");
+        if (otherDimension(name))
+          throw new IllegalArgumentException("[TARGET_OTHER_DIMENSION] 对象在 " + point.dimension);
         if (!point.present) throw new IllegalArgumentException("对象已被观察为消失，请重新查询");
         return new BlockPos(point.x, point.y, point.z);
       }
       var place = Store.data.places.get(name);
+      if (otherDimension(name))
+        throw new IllegalArgumentException("[TARGET_OTHER_DIMENSION] 地点在 " + namedDimension(name));
+      var position = WORLD_POSITION.matcher(name);
+      if (place == null && position.matches())
+        return new BlockPos(Integer.parseInt(position.group(2)), Integer.parseInt(position.group(3)),
+            Integer.parseInt(position.group(4)));
       if (place == null)
         throw new IllegalArgumentException("未知地点/对象，请先 scan_world 或 query_world 查询");
-      if (!place.dimension.equals(mc().level.dimension().location().toString()))
-        throw new IllegalArgumentException("地点位于其他维度，请先人工带往该维度");
       return place.pos();
     }
+    if (!args.has("x") || !args.has("y") || !args.has("z"))
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 请指定 place、object 或完整 x/y/z");
     return new BlockPos(
-        args.get("x").getAsInt(), args.get("y").getAsInt(), args.get("z").getAsInt());
+        SkillCatalog.bounded(args, "x", 0, -30_000_000, 30_000_000),
+        SkillCatalog.bounded(args, "y", 0, -30_000_000, 30_000_000),
+        SkillCatalog.bounded(args, "z", 0, -30_000_000, 30_000_000));
   }
 
   public static void transfer(

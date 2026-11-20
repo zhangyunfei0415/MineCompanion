@@ -24,6 +24,7 @@ public final class ToolMenu {
           "finish",
           "say",
           "go_to",
+          "plan_mining",
           "query_world",
           "inspect_block",
           "list_library",
@@ -34,6 +35,9 @@ public final class ToolMenu {
           "recovery_status");
   private static final Map<String, Set<String>> PROFILES =
       Map.of(
+          "follow",
+              Set.of("follow_targets", "follow_start", "follow_status", "follow_stop",
+                  "follow_enter_portal", "inspect_client"),
           "logistics",
               Set.of(
                   "inventory_memory",
@@ -68,6 +72,9 @@ public final class ToolMenu {
                   "plan_recipe",
                   "craft_item",
                   "smelt_item",
+                  "brew_batch",
+                  "enchant_item",
+                  "anvil_item",
                   "prepare_workshop",
                   "open_container",
                   "fetch",
@@ -108,6 +115,8 @@ public final class ToolMenu {
                   "light_survey",
                   "mine_resource",
                   "mine_expedition",
+                  "preview_mining_route",
+                  "excavate_mine_route",
                   "mining_status",
                   "mine_batch",
                   "collect_mined",
@@ -169,11 +178,15 @@ public final class ToolMenu {
   public static String profile(String task) {
     String text = (task == null ? "" : task).toLowerCase(Locale.ROOT);
     if (!override.isBlank() && overrideTask.equals(text)) return override;
+    if (text.matches("(?s).*(跟随|陪伴|跟着|一起去下界|一起去末地).*")) return "follow";
+    if (text.startsWith("采矿委托：")
+        || text.matches("(?s).*(采矿|矿道|矿井|矿脉|开矿|挖矿|挖.{0,12}(钻石|铁矿|煤矿|铜矿|红石)|下挖).*"))
+      return "gathering";
     if (text.matches("(?s).*(指令|创造|/give|/home|传送).*")) return "commands";
     if (text.matches("(?s).*(任务书|gui|界面|按钮).*")) return "gui";
-    if (text.matches("(?s).*(ae|rs|样板|配方|合成|做饭|烹饪|生产|熔炼|机器).*")) return "production";
+    if (text.matches("(?s).*(ae|rs|样板|配方|合成|做饭|烹饪|生产|熔炼|酿造|抗火药水|治疗药水|机器|附魔|铁砧|改名|修理).*")) return "production";
     if (text.matches("(?s).*(平台|搭建|建造|桥|照明|火把).*")) return "construction";
-    if (text.matches("(?s).*(农|种|收割|骨粉|田|作物).*")) return "farming";
+    if (text.matches("(?s).*(农|种|收割|骨粉|田|作物|甘蔗|竹子|仙人掌|南瓜|西瓜).*")) return "farming";
     if (text.matches("(?s).*(战斗|攻击|防身|怪).*")) return "combat";
     if (text.matches("(?s).*(采|挖|矿|砍|木|拾取|收集|钓鱼|fishing).*")) return "gathering";
     return "logistics";
@@ -183,7 +196,7 @@ public final class ToolMenu {
     if (!requested.equals("all") && !requested.equals("auto") && !PROFILES.containsKey(requested))
       throw new IllegalArgumentException(
           "[INVALID_ARGUMENT]"
-              + " profile=auto/logistics/farming/production/construction/gathering/combat/gui/commands/all");
+              + " profile=auto/follow/logistics/farming/production/construction/gathering/combat/gui/commands/all");
     override = requested.equals("auto") ? "" : requested;
     overrideTask = (task == null ? "" : task).toLowerCase(Locale.ROOT);
     var out = new JsonObject();
@@ -195,10 +208,13 @@ public final class ToolMenu {
   public static JsonArray select(JsonArray all, String task, Set<String> installed) {
     String profile = profile(task);
     var allowed = PROFILES.getOrDefault(profile, Set.of());
+    boolean columnCrops = profile.equals("farming") && task != null
+        && task.matches("(?is).*(甘蔗|竹子|仙人掌|南瓜|西瓜|非耕地|sugar_cane|bamboo|cactus|pumpkin|melon).*");
     var out = new JsonArray();
     for (var el : all) {
       String tool = el.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
-      if (!profile.equals("all") && !COMMON.contains(tool) && !allowed.contains(tool)) continue;
+      if (!profile.equals("all") && !COMMON.contains(tool) && !allowed.contains(tool)
+          && !(columnCrops && tool.equals("harvest_plants"))) continue;
       String dep = CapabilityCatalog.dependency(tool);
       if (!dep.isBlank() && !installed.contains(dep)) continue;
       out.add(el.deepCopy());

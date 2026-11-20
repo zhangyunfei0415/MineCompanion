@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "id": "builtin:survival-mine-return",
+  "name": "生存采铁与归仓返矿",
+  "version": "1",
+  "author": "MineCompanion",
+  "license": "project-original",
+  "minecraft": "1.20.1",
+  "description": "采露头铁矿、回生产区熔炼并交付铁锭、制作火把、返回矿点照明。需要石镐、可达矿点、已标记补料箱和交付箱，补料箱备燃料、煤或木炭与木棍。",
+  "parameters": {
+    "mine": {"type": "string"},
+    "workshop": {"type": "string"},
+    "source": {"type": "string"},
+    "delivery": {"type": "string"},
+    "count": {"type": "integer", "default": 4, "min": 1, "max": 32}
+  },
+  "requires": ["go_to", "mine_resource", "smelt_item", "deposit", "craft_item", "illuminate_area"],
+  "seconds": 1200,
+  "steps": [
+    {"tool": "go_to", "args": {"place": "${mine}"}},
+    {"tool": "mine_resource", "args": {"block": "minecraft:iron_ore", "count": "${count}", "radius": 8, "delivery": ""}},
+    {"tool": "go_to", "args": {"place": "${workshop}"}},
+    {"tool": "smelt_item", "args": {"item": "minecraft:raw_iron", "count": "${count}", "source": "${source}"}},
+    {"tool": "deposit", "args": {"item": "minecraft:iron_ingot", "count": "${count}", "place": "${delivery}"}},
+    {"tool": "craft_item", "args": {"item": "minecraft:torch", "count": 16, "source": "${source}"}},
+    {"tool": "go_to", "args": {"place": "${mine}"}},
+    {"tool": "illuminate_area", "args": {"radius": 6, "count": 16, "min_light": 8, "source": "${source}"}}
+  ],
+  "verification": "核对粗铁来源、炉槽变化、交付箱新增、返矿位置和复扫方块光。产物不足时在失败阶段停止并检查现场。"
+}

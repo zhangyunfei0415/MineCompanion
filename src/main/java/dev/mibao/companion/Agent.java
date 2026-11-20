@@ -78,6 +78,7 @@ public final class Agent {
     controlDimension = mc().level.dimension().location().toString();
     enabled = true;
     paused = false;
+    PauseControl.source = PauseControl.Source.NONE;
     Hud.FEED.acknowledge();
     if (RestockTask.latest != null && RestockTask.latest.ended > 0) RestockTask.latest = null;
     state = "已接管，等待任务";
@@ -87,6 +88,8 @@ public final class Agent {
   }
 
   public static void cooperativeIntervention() {
+    DecisionService.invalidate();
+    TaskGateway.interruptActive("interrupted_unknown_result", "人工接手界面；请核对现场");
     TaskTimeline.add("human", "人工接手界面", "保留原目标；旧槽位事务不重放，交回后重新观察");
     String retained = task;
     calls.clear();
@@ -107,8 +110,7 @@ public final class Agent {
   }
 
   public static void manualPause() {
-    PauseControl.source = "human";
-    PauseControl.harnessPaused = false;
+    PauseControl.source = PauseControl.Source.HUMAN;
     DecisionService.invalidate();
     if (!enabled) return;
     lastEpochReason = "人工暂停，接管与连接保留";
@@ -129,21 +131,44 @@ public final class Agent {
   }
 
   public static void stop(String why) {
+    FollowControl.stop("跟随结束 · " + why);
     stopInternal(why, false);
   }
 
+  static void cancelSubmittedTask(String why) {
+    DecisionService.invalidate();
+    lastEpochReason = why;
+    ActionTrace.interrupted(why);
+    StreamProgress.cancel(why);
+    epoch++;
+    cancelActiveJobs();
+    if (request != null) request.cancel(true);
+    request = null;
+    clearPendingApproval();
+    calls.clear();
+    skillSteps.clear();
+    runningSkill = "";
+    task = "";
+    turns = 0;
+    busy = false;
+    Actions.cancel();
+    state = paused ? "任务已取消 · 保持暂停" : "任务已取消 · 等待新任务";
+    Companion.notifyUser(why);
+  }
+
   static void suspendForDeath() {
-    PauseControl.harnessPaused = false;
+    FollowControl.beforeDeath();
     DecisionService.invalidate();
     stopInternal("角色死亡，旧作业已作废；按已选策略等待正常重生", true, true);
     paused = true;
-    PauseControl.source = "death_recovery";
+    PauseControl.source = PauseControl.Source.DEATH_RECOVERY;
   }
 
   static void resumeAfterDeath(String retained) {
     controlDimension = mc().level.dimension().location().toString();
     task = retained;
     paused = false;
+    PauseControl.source = PauseControl.Source.NONE;
     history.clear();
     if (!retained.isBlank())
       history.add(
@@ -155,6 +180,7 @@ public final class Agent {
 
   /** Revoke external work without revoking the player's explicit takeover choice. */
   public static void harnessDisconnected(String why) {
+    FollowControl.stop("控制连接结束，已停止跟随");
     stopInternal(why, enabled);
   }
 
@@ -164,14 +190,12 @@ public final class Agent {
 
   private static void stopInternal(String why, boolean keepTakeover, boolean preserveHarness) {
     DecisionService.invalidate();
-    PauseControl.harnessPaused = false;
+    TaskGateway.interruptActive("interrupted_unknown_result", why);
     Cooperation.reset();
     lastEpochReason = why;
     if (enabled) CompanionIdentity.record("halt", why + "；未完成动作不自动恢复");
     CommunityTasks.halt();
     LogisticsRuntime.halt();
-    if (routine != null) routine.cancel();
-    routine = null;
     HealthRecovery.reset();
     CombatEvidence.cancelDefense();
     if (!keepTakeover) WatchMode.clear();
@@ -179,26 +203,17 @@ public final class Agent {
     ActionTrace.interrupted(why);
     StreamProgress.cancel(why);
     epoch++;
-    if (session != null) session.cancel();
-    session = null;
-    if (resource != null) resource.cancel();
-    resource = null;
-    if (production != null) production.cancel();
-    production = null;
-    if (transport != null) transport.cancel();
-    transport = null;
-    if (restock != null) restock.cancel();
-    restock = null;
+    cancelActiveJobs();
     paused = keepTakeover && paused;
-    rejection = null;
+    if (!paused) PauseControl.source = PauseControl.Source.NONE;
+    else if (!preserveHarness && PauseControl.source == PauseControl.Source.HARNESS)
+      PauseControl.source = PauseControl.Source.SYSTEM;
     if (request != null) request.cancel(true);
     request = null;
     if (enabled && !keepTakeover) mc().options.pauseOnLostFocus = oldPause;
     enabled = keepTakeover;
     busy = false;
-    approval = null;
-    pendingTool = "";
-    pendingArgs = "";
+    clearPendingApproval();
     calls.clear();
     skillSteps.clear();
     queuedTasks.clear();
@@ -211,7 +226,33 @@ public final class Agent {
     Store.save();
   }
 
+  private static void cancelActiveJobs() {
+    if (routine != null) routine.cancel();
+    routine = null;
+    if (session != null) session.cancel();
+    session = null;
+    if (resource != null) resource.cancel();
+    resource = null;
+    if (production != null) production.cancel();
+    production = null;
+    if (transport != null) transport.cancel();
+    transport = null;
+    if (restock != null) restock.cancel();
+    restock = null;
+  }
+
+  private static void clearPendingApproval() {
+    approval = null;
+    rejection = null;
+    pendingTool = "";
+    pendingArgs = "";
+    approvedTask = null;
+    approvedEpoch = -1;
+  }
+
   public static void interruptWorkForRecovery() {
+    DecisionService.invalidate();
+    TaskGateway.interruptActive("interrupted_unknown_result", "生命偏低，作业中止");
     if (routine != null) routine.cancel();
     routine = null;
     LogisticsRuntime.halt();
@@ -250,6 +291,7 @@ public final class Agent {
   public static void expireSession() {
     var active = session;
     if (active == null) return;
+    TaskGateway.interruptActive("interrupted_unknown_result", "连续流程总预算耗尽");
     ActionTrace.interrupted("连续流程总预算耗尽");
     if (resource != null) resource.cancel();
     resource = null;
@@ -269,6 +311,10 @@ public final class Agent {
 
   public static void approve(boolean yes) {
     Hud.FEED.acknowledge();
+    if (approval != null && yes && (paused || Cooperation.yielding())) {
+      Companion.notifyUser("请先继续 AI，再批准待执行操作。");
+      return;
+    }
     Runnable a = approval, no = rejection;
     approval = null;
     rejection = null;
@@ -294,15 +340,18 @@ public final class Agent {
   }
 
   public static void pause(boolean value) {
+    pause(value, PauseControl.Source.HUMAN);
+  }
+
+  static void pause(boolean value, PauseControl.Source owner) {
     DecisionService.invalidate();
-    PauseControl.harnessPaused = false;
     if (!enabled) {
       Companion.notifyUser(
           "AI 尚未接管，请先在 " + Companion.PANEL.getTranslatedKeyMessage().getString() + " 开启");
       return;
     }
     paused = value;
-    PauseControl.source = value ? "human" : "none";
+    PauseControl.source = value ? owner : PauseControl.Source.NONE;
     if (value && Actions.job instanceof UseHandJob use) use.suspend();
     Navigator.release();
     state = value ? "已暂停；继续后从当前步骤核实" : "已继续，正在核实现状";
@@ -315,6 +364,7 @@ public final class Agent {
         && !controlDimension.equals(mc().level.dimension().location().toString())) {
       String retained = task;
       int usedTurns = turns;
+      FollowControl.beforeDimensionChange();
       stopInternal("维度已切换；保留接管与目标，旧动作/菜单失效，先重新观察再规划", true, true);
       task = retained;
       turns = usedTurns;
@@ -435,6 +485,7 @@ public final class Agent {
       complete();
       return;
     }
+    if (FollowControl.active()) return;
     if (task.isBlank() && LogisticsRuntime.idle()) return;
     if (task.isBlank()
         && Store.config.playerAutonomy
@@ -471,6 +522,16 @@ public final class Agent {
   }
 
   public static void submit(String text, boolean local) {
+    var follow = local ? ChatCommand.follow(text) : null;
+    if (follow != null) {
+      FollowControl.command(follow, "", Companion::notifyUser);
+      return;
+    }
+    if (local && ChatCommand.incompleteFollow(text)) {
+      Companion.notifyUser("请说「跟随 玩家名」或先选人，再说「开始跟随」");
+      return;
+    }
+    if (local && !enabled) start();
     if (!enabled) {
       Companion.notifyUser("请先在面板点击 AI 接管");
       return;
@@ -510,6 +571,8 @@ public final class Agent {
     if (routine != null) routine.cancel();
     routine = null;
     lastEpochReason = "新任务接替";
+    DecisionService.invalidate();
+    TaskGateway.interruptActive("interrupted_unknown_result", lastEpochReason);
     ActionTrace.interrupted("新任务接替");
     epoch++;
     if (session != null) session.cancel();
@@ -524,6 +587,7 @@ public final class Agent {
     restock = null;
     RestockTask.latest = null;
     paused = false;
+    PauseControl.source = PauseControl.Source.NONE;
     rejection = null;
     if (request != null) request.cancel(true);
     busy = false;
@@ -1042,7 +1106,11 @@ public final class Agent {
         + recall("")
         + "；技能="
         + Store.data.skills.keySet()
-        + "。连续矿物补给优先mine_expedition，先明确goal=blocks/items/deliver和目标item。旧mine_resource的count仍是方块数；新作业可查mining_status区分实际产量、交付、未知步骤和历史记录。只允许在本世界命名来源取料；恢复须按返回request和job_id明确resume，不把未知动作直接重发。";
+        + "。陪伴指定玩家用follow_targets核对身份、follow_start绑定UUID、follow_status观察、follow_stop终止。下界和末地按陪伴预设，玩家带路。仅在玩家明确指示且门坐标已观察时才用follow_enter_portal，不根据目标消失猜门。抗火和治疗药水用brew_batch；附魔用enchant_item，铁砧改名或一次材料修理用anvil_item。普通原版工作站准备好材料后，使用最新观察的菜单与take_vanilla_output核对入包。成熟作物用harvest_plants，分别看切点、补种和拾取。生存开局、采铁返矿、临时营地可用list_library查生存技能并绑定地点；只有已观察且合适时才使用船、鞘翅和睡眠。"
+        + "采矿委托由你拆解并选择挖法，玩家只需要说目标。先用plan_mining：矿物数量、拾取或送箱用collect，开通道用tunnel，下到某一层用descend，有主巷要开分支用branches。结合现有入口、指定方向、宽度、脚底高度和权限；未指定预设不提问。"
+        + "用report_plan简报选出的挖法与原因，先核对next_action和预览：支路缩短或跳过时按实际能做的范围汇报，用户要求的长度未达不能算完整。执行后核对回执。指定坐标须先到入口并站稳；指定采集地点也先走到现场。缺露头时先按观测换作业点；只有目标和授权允许开挖才做短段勘探。"
+        + "连续矿物不足时以completed_count和mining_status核对剩余需求；原作业可用返回的request和job_id恢复，不把未知回执当失败重放。先开矿道再采集时，施工不计产量；需要从终点继续时让中间段return_home=false，记住各段入口，再检测终点、采集、按任务要求返程。"
+        + "计划的remaining_depth_after_segment或remaining_length_after_segment大于零时，站稳后从实际前沿重新规划，扣除已花的总预算，最终按已通过的路线逐段返。复合任务如挖完再熔炼，可切换对应工具组继续。用户指定的方位、截面、预算、禁止破坏或交付限制均不可自行更改。只有缺关键目标或缺权限、路线持续不安全才询问。旧mine_resource的count仍是方块数。";
   }
 
   public static String recall(String query) {
@@ -1289,7 +1357,7 @@ public final class Agent {
     }
     if (HealthRecovery.restricted()
         && !HealthRecovery.allowed(tool)
-        && !java.util.Set.of("task_cancel", "pause_control", "decision_status", "permission_status")
+            && !java.util.Set.of("task_cancel", "decision_status", "permission_status")
             .contains(tool)) {
       done.accept("失败：[RECOVERY_REQUIRED] 生命恢复中，请先观察、进食或等待恢复。");
       return;
@@ -1364,6 +1432,8 @@ public final class Agent {
         done.accept("失败：[RECOVERY_REQUIRED] 生命恢复中，旧作业已停止；先观察、进食或等待恢复，不重复危险动作。");
         return;
       }
+      if (Rules.WRITE.contains(tool) && !tool.equals("follow_start") && !tool.equals("follow_enter_portal"))
+        FollowControl.suspend("等待当前任务安全完成");
       if (Set.of(
               "swim_out",
               "unstick",
@@ -1377,10 +1447,18 @@ public final class Agent {
               "chop_wood",
               "mine_batch",
               "mine_expedition",
+              "excavate_mine_route",
+              "harvest_plants",
+              "harvest_honey",
               "collect_mined",
               "place_block",
               "build_platform",
               "build_bridge",
+              "build_shelter",
+              "boat_to",
+              "elytra_land",
+              "rest_at_bed",
+              "recover_death_items",
               "use_hand",
               "fish",
               "illuminate_area",
@@ -1471,6 +1549,16 @@ public final class Agent {
         case "task_status", "task_result" ->
             done.accept(TaskGateway.receipt(SkillCatalog.required(a, "task_id")).toString());
         case "task_cancel" -> done.accept(TaskGateway.cancel(SkillCatalog.required(a, "task_id")));
+        case "follow_targets" -> done.accept(FollowControl.targets().toString());
+        case "follow_status" -> done.accept(FollowControl.status().toString());
+        case "follow_start" -> done.accept(FollowControl.start(a, false).toString());
+        case "follow_stop" -> done.accept(FollowControl.stopRequest(a).toString());
+        case "follow_enter_portal" -> done.accept(FollowControl.requestPortal(a).toString());
+        case "brew_batch" -> Actions.job = new BrewJob(a, done);
+        case "enchant_item" -> Actions.job = new VanillaGearJob(true, a, done);
+        case "anvil_item" -> Actions.job = new VanillaGearJob(false, a, done);
+        case "harvest_plants" -> Actions.job = new HarvestPlantsJob(a, done);
+        case "harvest_honey" -> Actions.job = new HiveJob(a, done);
         case "observe_compact" -> done.accept(AgentObservation.current().toString());
         case "command_skill_save" -> done.accept(CommandSkills.save(a));
         case "command_skill_bind" -> done.accept(CommandSkills.bind(a));
@@ -1638,9 +1726,7 @@ public final class Agent {
         case "decision_select" -> DecisionService.choose(a, done);
         case "resume_control" -> done.accept(PauseControl.resume());
         case "pause_control" -> {
-          pause(true);
-          PauseControl.harnessPaused = true;
-          PauseControl.source = "harness";
+          PauseControl.pauseFromHarness();
           done.accept(PauseControl.observe().toString());
         }
         case "inspect_client" ->
@@ -1800,13 +1886,18 @@ public final class Agent {
                     SkillCatalog.required(a, "item"),
                     SkillCatalog.bounded(a, "delay_ticks", 2, 1, 20),
                     done);
+        case "build_shelter" -> Actions.job = new ShelterJob(a, done);
+        case "boat_to" -> Actions.job = new BoatRouteJob(a, done);
+        case "elytra_land" -> Actions.job = new ElytraRouteJob(a, done);
+        case "rest_at_bed" -> Actions.job = new BedRestJob(a, done);
+        case "recover_death_items" -> Actions.job = new DeathReturnJob(a, done);
+        case "take_vanilla_output" -> Actions.job = new WorkstationOutputJob(a, done);
         case "place_block" ->
             Actions.job =
                 new PlaceJob(
                         SkillCatalog.required(a, "item"),
-                        a.has("x")
-                            ? new net.minecraft.core.BlockPos(
-                                a.get("x").getAsInt(), a.get("y").getAsInt(), a.get("z").getAsInt())
+                        a.has("place") || a.has("object") || a.has("x")
+                            ? Actions.target(a)
                             : null,
                         SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
                         WriteTrace.placed(done))
@@ -2096,6 +2187,9 @@ public final class Agent {
                       DropCapacityPolicy.allowGround(str(a, "drop_policy", "allow_ground")));
         }
         case "mine_expedition" -> Actions.job = new MiningExpedition(a, done);
+        case "plan_mining" -> done.accept(MiningPlanner.plan(a).toString());
+        case "preview_mining_route" -> done.accept(MiningRouteJob.preview(a).toString());
+        case "excavate_mine_route" -> Actions.job = new MiningRouteJob(a, done);
         case "mining_status" -> done.accept(MiningExpedition.inspect(a).toString());
         case "mine_batch" -> {
           if (a.has("expedition_id")) Actions.job = MiningExpedition.batch(a, done);
@@ -2199,7 +2293,7 @@ public final class Agent {
             Actions.transfer(
                 Actions.target(a),
                 str(a, "item", "*"),
-                Rules.bounded(number(a, "count", 64), 1, 4096),
+                transferCount(a),
                 tool.equals("deposit"),
                 done);
 
@@ -2422,6 +2516,14 @@ public final class Agent {
       return args.get("gui_view").getAsLong();
     } catch (RuntimeException e) {
       throw new IllegalArgumentException("[INVALID_ARGUMENT] gui_view须为整数");
+    }
+  }
+
+  private static int transferCount(JsonObject args) {
+    try {
+      return SkillCatalog.bounded(args, "count", 64, 1, 4096);
+    } catch (IllegalArgumentException invalidCount) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] count 必须为 1..4096 的整数");
     }
   }
 

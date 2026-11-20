@@ -35,7 +35,7 @@ public final class McpBridge {
       var connection = new JsonObject();
       connection.addProperty("url", "http://127.0.0.1:" + server.port() + "/mcp");
       connection.addProperty("token", Store.config.mcpToken);
-      connection.addProperty("version", "0.8.2");
+      connection.addProperty("version", BuildInfo.VERSION);
       connection.addProperty("build", BuildInfo.ID);
       Files.createDirectories(Store.ROOT);
       Files.writeString(DISCOVERY, connection.toString());
@@ -60,10 +60,10 @@ public final class McpBridge {
                     var o = new JsonObject();
                     o.addProperty("protocolVersion", "2025-03-26");
                     o.add("capabilities", JsonParser.parseString("{\"tools\":{}}"));
-                    o.add(
-                        "serverInfo",
-                        JsonParser.parseString(
-                            "{\"name\":\"logistics-companion\",\"version\":\"0.8.2\"}"));
+                    var serverInfo = new JsonObject();
+                    serverInfo.addProperty("name", "logistics-companion");
+                    serverInfo.addProperty("version", BuildInfo.VERSION);
+                    o.add("serverInfo", serverInfo);
                     result.complete(o);
                   }
                   case "ping" -> result.complete(new JsonObject());
@@ -117,7 +117,7 @@ public final class McpBridge {
     tool(
         a,
         "connect",
-        "Claim one 60-second control lease; owner must select HARNESS and enable AI in game");
+        "Claim the configured control lease; owner must select HARNESS and enable AI in game");
     tool(a, "heartbeat", "Renew lease; does not trigger actions", "lease:s!");
     tool(a, "stop", "Emergency stop; owner must re-enable AI in game afterward");
     tool(a, "release", "Release this controller and stop current work", "lease:s!");
@@ -126,7 +126,7 @@ public final class McpBridge {
         a,
         "events",
         "Read local user instructions and action events incrementally; truncated indicates a gap",
-        "lease:s!",
+        "lease:s",
         "after:i");
     tool(
         a,

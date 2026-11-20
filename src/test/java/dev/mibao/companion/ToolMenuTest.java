@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Test;
 
 class ToolMenuTest {
   @Test
+  void miningDelegationExposesThePlannerEvenInMixedTasks() {
+    var tools = names(ToolMenu.select(ToolSchemas.all(), "采矿委托：找铁矿并熔炼", Set.of()));
+    assertTrue(tools.containsAll(Set.of("plan_mining", "mine_expedition", "excavate_mine_route")));
+    assertEquals("gathering", ToolMenu.profile("从这里开矿道，暗处插火把"));
+  }
+  @Test
   void fieldSkillsAreDiscoverableInTheirTaskProfiles() {
     assertEquals("construction", ToolMenu.profile("给暗处插火把照明"));
     assertEquals("gathering", ToolMenu.profile("去钓鱼"));

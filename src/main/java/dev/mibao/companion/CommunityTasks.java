@@ -70,6 +70,17 @@ public final class CommunityTasks {
       TaskTimeline.add("command_rejected", "未授权成员：" + name, "");
       return;
     }
+    var follow = ChatCommand.follow(text);
+    if (follow != null) {
+      String mode = CommunityReport.mode(m.report, Store.config.teamReport);
+      FollowControl.command(follow, uuid, result -> Messages.teamReport(name, result, mode));
+      return;
+    }
+    if (ChatCommand.incompleteFollow(text)) {
+      Messages.teamReport(name, "请说「跟着我」「跟随 玩家名」或「停止跟随」",
+          CommunityReport.mode(m.report, Store.config.teamReport));
+      return;
+    }
     if (text.equals("停止") || text.equalsIgnoreCase("stop")) {
       Agent.stop("收到授权玩家 " + name + " 的停止指令");
       return;
@@ -124,7 +135,7 @@ public final class CommunityTasks {
     Store.save();
     Messages.teamReport(
         name,
-        "已接单 " + t.id + "，普通目标按顺序执行。",
+        "已接单 " + t.id + " · " + Rules.clean(text, 72),
         CommunityReport.mode(m.report, Store.config.teamReport));
   }
 

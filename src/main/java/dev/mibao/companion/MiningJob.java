@@ -27,6 +27,24 @@ public final class MiningJob extends Actions.Job {
   private final List<BlockPos> broken = new ArrayList<>();
   private boolean requireAxe, naturalTree;
   private boolean groundDrops;
+  private java.util.function.Predicate<BlockPos> routeGuard;
+  private java.util.function.Predicate<BlockPos> targetGuard;
+  private String collectionFilter = "*";
+
+  MiningJob withTargetGuard(java.util.function.Predicate<BlockPos> guard) {
+    targetGuard = guard;
+    return this;
+  }
+
+  MiningJob withCollectionFilter(String item) {
+    collectionFilter = item;
+    return this;
+  }
+
+  MiningJob fromRoute(java.util.function.Predicate<BlockPos> guard) {
+    routeGuard = guard;
+    return this;
+  }
 
   public MiningJob groundDrops(boolean value) {
     groundDrops = value;
@@ -227,6 +245,14 @@ public final class MiningJob extends Actions.Job {
   }
 
   private boolean safe(BlockPos pos, BlockState state) {
+    if (targetGuard != null && !targetGuard.test(pos)) {
+      lastDenial = "[HARVEST_TARGET_CHANGED] 作物或根部状态已改变";
+      return false;
+    }
+    if (routeGuard != null && !routeGuard.test(pos)) {
+      lastDenial = "[ROUTE_GUARD] 矿道的权限、站位或挖掘范围已改变";
+      return false;
+    }
     if (naturalTree && (!state.is(net.minecraft.tags.BlockTags.LOGS) || !naturalColumn(pos)))
       return false;
     lastDenial = breakDenial(pos, state);
@@ -308,7 +334,7 @@ public final class MiningJob extends Actions.Job {
       finish("成功：创造模式已取得服务器方块挖除确认，不要求掉落物或工具消耗；位置 " + exactTarget.toShortString());
       return;
     }
-    if (exactTarget != null && plan.isDone()) {
+    if (exactTarget != null && plan.isDone() && routeGuard == null) {
       if (groundDrops && !roomFor(original)) {
         finish(
             "成功：服务器确认定点挖除；[DROPS_MAY_REMAIN_ON_GROUND] 背包无容量，若产生掉落则留地待回收，掉落数量未核实；位置 "
@@ -320,7 +346,7 @@ public final class MiningJob extends Actions.Job {
       stop();
       Actions.job =
           new CollectionJob(
-              "*",
+              collectionFilter,
               Integer.MAX_VALUE,
               6,
               exactTarget,
@@ -494,7 +520,9 @@ public final class MiningJob extends Actions.Job {
       delay = 0;
       issued = false;
       PlayerEvidence.forget(target);
-      if (!nav.startForInteraction(target)) {
+      if (routeGuard != null) {
+        phase = 1;
+      } else if (!nav.startForInteraction(target)) {
         skip();
         return;
       }

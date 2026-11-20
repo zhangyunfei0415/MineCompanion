@@ -11,14 +11,15 @@ import net.minecraft.client.Minecraft;
 /** Optional asynchronous selector over existing continuous tasks, sharing their action lane. */
 public final class DecisionService {
   private static final HttpClient HTTP = DecisionTransport.create();
-  private static boolean pending;
+  private static final DecisionRequest REQUEST = new DecisionRequest();
   private static long calls, failures, lastMillis, inputTokens;
   private static JsonObject latest = new JsonObject();
   private static JsonObject lastFailure = new JsonObject();
-  private static long generation;
+  private static final String STALE =
+      "[DECISION_STALE] 状态或控制已变化，请重新观察；未提交任务";
 
   static void invalidate() {
-    generation++;
+    REQUEST.invalidate();
   }
 
   static JsonObject status() {
@@ -33,7 +34,7 @@ public final class DecisionService {
             ? Store.config.decisionLocalProtocol
             : Store.config.decisionCloudProvider);
     o.addProperty("auto_submit", Store.config.decisionAutoSubmit);
-    o.addProperty("pending", pending);
+    o.addProperty("pending", REQUEST.pending());
     o.addProperty("calls", calls);
     o.addProperty("failures", failures);
     o.addProperty("input_tokens_reported", inputTokens);
@@ -58,7 +59,7 @@ public final class DecisionService {
   }
 
   static void choose(JsonObject input, Consumer<String> done) {
-    if (pending) throw new IllegalArgumentException("[DECISION_BUSY] 已有判断请求");
+    if (REQUEST.pending()) throw new IllegalArgumentException("[DECISION_BUSY] 已有判断请求");
     var mc = Minecraft.getInstance();
     if (mc.player == null || mc.level == null || mc.getConnection() == null)
       throw new IllegalArgumentException("[WORLD_REQUIRED] 先进入游戏世界");
@@ -104,12 +105,14 @@ public final class DecisionService {
     var previousFailures = new JsonArray();
     var failedSignatures = new HashSet<String>();
     for (var record : Store.data.checkpoints.values()) {
-      if (!Agent.str(record, "decision_context", "").equals(context) || !record.has("result"))
-        continue;
-      if (Rules.actionFailed(record.get("result").getAsString())) {
+      if (!Agent.str(record, "decision_context", "").equals(context)) continue;
+      if (TaskReceipt.requiresReobservation(record)) {
         failedSignatures.add(Agent.str(record, "signature", ""));
-        if (previousFailures.size() < 6)
-          previousFailures.add(Rules.clean(record.get("result").getAsString(), 500));
+        if (previousFailures.size() < 6) {
+          String reason =
+              Agent.str(Agent.obj(record, "outcome"), "reason_code", "RESULT_UNCONFIRMED");
+          previousFailures.add(reason + " " + Rules.clean(Agent.str(record, "result", ""), 500));
+        }
       }
     }
     snapshot.add("recent_failures_same_inventory_and_position", previousFailures);
@@ -133,9 +136,9 @@ public final class DecisionService {
           profile.protocol().equals("GOOGLE") ? "x-goog-api-key" : "Authorization",
           profile.protocol().equals("GOOGLE") ? profile.key() : "Bearer " + profile.key());
     var world = mc.level;
-    long epoch = Agent.epoch, started = System.nanoTime(), revision = generation;
+    long epoch = Agent.epoch, started = System.nanoTime();
     String scope = Store.scope(), mode = Store.config.decisionMode, goal = Agent.task;
-    pending = true;
+    long requestId = REQUEST.begin();
     calls++;
     try {
       HTTP.sendAsync(
@@ -145,7 +148,10 @@ public final class DecisionService {
               (response, error) ->
                   mc.execute(
                       () -> {
-                        pending = false;
+                        if (!REQUEST.finish(requestId)) {
+                          done.accept(rejected(STALE).toString());
+                          return;
+                        }
                         lastMillis = (System.nanoTime() - started) / 1_000_000;
                         try {
                           if (error != null || response.statusCode() != 200) {
@@ -177,16 +183,15 @@ public final class DecisionService {
                           }
                           if (world != mc.level
                               || epoch != Agent.epoch
-                              || revision != generation
                               || !goal.equals(Agent.task)
                               || !scope.equals(Store.scope())
                               || !mode.equals(Store.config.decisionMode)
+                              || submit && !Store.config.decisionAutoSubmit
                               || !profile.equals(DecisionWire.profile(Store.config))
                               || !Agent.enabled
                               || Agent.paused
                               || Cooperation.yielding())
-                            throw new IllegalArgumentException(
-                                "[DECISION_STALE] 状态或控制已变化，请重新观察；未提交任务");
+                            throw new IllegalArgumentException(STALE);
                           result.addProperty("latency_ms", lastMillis);
                           result.addProperty("submitted", false);
                           if (submit) {
@@ -210,7 +215,6 @@ public final class DecisionService {
                             result.addProperty("submitted", true);
                           }
                           latest = result.deepCopy();
-                          done.accept(result.toString());
                         } catch (Exception failure) {
                           failures++;
                           String message =
@@ -219,17 +223,22 @@ public final class DecisionService {
                                       && failure.getMessage().startsWith("[DECISION_")
                                   ? failure.getMessage()
                                   : "[DECISION_FAILED] 判断解析或任务前置条件失败；请重新观察任务状态";
-                          latest = new JsonObject();
-                          latest.addProperty("status", "rejected");
-                          latest.addProperty("error", message);
+                          latest = rejected(message);
                           if (response != null && response.statusCode() == 200)
                             lastFailure = DecisionFailure.describe(profile, 200, message, null);
-                          done.accept(latest.toString());
                         }
+                        done.accept(latest.toString());
                       }));
     } catch (RuntimeException e) {
-      pending = false;
+      REQUEST.finish(requestId);
       throw e;
     }
+  }
+
+  private static JsonObject rejected(String message) {
+    var result = new JsonObject();
+    result.addProperty("status", "rejected");
+    result.addProperty("error", message);
+    return result;
   }
 }

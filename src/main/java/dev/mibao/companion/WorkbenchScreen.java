@@ -28,6 +28,7 @@ public final class WorkbenchScreen extends Screen {
   private BagPolicy bagDraft;
   private int section = -1, parentScroll, ticks;
   private final WorkbenchPages pages = new WorkbenchPages(this);
+  private String miningGoal = "";
 
   private record Line(String text, int x, int y, int color) {}
 
@@ -210,7 +211,6 @@ public final class WorkbenchScreen extends Screen {
       return;
     }
     onClose();
-    if (!Agent.enabled) Agent.start();
     Agent.submit(text, true);
   }
 
@@ -405,6 +405,39 @@ public final class WorkbenchScreen extends Screen {
     if (group("home/actions", "直接动作", false)) {
       row("原版补给与搬运", () -> section(9, false), "制作与熔炼", () -> section(13, false));
       row("预制动作与农作", () -> section(10, false), "背包操作", () -> section(12, false));
+    }
+    if (group("home/follow", "跟随玩家", false)) {
+      var target = FollowControl.savedTarget();
+      text(target == null ? "请选择要跟随的其他玩家" : "已选择 " + target.name());
+      if (FollowControl.active()) text(FollowControl.shortStatus());
+      text("本地对话：跟随 玩家名 / 停止跟随");
+      text("授权玩家聊天：@" + Store.config.name + " 跟我");
+      row("选择玩家", () -> minecraft.setScreen(new FollowTargetScreen(this)),
+          FollowControl.active() ? "停止跟随" : "开始跟随", () -> {
+            onClose();
+            FollowControl.toggle();
+          });
+      button("陪伴预设 · " + FollowControl.profileLabel(Store.data.followProfile), () -> {
+        Store.data.followProfile = switch (Store.data.followProfile) {
+          case "follow" -> "nether";
+          case "nether" -> "end";
+          default -> "follow";
+        };
+        Store.saveWorld();
+        rebuild();
+      });
+      if (Store.data.followProfile.equals("end"))
+        button("允许跟着进出已确认的末地门 · " + (Store.data.followEndPortal ? "开" : "关"), () -> {
+          Store.data.followEndPortal = !Store.data.followEndPortal;
+          Store.saveWorld();
+          rebuild();
+        });
+    }
+    if (group("home/mining", "采矿委托", false)) {
+      field("mining_goal", "例如：挖 16 个粗铁送回交付箱，或从这里挖台阶下到 Y=16",
+          miningGoal, value -> miningGoal = value);
+      button("交给 AI 规划并执行", () ->
+          task(miningGoal.isBlank() ? "" : "采矿委托：" + miningGoal.strip()));
     }
     // 6. Advanced, folded by default.
     if (group("home/advanced", "推理强度、执行风格与自主", false)) {
@@ -807,13 +840,14 @@ public final class WorkbenchScreen extends Screen {
           var modes = java.util.List.of("OFF", "CLOUD", "LOCAL");
           Store.config.decisionMode =
               modes.get((modes.indexOf(Store.config.decisionMode) + 1) % modes.size());
+          DecisionService.invalidate();
           Store.save();
           rebuild();
         });
     toggle(
         "允许判断后提交候选任务（仍检查游戏权限）",
         () -> Store.config.decisionAutoSubmit,
-        v -> Store.config.decisionAutoSubmit = v);
+        Store::setDecisionAutoSubmit);
     boolean local = Store.config.decisionMode.equals("LOCAL");
     String prefix = local ? "decision/local/" : "decision/cloud/";
     button(
@@ -837,6 +871,7 @@ public final class WorkbenchScreen extends Screen {
             }
           }
           drafts.keySet().removeIf(k -> k.startsWith(prefix));
+          DecisionService.invalidate();
           Store.save();
           rebuild();
         });
@@ -880,6 +915,7 @@ public final class WorkbenchScreen extends Screen {
                 drafts.getOrDefault(prefix + "key", Store.config.decisionCloudKey).trim();
           }
           drafts.keySet().removeIf(k -> k.startsWith(prefix));
+          DecisionService.invalidate();
           Store.save();
           status = "判断配置已保存；decision_select用于验证连接及选择";
           rebuild();

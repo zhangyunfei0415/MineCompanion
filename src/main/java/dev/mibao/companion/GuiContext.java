@@ -104,18 +104,10 @@ public final class GuiContext {
 
   public static JsonObject observe() {
     require();
-    screen = mc().screen;
-    widgets.clear();
-    collect(screen, 0);
-    stamp = stamp();
-    widgetStamp = stamp(false);
-    observed = mc().player.containerMenu.slots.stream().map(s -> s.getItem().copy()).toList();
-    observedCursor = mc().player.containerMenu.getCarried().copy();
-    JsonObject out = Actions.inspectMenu(0, 512);
+    JsonObject out = Actions.inspectMenuContents(0, 512);
     // inspect_menu owns the observation number: gui_view and view_id share one sequence, so a
     // view taken here also satisfies click_slot and vice versa.
-    view = out.get("view_id").getAsLong();
-    out.addProperty("gui_view", view);
+    capture(out);
     out.addProperty("screen_class", screen.getClass().getName());
     out.addProperty("gui_width", screen.width);
     out.addProperty("gui_height", screen.height);
@@ -196,6 +188,10 @@ public final class GuiContext {
   static void captureMenuSnapshot(JsonObject result) {
     if (!(mc().screen instanceof AbstractContainerScreen<?>)
         || mc().player.containerMenu.slots.size() > 512) return;
+    capture(result);
+  }
+
+  private static void capture(JsonObject result) {
     screen = mc().screen;
     widgets.clear();
     collect(screen, 0);

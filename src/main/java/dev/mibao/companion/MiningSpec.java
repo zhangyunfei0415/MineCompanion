@@ -75,6 +75,12 @@ record MiningSpec(
         && Math.abs((long) y - originY) <= vertical;
   }
 
+  String capacityBlockDetail(int available) {
+    return "主背包空槽 " + available + " / 作业要求 " + freeSlots + "。"
+        + (delivery.isBlank() ? "当前作业未配置交付箱。"
+            : "已配置交付箱，但当前没有本次作业核实入包、可归仓的产物。");
+  }
+
   private static String choice(JsonObject args, String key, String fallback, Set<String> allowed) {
     String value = text(args, key, fallback);
     if (!allowed.contains(value))

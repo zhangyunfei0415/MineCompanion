@@ -28,6 +28,16 @@ class MiningPolicyTest {
   }
 
   @Test
+  void capacityBlockDistinguishesConfiguredDeliveryFromLackOfVerifiedCargo() {
+    var configured = parse("{block:'minecraft:iron_ore',delivery:'mine chest',free_slots:3}");
+    assertTrue(configured.capacityBlockDetail(1).contains("主背包空槽 1 / 作业要求 3"));
+    assertTrue(configured.capacityBlockDetail(1).contains("已配置交付箱"));
+    assertTrue(configured.capacityBlockDetail(1).contains("没有本次作业核实入包"));
+    assertFalse(configured.capacityBlockDetail(1).contains("未配置交付箱"));
+    assertTrue(parse("{block:'minecraft:iron_ore'}").capacityBlockDetail(0).contains("未配置交付箱"));
+  }
+
+  @Test
   void fixedWorkAreaUsesIndependentVerticalBoundsAndCannotOverflow() {
     var spec = parse("{block:'minecraft:iron_ore',radius:8,vertical_range:3}");
     assertTrue(spec.contains(0, -59, 0, 8, -62, -8));

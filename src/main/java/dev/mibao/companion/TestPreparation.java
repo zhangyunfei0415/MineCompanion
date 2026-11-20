@@ -41,7 +41,8 @@ public final class TestPreparation {
         GameCommandPolicy.parse(value, CommandSettings.profile(), at.getX(), at.getY(), at.getZ());
     if (mc().screen != null)
       throw new IllegalArgumentException(
-          "game_command 需要 screen=world：请先 gui_back/关闭界面后再试（不会自动关闭你的界面）");
+          "[SCREEN_BLOCKING] 当前界面=" + mc().screen.getClass().getName()
+              + "；game_command 需要世界界面，请先 inspect_gui / gui_back。");
     return plan.command();
   }
 

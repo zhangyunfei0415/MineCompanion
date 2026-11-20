@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "id": "builtin:survival-start",
+  "name": "原版生存开局工具",
+  "version": "1",
+  "author": "MineCompanion",
+  "license": "project-original",
+  "minecraft": "1.20.1",
+  "description": "从可达橡树和露天石材区起步，制作木镐与石镐。需要在当前世界标记橡树林、石材点和安全营地。准备工作站需要营地附近有合适站位。",
+  "parameters": {
+    "grove": {"type": "string"},
+    "stone_site": {"type": "string"},
+    "camp": {"type": "string"}
+  },
+  "requires": ["go_to", "chop_wood", "craft_item", "mine_resource", "prepare_workshop"],
+  "seconds": 900,
+  "steps": [
+    {"tool": "go_to", "args": {"place": "${grove}"}},
+    {"tool": "chop_wood", "args": {"block": "minecraft:oak_log", "count": 6, "radius": 8, "delivery": ""}},
+    {"tool": "go_to", "args": {"place": "${camp}"}},
+    {"tool": "craft_item", "args": {"item": "minecraft:oak_planks", "count": 20}},
+    {"tool": "craft_item", "args": {"item": "minecraft:stick", "count": 8}},
+    {"tool": "craft_item", "args": {"item": "minecraft:wooden_pickaxe", "count": 1}},
+    {"tool": "go_to", "args": {"place": "${stone_site}"}},
+    {"tool": "mine_resource", "args": {"block": "minecraft:stone", "count": 12, "radius": 8, "delivery": ""}},
+    {"tool": "go_to", "args": {"place": "${camp}"}},
+    {"tool": "prepare_workshop", "args": {}},
+    {"tool": "craft_item", "args": {"item": "minecraft:stone_pickaxe", "count": 1}}
+  ],
+  "verification": "核对真实挖除、拾取以及实际新制工具。矿区未观察、站位受阻或没有材料时保留阶段记录。"
+}

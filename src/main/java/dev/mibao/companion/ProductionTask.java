@@ -18,16 +18,15 @@ public final class ProductionTask {
   private int verifiedOutput;
   private final boolean reserveSupplies;
 
-  private final long epoch = Agent.epoch, deadline = System.currentTimeMillis() + 1_500_000L;
-  private final String scope = Store.scope(),
-      dimension = mc().level.dimension().location().toString(),
-      mode,
-      item;
+  private final ActionContext context = ActionContext.capture();
+  private final long deadline = System.currentTimeMillis() + 1_500_000L;
+  private final String mode, item;
   private final int count;
   private final Consumer<String> done;
   private final BlockPos center = mc().player.blockPosition();
   private BlockPos table, furnace;
   private int scan, phase, batches;
+  private long childSequence;
   private boolean pending, finished, planned, sourceTried;
   private int supplies, stationRepairs, stationChanges;
   private BlockPos supplyBox;
@@ -90,8 +89,8 @@ public final class ProductionTask {
 
   public void cancel() {
     if (finished) return;
-    checkpoint("cancelled", pending);
     finished = true;
+    checkpoint("cancelled", pending);
     card.outcome = "cancelled";
     card.phase = "生产已停止";
     card.problem = "已确认制作批次 " + batches + "；合成栏、炉内及未核实步骤请重新观察";
@@ -109,7 +108,7 @@ public final class ProductionTask {
   }
 
   public JsonObject recoveryEvidence() {
-    if (Actions.job instanceof SmeltJob job) return job.recoveryEvidence();
+    if (Actions.job instanceof SmeltJob job && job.belongsTo(this)) return job.recoveryEvidence();
     if (smeltReceipt != null) return smeltReceipt.deepCopy();
     var r = new JsonObject();
     r.add("recovered_items", new JsonObject());
@@ -415,7 +414,7 @@ public final class ProductionTask {
 
   public void tick() {
     if (finished || pending) return;
-    if (epoch != Agent.epoch || !scope.equals(Store.scope())) {
+    if (!context.current()) {
       cancel();
       return;
     }
@@ -473,7 +472,7 @@ public final class ProductionTask {
           () -> {
             var receipt = Actions.lastTransfer;
             if (receipt == null
-                || receipt.epoch() != epoch
+                || receipt.epoch() != context.epoch()
                 || receipt.deposit()
                 || receipt.moved() != amount) throw new IllegalArgumentException("补料未完整核实，不重放取货");
             WorkLedger.add(
@@ -659,7 +658,7 @@ public final class ProductionTask {
     for (String category : List.of("crafting", "furnace"))
       for (var point :
           Store.data.world.query(
-              dimension, center.getX(), center.getY(), center.getZ(), "", category, 64, 24)) {
+              context.dimension(), center.getX(), center.getY(), center.getZ(), "", category, 64, 24)) {
         var pos = new BlockPos(point.x, point.y, point.z);
         if (!mc().level.hasChunkAt(pos)) continue;
         var state = mc().level.getBlockState(pos);
@@ -671,7 +670,7 @@ public final class ProductionTask {
   }
 
   private void checkpoint(String phase, boolean uncertain) {
-    if (!scope.equals(Store.scope())) return;
+    if (!context.scope().equals(Store.scope())) return;
     JsonObject d = new JsonObject();
     d.addProperty("mode", mode);
     d.addProperty("item", item);
@@ -679,18 +678,19 @@ public final class ProductionTask {
     d.addProperty("confirmed_batches", batches);
     d.addProperty("remaining_batches", queue.size());
     if (mode.equals("smelt")) d.add("recovery", recoveryEvidence());
-    RecoveryLedger.put("production", phase, uncertain, d, dimension);
+    RecoveryLedger.put("production", phase, uncertain, d, context.dimension());
   }
 
   private void child(String tool, JsonObject a, Runnable success) {
     checkpoint(tool, true);
     pending = true;
+    long child = ++childSequence;
     card.phase = ActionSummary.step(tool);
     Agent.execute(
         tool,
         a,
         r -> {
-          if (finished || epoch != Agent.epoch) return;
+          if (finished || !pending || child != childSequence || !context.current()) return;
           pending = false;
           if (tool.equals("smelt_batch") && r.startsWith("{")) {
             smeltReceipt = com.google.gson.JsonParser.parseString(r).getAsJsonObject();
@@ -723,10 +723,10 @@ public final class ProductionTask {
               : item;
       lastOutput =
           new Output(
-              epoch, mode, item, output, verifiedOutput, java.util.UUID.randomUUID().toString());
+              context.epoch(), mode, item, output, verifiedOutput, java.util.UUID.randomUUID().toString());
     }
-    checkpoint(r.startsWith("成功") ? "complete" : "stopped", !r.startsWith("成功"));
     finished = true;
+    checkpoint(r.startsWith("成功") ? "complete" : "stopped", !r.startsWith("成功"));
     card.phase = ActionSummary.describe(r);
     card.outcome = r.startsWith("成功") ? "complete" : "blocked";
     card.problem = r.startsWith("成功") ? "" : r;

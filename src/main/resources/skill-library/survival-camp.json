@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "builtin:survival-camp",
+  "name": "生存临时营地",
+  "version": "1",
+  "author": "MineCompanion",
+  "license": "project-original",
+  "minecraft": "1.20.1",
+  "description": "在已标记的平坦 5×5 地面上建小屋，布置床、箱和照明。先准备墙料、门、床、箱和火把。命名点是放置坐标，营地原点是西北角墙脚。",
+  "parameters": {
+    "origin": {"type": "string"},
+    "bed": {"type": "string"},
+    "chest": {"type": "string"},
+    "lamp": {"type": "string"},
+    "wall_item": {"type": "string", "default": "minecraft:oak_planks"},
+    "bed_item": {"type": "string", "default": "minecraft:white_bed"}
+  },
+  "requires": ["build_shelter", "place_block"],
+  "seconds": 1200,
+  "steps": [
+    {"tool": "build_shelter", "args": {"place": "${origin}", "item": "${wall_item}"}},
+    {"tool": "place_block", "args": {"place": "${bed}", "item": "${bed_item}", "face": "up"}},
+    {"tool": "place_block", "args": {"place": "${chest}", "item": "minecraft:chest", "face": "up"}},
+    {"tool": "place_block", "args": {"place": "${lamp}", "item": "minecraft:torch", "face": "up"}}
+  ],
+  "verification": "核对墙体、屋顶、门双格、床双格及物资放置。初始占用或施工中发生变化时停止；只重用实际存在且匹配的结构。"
+}

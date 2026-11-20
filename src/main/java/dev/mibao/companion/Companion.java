@@ -346,17 +346,17 @@ public final class Companion {
     if (Minecraft.getInstance().player == null) return;
     if (e instanceof ClientChatReceivedEvent.System) CommandJob.feedback(e.getMessage());
     String text = e.getMessage().getString();
-    String marker = "@" + Store.config.name;
-    String extracted = ChatCommand.extract(text, Store.config.name);
-    if (extracted.isBlank()) return;
+    String name = Store.config.name;
+    String playerOrder = e instanceof ClientChatReceivedEvent.Player player
+        ? ChatCommand.followMention(player.getPlayerChatMessage().signedContent(), name) : "";
+    String msg = playerOrder.isBlank() ? ChatCommand.extract(text, name) : playerOrder;
+    if (msg.isBlank() || (playerOrder.isBlank() && ChatCommand.follow(msg) != null)) return;
     if (e.getSender() == null || Minecraft.getInstance().getConnection() == null) return;
     var info = Minecraft.getInstance().getConnection().getPlayerInfo(e.getSender());
     if (info == null) return;
     String sender = info.getProfile().getName();
     if (sender.equalsIgnoreCase(Minecraft.getInstance().player.getGameProfile().getName())
         && Messages.isOwnReply(text)) return;
-    String msg = extracted;
-    if (msg.isBlank()) return;
     try {
       CommunityTasks.receive(e.getSender().toString(), sender, msg);
     } catch (Exception failure) {

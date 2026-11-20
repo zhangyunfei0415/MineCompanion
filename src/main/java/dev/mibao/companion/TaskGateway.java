@@ -2,7 +2,6 @@ package dev.mibao.companion;
 
 import com.google.gson.*;
 import java.util.*;
-import net.minecraft.client.Minecraft;
 
 /**
  * Small asynchronous facade over existing tasks, not a second executor. Stored receipts never
@@ -37,6 +36,7 @@ final class TaskGateway {
     if (count >= 1024)
       throw new IllegalArgumentException(
           "[TASK_LEDGER_FULL] 本世界已有1024个任务ID；保留去重记录，不静默遗忘后重放，请备份整理账本");
+    var context = ActionContext.capture();
     var record = new JsonObject();
     record.addProperty("task_id", id);
     record.addProperty("tool", tool);
@@ -44,14 +44,17 @@ final class TaskGateway {
     if (input.has("decision_context"))
       record.add("decision_context", input.get("decision_context"));
     record.addProperty("run", RUN);
-    record.addProperty("epoch", Agent.epoch);
-    record.addProperty(
-        "dimension", Minecraft.getInstance().level.dimension().location().toString());
-    record.addProperty("scope", Store.scope());
+    record.addProperty("epoch", context.epoch());
+    record.addProperty("dimension", context.dimension());
+    record.addProperty("scope", context.scope());
     record.addProperty("status", "submitted");
     record.addProperty("current_phase", "已提交：" + tool);
     record.addProperty("started_at", System.currentTimeMillis());
     Store.data.checkpoints.put(key, record);
+    if (!Store.saveWorld()) {
+      Store.data.checkpoints.remove(key);
+      throw new IllegalArgumentException("[TASK_LEDGER_UNWRITABLE] 无法保存任务ID，未派发动作");
+    }
     long detailed = Store.data.checkpoints.values().stream().filter(v -> v.has("result")).count();
     if (detailed >= 64) {
       String oldest =
@@ -72,26 +75,31 @@ final class TaskGateway {
       if (oldest != null) {
         var archived = Store.data.checkpoints.get(oldest);
         archived.remove("result");
+        archived.remove("mining_route");
+        archived.remove("harvest");
+        archived.remove("gear");
         archived.addProperty("result_excerpt_archived", true);
       }
     }
-    Store.save();
     activeId = id;
     Actions.status = "任务已提交：" + tool;
-    Agent.execute(
-        tool,
-        args,
-        result -> {
-          if (Store.data.checkpoints.get(key) != record
-              || !Agent.str(record, "status", "").equals("submitted")) return;
-          record.addProperty("status", "returned");
-          record.addProperty("ended_at", System.currentTimeMillis());
-          record.add("outcome", ActionOutcome.describe(result));
-          record.addProperty("result", TaskTimeline.clean(result));
-          record.addProperty("current_phase", TaskTimeline.clean(result));
-          Store.save();
-          if (activeId.equals(id)) activeId = "";
-        });
+    try {
+      Agent.execute(
+          tool,
+          args,
+          result -> {
+            if (!context.current()
+                || Store.data.checkpoints.get(key) != record
+                || !Agent.str(record, "status", "").equals("submitted")) return;
+            TaskReceipt.returned(record, result);
+            if (activeId.equals(id)) activeId = "";
+            Store.saveWorld();
+          });
+    } catch (RuntimeException e) {
+      if (activeId.equals(id))
+        interruptActive("interrupted_unknown_result", "任务派发中断；请核对现场");
+      throw e;
+    }
     return receipt(id);
   }
 
@@ -117,12 +125,31 @@ final class TaskGateway {
     var current = receipt(id);
     if (!Agent.str(current, "status", "").equals("submitted")
         || !current.get("active").getAsBoolean()) return "任务已结束或旧执行结果未知；没有停止其他新任务";
-    var r = Store.data.checkpoints.get("task:" + id);
-    if (Actions.job instanceof SmeltJob job) r.add("recovery", job.recoveryEvidence());
-    else if (Agent.production != null) r.add("recovery", Agent.production.recoveryEvidence());
-    Agent.manualPause();
-    r.addProperty("status", "cancelled");
-    Store.save();
-    return "任务停止并保留接管/连接；明确继续前不执行。已发送动作请查现场，不重放。";
+    interruptActive("cancelled", "任务取消；请核对现场");
+    Agent.cancelSubmittedTask("已取消任务 " + id + "；请核对现场");
+    return Agent.paused
+        ? "成功：任务已取消，原有暂停仍生效。已发送动作请核对现场。"
+        : "成功：任务已取消，执行占用已释放。已发送动作请核对现场。";
+  }
+
+  static void interruptActive(String status, String reason) {
+    if (activeId.isEmpty()) return;
+    var r = Store.data.checkpoints.get("task:" + activeId);
+    activeId = "";
+    if (r == null || !r.get("status").getAsString().equals("submitted")
+        || r.get("epoch").getAsLong() != Agent.epoch
+        || !RUN.equals(r.get("run").getAsString())) return;
+    r.addProperty("status", status);
+    r.addProperty("ended_at", System.currentTimeMillis());
+    r.addProperty("current_phase", reason);
+    r.addProperty("requires_reobservation", true);
+    try {
+      if (Agent.production != null) r.add("recovery", Agent.production.recoveryEvidence());
+      else if (Actions.job instanceof SmeltJob job) r.add("recovery", job.recoveryEvidence());
+      else if (Actions.job instanceof MiningRouteJob job) r.add("mining_route", job.interruptionEvidence());
+    } catch (RuntimeException e) {
+      Companion.log("任务已结束，现场证据读取失败：" + e.getClass().getSimpleName());
+    }
+    Store.saveWorld();
   }
 }

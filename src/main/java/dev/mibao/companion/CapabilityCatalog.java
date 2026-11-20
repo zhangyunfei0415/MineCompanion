@@ -32,11 +32,14 @@ public final class CapabilityCatalog {
             "select_slot",
             "use_entity")
         .contains(tool)) return "interaction";
-    if (tool.contains("craft") || tool.contains("smelt") || tool.equals("prepare_workshop"))
+    if (tool.contains("craft") || tool.contains("smelt") || tool.equals("brew_batch")
+        || tool.equals("enchant_item") || tool.equals("anvil_item")
+        || tool.equals("prepare_workshop"))
       return "production";
     if (tool.contains("crop") || tool.contains("farm") || tool.contains("harvest"))
       return "farming";
-    if (Set.of("break_block", "attack_block").contains(tool)) return "gathering";
+    if (Set.of("break_block", "attack_block", "plan_mining", "preview_mining_route",
+        "excavate_mine_route", "mining_status").contains(tool)) return "gathering";
     if (Set.of("swim_out", "unstick").contains(tool)) return "movement";
     if (tool.startsWith("mine") || tool.equals("chop_wood") || tool.startsWith("collect"))
       return "gathering";

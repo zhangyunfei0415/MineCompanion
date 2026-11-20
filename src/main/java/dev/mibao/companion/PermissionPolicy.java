@@ -17,6 +17,10 @@ public final class PermissionPolicy {
                 "transport",
                 "restock",
                 "open_container",
+                "brew_batch",
+                "enchant_item",
+                "anvil_item",
+                "take_vanilla_output",
                 "ae_fetch",
                 "ae_deposit",
                 "rs_fetch",
@@ -31,6 +35,10 @@ public final class PermissionPolicy {
             || tool.equals("quest_book_open")
             || tool.equals("game_input")
             || tool.equals("vanilla_menu_select")
+            || tool.equals("brew_batch")
+            || tool.equals("enchant_item")
+            || tool.equals("anvil_item")
+            || tool.equals("take_vanilla_output")
             || tool.equals("jei_transfer_recipe")
             || tool.equals("ae_pattern_action")
             || tool.equals("ae_craft_plan")

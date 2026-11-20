@@ -136,7 +136,6 @@ public final class LocalDialogue {
       case "/ok" -> Hud.FEED.acknowledge();
       default -> {
         Hud.FEED.acknowledge();
-        if (!Agent.enabled) Agent.start();
         Agent.submit(text, true);
       }
     }
