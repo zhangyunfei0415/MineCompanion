@@ -19,6 +19,9 @@ public final class LocalDialogue {
   public static boolean editing;
   private static int width, height, offset;
   private static String draft = "";
+  private static long wrappedSequence = -1;
+  private static int wrappedWidth = -1;
+  private static List<net.minecraft.util.FormattedCharSequence> cachedWrapped = List.of();
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -42,6 +45,9 @@ public final class LocalDialogue {
     box = null;
     draft = "";
     offset = 0;
+    wrappedSequence = -1;
+    wrappedWidth = -1;
+    cachedWrapped = List.of();
     ProcessHud.reset();
   }
 
@@ -196,6 +202,7 @@ public final class LocalDialogue {
     var r = Hud.layout(width, height).dialogue();
     int size = r.width(), x = r.x(), y = r.y();
     if (size < 100) return;
+    UiTheme t = UiTheme.current();
     boolean recent = System.currentTimeMillis() - lastMessage < 15_000;
     if (!editing && !recent) {
       if (WatchMode.active())
@@ -204,30 +211,38 @@ public final class LocalDialogue {
             Companion.DIALOGUE.getTranslatedKeyMessage().getString() + " 本地交流",
             x + 7,
             r.bottom() - 10,
-            0xff9cb9cf,
+            t.textSecondary(),
             false);
       return;
     }
-    g.fill(x, y, r.right(), r.bottom(), 0x99101b29);
-    // Keep styled wrapping intact; at most four visible lines regardless of message size.
-    var wrapped = new ArrayList<net.minecraft.util.FormattedCharSequence>();
-    for (var line : lines)
-      wrapped.addAll(
-          mc().font.split(Component.literal(line.role() + "：" + line.text()), size - 14));
+    UiDraw.fillRounded(
+        g, x, y, size, r.height(), t.hudBg(Store.config.hudOpacity), t.border());
+    UiDraw.fillHGradient(g, x + 1, y, size - 2, 1, t.accent(), t.accentAlt());
+    // Cache styled wrapping across frames until a message is added or panel width changes.
+    if (wrappedSequence != sequence || wrappedWidth != size) {
+      var list = new ArrayList<net.minecraft.util.FormattedCharSequence>();
+      for (var line : lines)
+        list.addAll(
+            mc().font.split(Component.literal(line.role() + "：" + line.text()), size - 14));
+      cachedWrapped = List.copyOf(list);
+      wrappedSequence = sequence;
+      wrappedWidth = size;
+    }
+    var wrapped = cachedWrapped;
     offset = Math.min(offset, Math.max(0, wrapped.size() - 1));
     int end = Math.max(0, wrapped.size() - offset), start = Math.max(0, end - (editing ? 3 : 2));
     int yy = y + 4;
     for (int i = start; i < end; i++) {
-      g.drawString(mc().font, wrapped.get(i), x + 7, yy, 0xffe3eef7, false);
+      g.drawString(mc().font, wrapped.get(i), x + 7, yy, t.text(), false);
       yy += 10;
     }
     if (editing) {
       box.render(g, 0, 0, 0);
       String a = "推理强度:" + PlanningPolicy.title(Store.config.planningEffort),
           b = "执行风格:" + (ExecutionStyle.fluent(Store.config.executionStyle) ? "快速" : "严谨");
-      g.drawString(mc().font, a, x + 7, r.bottom() - 9, 0xff73c9f5, false);
+      g.drawString(mc().font, a, x + 7, r.bottom() - 9, t.accent(), false);
       g.drawString(
-          mc().font, b, x + 7 + mc().font.width(a) + 12, r.bottom() - 9, 0xff73c9f5, false);
+          mc().font, b, x + 7 + mc().font.width(a) + 12, r.bottom() - 9, t.accent(), false);
       int startX = x + 7 + mc().font.width(a) + 12 + mc().font.width(b) + 12;
       if (r.right() - startX > 70)
         g.drawString(
@@ -240,7 +255,7 @@ public final class LocalDialogue {
                     r.right() - startX - 5),
             startX,
             r.bottom() - 9,
-            0xffa4cddd,
+            t.textSecondary(),
             false);
     } else
       g.drawString(
@@ -248,7 +263,7 @@ public final class LocalDialogue {
           Companion.DIALOGUE.getTranslatedKeyMessage().getString() + " 本地交流",
           x + 7,
           r.bottom() - 9,
-          0xff9cb9cf,
+          t.textSecondary(),
           false);
   }
 }

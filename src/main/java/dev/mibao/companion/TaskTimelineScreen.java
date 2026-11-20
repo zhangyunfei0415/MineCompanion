@@ -2,16 +2,14 @@ package dev.mibao.companion;
 
 import java.util.*;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /** Native task reading surface; text wraps at current GUI scale, detail expands in place. */
 public final class TaskTimelineScreen extends Screen {
-  private final java.util.Map<String, java.util.List<net.minecraft.util.FormattedCharSequence>>
-      wraps = new java.util.HashMap<>();
+  private final Map<String, List<net.minecraft.util.FormattedCharSequence>> wraps = new HashMap<>();
 
-  private java.util.List<net.minecraft.util.FormattedCharSequence> wrapped(
+  private List<net.minecraft.util.FormattedCharSequence> wrapped(
       String key, String text, int width) {
     if (wraps.size() > 1200) wraps.clear();
     return wraps.computeIfAbsent(
@@ -22,7 +20,7 @@ public final class TaskTimelineScreen extends Screen {
   private final Screen parent;
   private final Set<String> expanded = new HashSet<>();
   private int scroll, maxScroll;
-  private java.util.List<TaskTimeline.Entry> frozen;
+  private List<TaskTimeline.Entry> frozen;
   private boolean tools = true;
   private final List<String> hits = new ArrayList<>();
   private final List<Integer> hitYs = new ArrayList<>();
@@ -32,67 +30,90 @@ public final class TaskTimelineScreen extends Screen {
     this.parent = parent;
   }
 
+  @Override
   protected void init() {
+    addRenderableWidget(new DeskButton("返回", 18, 16, 56, 20, this::onClose));
+    var filterBtn =
+        new DeskButton(
+            tools ? "操作记录：显示" : "操作记录：隐藏",
+            80,
+            16,
+            106,
+            20,
+            () -> {
+              tools = !tools;
+              scroll = 0;
+              frozen = null;
+              rebuildWidgets();
+            });
+    filterBtn.selected = tools;
+    addRenderableWidget(filterBtn);
     addRenderableWidget(
-        Button.builder(Component.literal("返回"), b -> onClose()).bounds(12, 12, 48, 20).build());
-    addRenderableWidget(
-        Button.builder(
-                Component.literal("操作记录"),
-                b -> {
-                  tools = !tools;
+        new DeskButton(
+                "回到最新",
+                width - 96,
+                16,
+                78,
+                20,
+                () -> {
                   scroll = 0;
                   frozen = null;
                 })
-            .bounds(68, 12, 76, 20)
-            .build());
-    addRenderableWidget(
-        Button.builder(
-                Component.literal("最新进展"),
-                b -> {
-                  scroll = 0;
-                  frozen = null;
-                })
-            .bounds(width - 92, 12, 80, 20)
-            .build());
+            .variant(DeskButton.Variant.PRIMARY));
   }
 
+  @Override
   public void render(GuiGraphics g, int mx, int my, float partial) {
-    g.fill(0, 0, width, height, 0xf0101d28);
-    g.drawString(font, "任务 · 计划 · 实际操作", 16, 42, 0xffe5eef4, false);
-    g.drawString(font, "点击一行展开回执；工作说明不是完成证明", 16, 56, 0xff9bb4c7, false);
-    g.enableScissor(12, 76, width - 12, height - 16);
+    UiTheme t = UiTheme.current();
+    g.fill(0, 0, width, height, t.backdrop());
+    UiDraw.fillRounded(g, 10, 8, width - 20, height - 16, t.windowBg(), t.border());
+    UiDraw.fillHGradient(g, 11, 9, width - 22, 2, t.accent(), t.accentAlt());
+
+    g.drawString(font, "任务 · 计划 · 实际操作时间线", 20, 44, t.text(), false);
+    g.drawString(font, "点击事件卡片展开回执细节 · 工作说明不是完成证明", 20, 58, t.textSecondary(), false);
+    g.fill(18, 72, width - 18, 73, t.border());
+
+    g.enableScissor(16, 76, width - 22, height - 16);
     hits.clear();
     hitYs.clear();
     int y = 82 - scroll;
     var events = new ArrayList<>(frozen == null ? Store.data.taskEvents : frozen);
     Collections.reverse(events);
     if (events.isEmpty())
-      g.drawString(font, "还没有任务。从本地对话派一项工作，过程将在这里出现。", 18, y, 0xffc8d7e2, false);
+      g.drawString(font, "还没有任务。从本地对话派一项工作，过程将在这里出现。", 22, y, t.textSecondary(), false);
     for (var e : events) {
       if (!tools && (e.kind.equals("action") || e.kind.equals("result"))) continue;
       int top = y;
       String label = TaskTimeline.label(e.kind);
       int color =
-          e.kind.equals("note") ? 0xffe5d6ae : e.kind.equals("result") ? 0xffa4d0bb : 0xffd7e6ee;
-      for (var line : wrapped(e.id, label + " · " + e.title, width - 48)) {
-        g.drawString(font, line, 20, y, color);
+          e.kind.equals("note")
+              ? t.warning()
+              : e.kind.equals("result") ? t.success() : t.text();
+      for (var line : wrapped(e.id, label + " · " + e.title, width - 60)) {
+        g.drawString(font, line, 24, y, color, false);
         y += 12;
       }
       if (expanded.contains(e.id) && !e.detail.isBlank())
-        for (var line : wrapped(e.id + "detail", e.detail, width - 64)) {
-          g.drawString(font, line, 32, y, 0xff9bb4c7);
+        for (var line : wrapped(e.id + "detail", e.detail, width - 76)) {
+          g.drawString(font, line, 36, y, t.textSecondary(), false);
           y += 12;
         }
       hits.add(e.id);
       hitYs.add(top + scroll);
-      g.fill(20, y + 5, width - 20, y + 6, 0xff273b49);
-      y += 18;
+      g.fill(22, y + 4, width - 26, y + 5, UiTheme.withAlpha(t.border(), 140));
+      y += 14;
     }
+    int viewH = Math.max(1, height - 96);
     maxScroll = Math.max(0, y + scroll - (height - 20));
     g.disableScissor();
+
+    if (maxScroll > 0)
+      UiDraw.drawScrollbar(g, width - 20, 76, viewH, scroll, maxScroll, viewH, false, t);
+
     super.render(g, mx, my, partial);
   }
 
+  @Override
   public boolean mouseClicked(double x, double y, int button) {
     if (y >= 76 && y < height - 16 && button == 0) {
       for (int i = hitYs.size() - 1; i >= 0; i--)
@@ -105,6 +126,7 @@ public final class TaskTimelineScreen extends Screen {
     return super.mouseClicked(x, y, button);
   }
 
+  @Override
   public boolean mouseScrolled(double x, double y, double amount) {
     if (amount < 0 && frozen == null) {
       frozen = new ArrayList<>();
@@ -122,10 +144,12 @@ public final class TaskTimelineScreen extends Screen {
     return true;
   }
 
+  @Override
   public boolean isPauseScreen() {
     return false;
   }
 
+  @Override
   public void onClose() {
     minecraft.setScreen(parent);
   }

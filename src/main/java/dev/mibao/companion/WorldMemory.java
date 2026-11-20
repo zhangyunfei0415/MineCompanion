@@ -149,9 +149,8 @@ public final class WorldMemory {
   }
 
   public static double distanceSquared(Point p, int x, int y, int z) {
-    return Math.pow((double) p.x - x, 2)
-        + Math.pow((double) p.y - y, 2)
-        + Math.pow((double) p.z - z, 2);
+    double dx = (double) p.x - x, dy = (double) p.y - y, dz = (double) p.z - z;
+    return dx * dx + dy * dy + dz * dz;
   }
 
   public void normalize() {
@@ -173,6 +172,9 @@ public final class WorldMemory {
     trim();
   }
 
+  private static final Set<String> PROTECTED_CATEGORIES =
+      Set.of("storage", "crafting", "furnace", "block_entity");
+
   private void trim() {
     while (objects.size() > MAX_OBJECTS) {
       String victim =
@@ -182,8 +184,7 @@ public final class WorldMemory {
                     var p = e.getValue();
                     return (p.label == null || p.label.isBlank())
                         && p.inventory == null
-                        && !Set.of("storage", "crafting", "furnace", "block_entity")
-                            .contains(p.category);
+                        && !PROTECTED_CATEGORIES.contains(p.category);
                   })
               .map(Map.Entry::getKey)
               .findFirst()

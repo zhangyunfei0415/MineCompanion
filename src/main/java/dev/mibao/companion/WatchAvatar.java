@@ -49,14 +49,10 @@ public final class WatchAvatar {
         && Actions.job != null
         && view.kind == StatusFeed.Kind.WORKING
         && Actions.status.contains("熔炼")) column = 6;
-    int
-        row =
+    int row =
             (Store.config.avatar.equals("CHATGPT") ? 1 : 0)
-                + (Store.config.avatarStyle.equals("MC") ? 2 : 0),
-        cellW = width / 8,
-        cellH = height / 4;
-    cellW = columns[column + 1] - columns[column];
-    cellH = rows[row][1];
+                + (Store.config.avatarStyle.equals("MC") ? 2 : 0);
+    int cellW = columns[column + 1] - columns[column], cellH = rows[row][1];
     var rect = Hud.layout(w, h).avatar();
     int x = rect.x(), y = rect.y(), size = rect.width();
     if (size < 32) return;

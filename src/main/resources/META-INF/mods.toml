@@ -4,7 +4,7 @@ license="MIT"
 [[mods]]
 modId="logistics_companion"
 version="${modVersion}"
-displayName="后勤伙伴 / Logistics Companion"
+displayName="后勤伙伴 / Logistics Companion G4Neon"
 authors="Mi Bao & Codex"
 displayTest="IGNORE_ALL_VERSION"
 description='''纯客户端 AI 后勤伙伴。世界对象记忆、局部扫描、可见交互站位、菜单观察与库存核对；侧栏消息、本机双窗口同步和 DeepSeek 接入。服务器无需安装。'''

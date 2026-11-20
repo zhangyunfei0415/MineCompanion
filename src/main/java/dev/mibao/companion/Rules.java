@@ -287,36 +287,51 @@ public final class Rules {
           "click_slot",
           "craft_recipe");
 
+  private static final Set<String> MINE_TOOLS =
+      Set.of(
+          "break_block",
+          "attack_block",
+          "mine_blocks",
+          "mine_resource",
+          "mine_expedition",
+          "excavate_mine_route",
+          "mine_batch",
+          "harvest_plants",
+          "harvest_honey",
+          "chop_wood",
+          "harvest_replant");
+  private static final Set<String> PLACE_TOOLS =
+      Set.of(
+          "interact_block",
+          "build_platform",
+          "build_bridge",
+          "build_shelter",
+          "place_block",
+          "use_item_on_block",
+          "plant_crops",
+          "fertilize_crops");
+  private static final Set<String> ADMIN_TOOLS =
+      Set.of("game_command", "creative_take", "creative_clear_slot");
+  private static final Set<String> FAILED_STATUSES =
+      Set.of(
+          "unverified",
+          "position_changed",
+          "state_matches",
+          "rejected",
+          "dispatched",
+          "interrupted_unknown_result");
+  private static final Set<String> STANDARD_STORAGES =
+      Set.of("chest", "trapped_chest", "barrel", "hopper", "dispenser", "dropper", "shulker_box");
+  private static final java.util.regex.Pattern IPV4_HOST =
+      java.util.regex.Pattern.compile("[0-9.]+");
+
   public static String limitedDenial(String tool, boolean mine, boolean place, boolean hunt) {
     if (tool.equals("illuminate_area") && !place) return "失败：照明需要放置权限";
-    if (Set.of(
-                "break_block",
-                "attack_block",
-                "mine_blocks",
-                "mine_resource",
-                "mine_expedition",
-                "excavate_mine_route",
-                "mine_batch",
-                "harvest_plants",
-                "harvest_honey",
-                "chop_wood",
-                "harvest_replant")
-            .contains(tool)
-        && !mine) return "失败：当前禁止采集；请在权限面板授权";
+    if (MINE_TOOLS.contains(tool) && !mine) return "失败：当前禁止采集；请在权限面板授权";
     if (tool.equals("harvest_replant") && !place) return "失败：补种需要放置权限，请先在权限面板授权";
-    if (Set.of(
-                "interact_block",
-                "build_platform",
-                "build_bridge",
-                "build_shelter",
-                "place_block",
-                "use_item_on_block",
-                "plant_crops",
-                "fertilize_crops")
-            .contains(tool)
-        && !place) return "失败：[PERMISSION_REQUIRED] 有限模式未允许放置方块";
-    if (Set.of("game_command", "creative_take", "creative_clear_slot").contains(tool))
-      return "失败：指令/创造准备工具需要全部权限或逐次审批";
+    if (PLACE_TOOLS.contains(tool) && !place)
+      return "失败：[PERMISSION_REQUIRED] 有限模式未允许放置方块";
+    if (ADMIN_TOOLS.contains(tool)) return "失败：指令/创造准备工具需要全部权限或逐次审批";
     if (tool.equals("hunt_mobs") && !hunt) return "失败：当前禁止主动清怪；请在权限面板授权";
     return "";
   }
@@ -326,18 +341,12 @@ public final class Rules {
   }
 
   public static boolean actionFailed(String result) {
-    if (result != null && result.startsWith("{"))
+    if (result == null) return false;
+    if (result.startsWith("{"))
       try {
         var o = com.google.gson.JsonParser.parseString(result).getAsJsonObject();
-        if (o.has("status")
-            && Set.of(
-                    "unverified",
-                    "position_changed",
-                    "state_matches",
-                    "rejected",
-                    "dispatched",
-                    "interrupted_unknown_result")
-                .contains(o.get("status").getAsString())) return true;
+        if (o.has("status") && FAILED_STATUSES.contains(o.get("status").getAsString()))
+          return true;
         if (o.has("business_success") && !o.get("business_success").getAsBoolean()) return true;
       } catch (RuntimeException ignored) {
       }
@@ -350,16 +359,30 @@ public final class Rules {
   public static boolean standardStorage(String block) {
     if (block == null || !block.startsWith("minecraft:")) return false;
     String path = block.substring(10);
-    return Set.of(
-                "chest", "trapped_chest", "barrel", "hopper", "dispenser", "dropper", "shulker_box")
-            .contains(path)
-        || path.endsWith("_shulker_box");
+    return STANDARD_STORAGES.contains(path) || path.endsWith("_shulker_box");
   }
 
   public static String clean(String text, int max) {
-    if (text == null) return "";
-    return text.replaceAll("[\\p{Cntrl}&&[^\\n\\t]]", "")
-        .substring(0, Math.min(max, text.replaceAll("[\\p{Cntrl}&&[^\\n\\t]]", "").length()));
+    if (text == null || max <= 0) return "";
+    int len = text.length();
+    StringBuilder out = null;
+    int limit = Math.min(len, max);
+    for (int i = 0; i < len; i++) {
+      char c = text.charAt(i);
+      boolean ctrl = (c < 0x20 && c != '\n' && c != '\t') || c == 0x7f;
+      if (ctrl) {
+        if (out == null) {
+          out = new StringBuilder(limit);
+          out.append(text, 0, i);
+        }
+      } else if (out != null) {
+        if (out.length() >= max) break;
+        out.append(c);
+      } else if (i >= max) {
+        return text.substring(0, max);
+      }
+    }
+    return out == null ? (len <= max ? text : text.substring(0, max)) : out.toString();
   }
 
   public static boolean safePublicUrl(String value) {
@@ -372,7 +395,7 @@ public final class Rules {
       return !h.equals("localhost")
           && !h.endsWith(".local")
           && !h.contains(":")
-          && !h.matches("[0-9.]+")
+          && !IPV4_HOST.matcher(h).matches()
           && !h.endsWith(".internal");
     } catch (Exception e) {
       return false;

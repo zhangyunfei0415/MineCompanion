@@ -88,16 +88,13 @@ public final class Hud {
       ProcessHud.render(g, x, y, w, limit, v);
       return;
     }
-    boolean light = Store.config.theme.equals("纸白"), green = Store.config.theme.equals("终端");
-    int fg = light ? 0xff172a3b : green ? 0xffbef5cb : 0xffe2edf8,
-        muted = light ? 0xff506879 : 0xff9bb0c7;
+    UiTheme t = UiTheme.current();
+    int fg = t.text(), muted = t.textSecondary();
     int accent =
         v.kind == StatusFeed.Kind.HELP
-            ? 0xffff7885
-            : v.kind == StatusFeed.Kind.WAITING ? 0xffffc76a : green ? 0xff70dc9b : 0xff73c9f5;
-    int bg =
-        (Rules.bounded(Store.config.hudOpacity, 40, 100) * 255 / 100) << 24
-            | (light ? 0xe5edf3 : green ? 0x091910 : 0x0c1828);
+            ? t.danger()
+            : v.kind == StatusFeed.Kind.WAITING ? t.warning() : t.accent();
+    int bg = t.hudBg(Store.config.hudOpacity);
     var lines = new ArrayList<Text>();
     // Live control mode and the real planner connection come first.
     if (!linked) lines.add(new Text(controlLine(), fg));
@@ -106,7 +103,7 @@ public final class Hud {
           lines,
           ("alert".equals(v.attention.level) ? "需处理 · " : "待处理 · ") + v.attention.text,
           w - 20,
-          "alert".equals(v.attention.level) ? 0xffff8c99 : 0xffffc76a,
+          "alert".equals(v.attention.level) ? t.danger() : t.warning(),
           3);
     TaskCard card = Store.config.hudTask ? v.taskCard : null;
     if (card != null && card.ended > 0 && System.currentTimeMillis() - card.ended > 15_000)
@@ -134,7 +131,7 @@ public final class Hud {
       }
       if (!card.next.isBlank() && !Store.config.hudCompact)
         wrap(lines, "下一步 · " + card.next, w - 20, muted, 2);
-      if (!card.problem.isBlank()) wrap(lines, card.problem, w - 20, 0xffff8c99, 1);
+      if (!card.problem.isBlank()) wrap(lines, card.problem, w - 20, t.danger(), 1);
     }
     // (attention is shown at the top of the sidebar)
     if (Store.config.hudTask && v.plan != null && v.plan.has("goal")) {
@@ -193,7 +190,7 @@ public final class Hud {
             time + "  " + n.text + (n.repeats > 1 ? " ×" + n.repeats : ""),
             w - 20,
             (alpha << 24)
-                | (("alert".equals(n.level) ? 0xffff8c99 : "ask".equals(n.level) ? 0xffffcc77 : fg)
+                | (("alert".equals(n.level) ? t.danger() : "ask".equals(n.level) ? t.warning() : fg)
                     & 0xffffff),
             Store.config.hudCompact ? 2 : 3);
       }
@@ -202,9 +199,10 @@ public final class Hud {
     int maxLines = Math.max(1, (limit - y - header - 20) / 11);
     boolean clipped = lines.size() > maxLines;
     int shown = Math.min(lines.size(), maxLines), h = header + 10 + shown * 11;
-    g.fill(x + 2, y + 3, x + w + 2, y + h + 3, 0x30000000);
-    g.fill(x, y, x + w, y + h, bg);
-    g.fill(x, y, x + 3, y + h, accent);
+    g.fill(x + 2, y + 3, x + w + 2, y + h + 3, 0x36000000);
+    UiDraw.fillRounded(g, x, y, w, h, bg, t.border());
+    UiDraw.fillHGradient(g, x + 1, y, w - 2, 2, accent, t.accentAlt());
+    g.fill(x, y + 3, x + 3, y + h - 3, accent);
     g.renderItem(new ItemStack(icon(v.kind)), x + 9, y + 8);
     g.drawString(
         mc.font,
@@ -215,7 +213,7 @@ public final class Hud {
         false);
     g.drawString(mc.font, linked ? "伙伴小号" : "简洁  /  切为详细", x + 30, y + 20, muted, false);
     if (card != null) {
-      g.fill(x + 10, y + 32, x + w - 10, y + 35, 0x55394e68);
+      UiDraw.fillRounded(g, x + 10, y + 32, w - 20, 3, UiTheme.withAlpha(t.border(), 120), 0);
       g.fill(x + 10, y + 32, x + 10 + (w - 20) * card.percent() / 100, y + 35, accent);
     }
     int cy = y + header;

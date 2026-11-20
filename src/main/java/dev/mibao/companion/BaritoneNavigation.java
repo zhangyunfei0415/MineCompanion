@@ -1,30 +1,81 @@
 package dev.mibao.companion;
 
 import com.google.gson.JsonObject;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
 
 /** One owner of the optional pathfinder and its global settings during a navigation. */
 public final class BaritoneNavigation {
+  private static final class Api {
+    final Method getProvider;
+    final Method getPrimaryBaritone;
+    final Method getSettings;
+    final Constructor<?> newGoalNear;
+    final Method getCustomGoalProcess;
+    final Method setGoalAndPath;
+    final Method getMineProcess;
+    final Method mineByName;
+    final Method isActive;
+    final Method getPathingBehavior;
+    final Method getInProgress;
+    final Method isPathing;
+    final Method cancelEverything;
+
+    Api() throws ReflectiveOperationException {
+      Class<?> baritoneApi = Class.forName("baritone.api.BaritoneAPI");
+      getProvider = baritoneApi.getMethod("getProvider");
+      getSettings = baritoneApi.getMethod("getSettings");
+      getPrimaryBaritone =
+          Class.forName("baritone.api.IBaritoneProvider").getMethod("getPrimaryBaritone");
+      Class<?> iBaritone = Class.forName("baritone.api.IBaritone");
+      getCustomGoalProcess = iBaritone.getMethod("getCustomGoalProcess");
+      getMineProcess = iBaritone.getMethod("getMineProcess");
+      getPathingBehavior = iBaritone.getMethod("getPathingBehavior");
+      newGoalNear =
+          Class.forName("baritone.api.pathing.goals.GoalNear")
+              .getConstructor(BlockPos.class, int.class);
+      setGoalAndPath =
+          Class.forName("baritone.api.process.ICustomGoalProcess")
+              .getMethod("setGoalAndPath", Class.forName("baritone.api.pathing.goals.Goal"));
+      mineByName =
+          Class.forName("baritone.api.process.IMineProcess")
+              .getMethod("mineByName", int.class, String[].class);
+      isActive = Class.forName("baritone.api.process.IBaritoneProcess").getMethod("isActive");
+      Class<?> behaviorType = Class.forName("baritone.api.behavior.IPathingBehavior");
+      getInProgress = behaviorType.getMethod("getInProgress");
+      isPathing = behaviorType.getMethod("isPathing");
+      cancelEverything = behaviorType.getMethod("cancelEverything");
+    }
+  }
+
+  private static volatile Api cachedApi;
   private static BaritoneNavigation owner;
   private static String diagnostic = "idle";
   private final Map<Object, Object> previous = new LinkedHashMap<>();
   private Object instance;
   private boolean mining;
 
+  private static Api api() throws ReflectiveOperationException {
+    Api a = cachedApi;
+    if (a == null) {
+      a = new Api();
+      cachedApi = a;
+    }
+    return a;
+  }
+
   private Object acquire() throws ReflectiveOperationException {
     if (owner != null && owner != this)
       throw new IllegalStateException("another_navigation_active");
-    Class<?> api = Class.forName("baritone.api.BaritoneAPI");
-    Object provider = api.getMethod("getProvider").invoke(null);
-    instance =
-        Class.forName("baritone.api.IBaritoneProvider")
-            .getMethod("getPrimaryBaritone")
-            .invoke(provider);
+    Api a = api();
+    Object provider = a.getProvider.invoke(null);
+    instance = a.getPrimaryBaritone.invoke(provider);
     owner = this;
-    return api.getMethod("getSettings").invoke(null);
+    return a.getSettings.invoke(null);
   }
 
   public boolean start(BlockPos target) {
@@ -34,6 +85,7 @@ public final class BaritoneNavigation {
     }
     try {
       Object settings = acquire();
+      Api a = api();
       boolean full = "FULL".equals(Store.config.permission) || Store.config.fullGameControl;
       setting(
           settings,
@@ -53,18 +105,10 @@ public final class BaritoneNavigation {
           "allowInventory",
           NavigationPermissions.canPlace() && MiningExpedition.navigationTerrain());
       setting(settings, "allowParkour", false);
-      Object goal =
-          Class.forName("baritone.api.pathing.goals.GoalNear")
-              .getConstructor(BlockPos.class, int.class)
-              .newInstance(target, 1);
-      Object process =
-          Class.forName("baritone.api.IBaritone")
-              .getMethod("getCustomGoalProcess")
-              .invoke(instance);
+      Object goal = a.newGoalNear.newInstance(target, 1);
+      Object process = a.getCustomGoalProcess.invoke(instance);
       owner = this;
-      Class.forName("baritone.api.process.ICustomGoalProcess")
-          .getMethod("setGoalAndPath", Class.forName("baritone.api.pathing.goals.Goal"))
-          .invoke(process, goal);
+      a.setGoalAndPath.invoke(process, goal);
       diagnostic = "running";
       return true;
     } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
@@ -80,7 +124,7 @@ public final class BaritoneNavigation {
       int durability) {
     try {
       Object settings = acquire();
-      boolean full = "FULL".equals(Store.config.permission) || Store.config.fullGameControl;
+      Api a = api();
       setting(settings, "allowBreak", terrain);
       setting(settings, "allowBreakAnyway", java.util.List.copyOf(blocks));
       setting(settings, "allowPlace", terrain && NavigationPermissions.canPlace());
@@ -92,16 +136,13 @@ public final class BaritoneNavigation {
       setting(settings, "maxCachedWorldScanCount", 0);
       setting(settings, "itemSaver", true);
       setting(settings, "itemSaverThreshold", durability);
-      Object process =
-          Class.forName("baritone.api.IBaritone").getMethod("getMineProcess").invoke(instance);
+      Object process = a.getMineProcess.invoke(instance);
       String[] ids =
           blocks.stream()
               .map(b -> net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(b).toString())
               .toArray(String[]::new);
       mining = true;
-      Class.forName("baritone.api.process.IMineProcess")
-          .getMethod("mineByName", int.class, String[].class)
-          .invoke(process, 0, ids);
+      a.mineByName.invoke(process, 0, ids);
       diagnostic = "mining";
       return true;
     } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
@@ -114,12 +155,9 @@ public final class BaritoneNavigation {
   boolean miningActive() {
     if (!mining || instance == null) return false;
     try {
-      Object process =
-          Class.forName("baritone.api.IBaritone").getMethod("getMineProcess").invoke(instance);
-      return (boolean)
-          Class.forName("baritone.api.process.IBaritoneProcess")
-              .getMethod("isActive")
-              .invoke(process);
+      Api a = api();
+      Object process = a.getMineProcess.invoke(instance);
+      return (boolean) a.isActive.invoke(process);
     } catch (ReflectiveOperationException | RuntimeException e) {
       return false;
     }
@@ -129,19 +167,18 @@ public final class BaritoneNavigation {
       throws ReflectiveOperationException {
     Object setting = settings.getClass().getField(name).get(settings);
     Field field = setting.getClass().getField("value");
-    previous.put(setting, field.get(setting));
+    previous.putIfAbsent(setting, field.get(setting));
     field.set(setting, value);
   }
 
   public boolean active() {
+    if (instance == null) return false;
     try {
-      Object behavior =
-          Class.forName("baritone.api.IBaritone").getMethod("getPathingBehavior").invoke(instance);
-      Class<?> behaviorType = Class.forName("baritone.api.behavior.IPathingBehavior");
+      Api a = api();
+      Object behavior = a.getPathingBehavior.invoke(instance);
       java.util.Optional<?> calculation =
-          (java.util.Optional<?>) behaviorType.getMethod("getInProgress").invoke(behavior);
-      return (boolean) behaviorType.getMethod("isPathing").invoke(behavior)
-          || calculation.isPresent();
+          (java.util.Optional<?>) a.getInProgress.invoke(behavior);
+      return (boolean) a.isPathing.invoke(behavior) || calculation.isPresent();
     } catch (ReflectiveOperationException | RuntimeException e) {
       return false;
     }
@@ -150,13 +187,9 @@ public final class BaritoneNavigation {
   public void stop() {
     if (instance != null) {
       try {
-        Object behavior =
-            Class.forName("baritone.api.IBaritone")
-                .getMethod("getPathingBehavior")
-                .invoke(instance);
-        Class.forName("baritone.api.behavior.IPathingBehavior")
-            .getMethod("cancelEverything")
-            .invoke(behavior);
+        Api a = api();
+        Object behavior = a.getPathingBehavior.invoke(instance);
+        a.cancelEverything.invoke(behavior);
       } catch (ReflectiveOperationException | RuntimeException e) {
         diagnostic = "cancel: " + e.getClass().getSimpleName();
       }
@@ -179,9 +212,9 @@ public final class BaritoneNavigation {
     JsonObject result = new JsonObject();
     boolean available;
     try {
-      Class.forName("baritone.api.BaritoneAPI");
+      api();
       available = true;
-    } catch (ClassNotFoundException | LinkageError e) {
+    } catch (ReflectiveOperationException | LinkageError e) {
       available = false;
     }
     result.addProperty("available", available);

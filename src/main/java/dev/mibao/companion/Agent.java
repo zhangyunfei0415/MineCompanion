@@ -253,29 +253,16 @@ public final class Agent {
   public static void interruptWorkForRecovery() {
     DecisionService.invalidate();
     TaskGateway.interruptActive("interrupted_unknown_result", "生命偏低，作业中止");
-    if (routine != null) routine.cancel();
-    routine = null;
     LogisticsRuntime.halt();
     CommunityTasks.halt();
-    epoch++;
-    if (session != null) session.cancel();
-    session = null;
     ActionTrace.interrupted("生命偏低，作业中止并进入自行恢复");
+    StreamProgress.cancel("生命偏低，作业中止");
+    epoch++;
     if (request != null) request.cancel(true);
     request = null;
-    if (resource != null) resource.cancel();
-    resource = null;
-    if (production != null) production.cancel();
-    production = null;
-    if (transport != null) transport.cancel();
-    transport = null;
-    if (restock != null) restock.cancel();
-    restock = null;
+    cancelActiveJobs();
     Actions.cancel();
-    approval = null;
-    rejection = null;
-    pendingTool = "";
-    pendingArgs = "";
+    clearPendingApproval();
     calls.clear();
     skillSteps.clear();
     queuedTasks.clear();
@@ -302,10 +289,7 @@ public final class Agent {
     if (restock != null) restock.cancel();
     restock = null;
     Actions.cancel();
-    approval = null;
-    rejection = null;
-    pendingTool = "";
-    pendingArgs = "";
+    clearPendingApproval();
     active.fail("达到会话总预算；未确认步骤保留现场，不自动重放。");
   }
 

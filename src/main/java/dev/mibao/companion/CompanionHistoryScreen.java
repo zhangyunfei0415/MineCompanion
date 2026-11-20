@@ -2,7 +2,6 @@ package dev.mibao.companion;
 
 import java.util.*;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
@@ -47,20 +46,18 @@ public final class CompanionHistoryScreen extends Screen {
       }
     if (data.has("history_error")) text.append(data.get("history_error").getAsString());
     content = text.toString();
-    lines = font.split(Component.literal(content), width - 56);
+    lines = font.split(Component.literal(content), Math.max(80, width - 64));
+    addRenderableWidget(new DeskButton("返回面板", 20, height - 30, 96, 22, this::onClose));
     addRenderableWidget(
-        Button.builder(Component.literal("返回面板"), b -> onClose())
-            .bounds(18, height - 28, 95, 20)
-            .build());
+        new DeskButton("复制手记", 122, height - 30, 90, 22, () -> minecraft.keyboardHandler.setClipboard(content)));
     addRenderableWidget(
-        Button.builder(
-                Component.literal("复制手记"), b -> minecraft.keyboardHandler.setClipboard(content))
-            .bounds(120, height - 28, 90, 20)
-            .build());
-    addRenderableWidget(
-        Button.builder(
-                Component.literal("本地导出"),
-                b -> {
+        new DeskButton(
+                "本地导出",
+                218,
+                height - 30,
+                90,
+                22,
+                () -> {
                   try {
                     CompanionIdentity.export();
                     Companion.notifyUser("手记已导出到companion/exports，不包含API设置。");
@@ -68,8 +65,7 @@ public final class CompanionHistoryScreen extends Screen {
                     Companion.notifyUser(e.getMessage());
                   }
                 })
-            .bounds(217, height - 28, 85, 20)
-            .build());
+            .variant(DeskButton.Variant.PRIMARY));
   }
 
   @Override
@@ -83,15 +79,27 @@ public final class CompanionHistoryScreen extends Screen {
 
   @Override
   public void render(GuiGraphics g, int mx, int my, float partial) {
-    g.fill(0, 0, width, height, 0xff0b1723);
-    g.fill(12, 48, width - 12, height - 38, 0xff162f3d);
-    g.fill(12, 48, 15, height - 38, 0xffc8ac79);
-    g.drawString(font, "伙伴手记", 20, 16, 0xffe6c886, false);
-    g.drawString(font, "人设与偏好共享 · 对话按世界保存 · 旧动作不重放", 20, 32, 0xff9fbdc9, false);
-    g.enableScissor(22, 58, width - 22, height - 46);
-    for (int i = scroll; i < lines.size() && 58 + (i - scroll) * 12 < height - 46; i++)
-      g.drawString(font, lines.get(i), 26, 58 + (i - scroll) * 12, 0xffe1ecee, false);
+    UiTheme t = UiTheme.current();
+    g.fill(0, 0, width, height, t.backdrop());
+    UiDraw.fillRounded(g, 10, 8, width - 20, height - 16, t.windowBg(), t.border());
+    UiDraw.fillHGradient(g, 11, 9, width - 22, 2, t.accent(), t.accentAlt());
+
+    g.drawString(font, "伙伴手记 · 人设与本世界交流", 22, 18, t.accent(), false);
+    g.drawString(font, "人设与偏好跨世界共享 · 对话按世界保存 · 旧动作不重放", 22, 32, t.textSecondary(), false);
+
+    int cardY = 48, cardH = Math.max(40, height - 88);
+    UiDraw.fillCard(g, 18, cardY, width - 36, cardH, t);
+    g.fill(18, cardY + 3, 21, cardY + cardH - 3, t.accentAlt());
+    g.enableScissor(24, cardY + 8, width - 28, cardY + cardH - 8);
+    for (int i = scroll; i < lines.size() && cardY + 10 + (i - scroll) * 12 < cardY + cardH - 8; i++)
+      g.drawString(font, lines.get(i), 28, cardY + 10 + (i - scroll) * 12, t.text(), false);
     g.disableScissor();
+
+    int maxLines = Math.max(1, (cardH - 18) / 12);
+    int maxScroll = Math.max(0, lines.size() - maxLines);
+    if (maxScroll > 0)
+      UiDraw.drawScrollbar(g, width - 25, cardY + 8, cardH - 16, scroll, maxScroll, maxLines, false, t);
+
     super.render(g, mx, my, partial);
   }
 

@@ -1,3 +1,10 @@
+# 0.8.4-G4Neon · g4neon-20261120-01 · 2026-11-20
+
+- `Gemini` 分支：基于 0.8.4 完成全库源码审阅、10 项核心性能优化与前端 G4Neon 设计体系彻底重构。
+- 核心优化：`Store.saveSettingsOnly()` 轻量落盘与增量跳过、`ActionTrace` 后台合并写盘、`Rules.clean()` 零正则单遍清洗、`BaritoneNavigation` 反射句柄缓存、`Agent` 低血/会话清理统一、`BagPolicy.copy()` 深拷贝、`LocalDialogue` 折行缓存、`WorldMemory` 与 `WorldSense` 防护清理。
+- 前端重构：新增 `UiTheme`（默认 `霓虹` G4Neon Studio 与 5 套重调主题）、`UiDraw`、`SettingsCatalog`（中英文实时检索）与 `WorkbenchSettingsViews`（五大设置页与实时生效权限矩阵）；`WorkbenchScreen` 改为原地平滑滚动与拖拽滚动条；统一 HUD、本地对话与 6 个二级窗口视觉风格。
+- 输出产物命名带 `-G4Neon` 后缀（`logistics-companion-0.8.4-G4Neon.jar`），离线构建与 122 个测试套件 / 651 项 JUnit 测试通过，游戏内实机界面待验收。详见 [0.8.4-G4Neon 审阅与界面重构说明](RELEASE-0.8.4-G4NEON-20261120.md)。
+
 # 0.8.4 Alpha · vanilla-survival-20261120-01 · 2026-11-20
 
 - 扩展授权跟随口令、跨维度门口接近和同一玩家会合。

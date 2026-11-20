@@ -287,9 +287,7 @@ public final class Companion {
         && hit.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
       var block = mc.level.getBlockState(hit.getBlockPos()).getBlock();
       boolean once =
-          mc.player.getMainHandItem().getItem() instanceof net.minecraft.world.item.BucketItem
-              || mc.player.getOffhandItem().getItem() instanceof net.minecraft.world.item.BucketItem
-              || block instanceof net.minecraft.world.level.block.DoorBlock
+          block instanceof net.minecraft.world.level.block.DoorBlock
               || block instanceof net.minecraft.world.level.block.TrapDoorBlock
               || block instanceof net.minecraft.world.level.block.FenceGateBlock
               || block instanceof net.minecraft.world.level.block.AbstractChestBlock

@@ -67,15 +67,11 @@ public final class ProcessHud {
     y = py;
     w = width;
     h = Math.max(60, bottom - py);
-    boolean light = Store.config.theme.equals("纸白"), green = Store.config.theme.equals("终端");
-    int fg = light ? 0xff172a3b : green ? 0xffbef5cb : 0xffe2edf8,
-        muted = light ? 0xff425e70 : 0xffa8bed0,
-        accent = light ? 0xff126382 : green ? 0xff70dc9b : 0xff73c9f5;
-    int bg =
-        (Rules.bounded(Store.config.hudOpacity, 40, 100) * 255 / 100) << 24
-            | (light ? 0xe5edf3 : green ? 0x091910 : 0x0c1828);
-    g.fill(x, y, x + w, y + h, bg);
-    g.fill(x, y, x + w, y + 1, accent);
+    UiTheme t = UiTheme.current();
+    int fg = t.text(), muted = t.textSecondary(), accent = t.accent();
+    int bg = t.hudBg(Store.config.hudOpacity);
+    UiDraw.fillRounded(g, x, y, w, h, bg, t.border());
+    UiDraw.fillHGradient(g, x + 1, y, w - 2, 2, accent, t.accentAlt());
     g.drawString(
         mc.font,
         mc.font.plainSubstrByWidth(status.name + " · 工作过程", w - 18),
@@ -106,7 +102,7 @@ public final class ProcessHud {
         y + 47,
         muted,
         false);
-    g.fill(x + 9, y + 61, x + w - 9, y + 62, light ? 0xffbbced8 : 0xff2a4254);
+    g.fill(x + 9, y + 61, x + w - 9, y + 62, t.border());
     var live = events();
     var list = frozen == null ? live : frozen;
     hits.clear();
@@ -117,8 +113,8 @@ public final class ProcessHud {
       int start = cy;
       int color =
           e.kind.equals("stream_error")
-              ? light ? 0xff943744 : 0xffffabb4
-              : e.kind.equals("result") ? light ? 0xff226346 : 0xffa4d7b9 : fg;
+              ? t.danger()
+              : e.kind.equals("result") ? t.success() : fg;
       g.drawString(
           mc.font,
           TaskTimeline.label(e.kind) + (e.kind.equals("stream") ? " · 实时" : ""),
@@ -150,13 +146,18 @@ public final class ProcessHud {
     maxOffset = Math.max(0, cy + offset - (y + h - 25));
     offset = Math.min(offset, maxOffset);
     g.disableScissor();
+    if (maxOffset > 0 && h > 110) {
+      int viewH = Math.max(16, (y + h - 24) - (y + 66));
+      UiDraw.drawScrollbar(g, x + w - 6, y + 66, viewH, offset, maxOffset, viewH, false, t);
+    }
     boolean changed = frozen != null && !live.isEmpty() && !live.get(0).id.equals(anchor);
     String footer =
         frozen != null
             ? (changed ? "有新进展 · 点击回到最新" : "正在翻阅 · 点击回到最新")
             : LocalDialogue.editing ? "滚轮翻阅 · 点击展开 · Tab全览" : "Home 阅读 / 下令 · 文字非执行证明";
     if (changed) {
-      g.fill(x + 5, y + h - 19, x + w - 5, y + h - 4, light ? 0x33126382 : 0x3373c9f5);
+      UiDraw.fillRounded(
+          g, x + 5, y + h - 19, w - 10, 15, UiTheme.withAlpha(accent, 48), UiTheme.withAlpha(accent, 120));
       g.drawString(
           mc.font,
           mc.font.plainSubstrByWidth("▼ " + footer, w - 18),

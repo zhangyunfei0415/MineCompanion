@@ -25,6 +25,8 @@ public final class Store {
   private static String worldKey = "disconnected";
   private static FileChannel controlChannel;
   private static FileLock controlLock;
+  private static boolean presetsWritten;
+  private static String lastSavedSkillsJson;
 
   public static boolean hasControl() {
     return controlLock != null && controlLock.isValid();
@@ -80,7 +82,7 @@ public final class Store {
         model = "deepseek-flash",
         apiKey = "";
     public String goal = "优先熟悉基地、记住仓库位置，学习可行的后勤补给工作。不要主动去危险地点。";
-    public String permission = "ASK", theme = "深海", trusted = "";
+    public String permission = "ASK", theme = "霓虹", trusted = "";
     public String teamReport = "BRIEF";
     public boolean playerAutonomy = false, nearbySupplyPickup = false;
     public boolean compactToolMenu = false;
@@ -228,7 +230,8 @@ public final class Store {
     var check = skillCheck(name);
     check.definition = definition(name);
     check.lastObserved = System.currentTimeMillis();
-    check.lastDimension = Minecraft.getInstance().level.dimension().location().toString();
+    var level = Minecraft.getInstance().level;
+    check.lastDimension = level == null ? "" : level.dimension().location().toString();
     check.lastOutcome = ActionOutcome.describe(result).get("outcome").getAsString();
     if (check.lastOutcome.equals("verified")) check.successes++;
     else if (check.lastOutcome.equals("failed")) check.failures++;
@@ -337,6 +340,8 @@ public final class Store {
     }
     if (config == null) config = new Config();
     lastSavedConfig = GSON.toJsonTree(config).getAsJsonObject();
+    presetsWritten = false;
+    lastSavedSkillsJson = null;
     config.visionMode = VisionPolicy.mode(config.visionMode, config.vision);
     Learning.init();
     if (config.hudVersion < 1) {
@@ -552,6 +557,20 @@ public final class Store {
     data.skills = sharedSkills;
   }
 
+  /** Persist only settings.json (skipping world data normalization/serialization) for snappy UI toggles. */
+  public static void saveSettingsOnly() {
+    if (controlLock == null || !controlLock.isValid()) {
+      if (!Panel.managing(Minecraft.getInstance().screen) && !Agent.enabled) return;
+      if (!claimControl()) return;
+    }
+    try {
+      Files.createDirectories(ROOT);
+      saveSettings();
+    } catch (Exception e) {
+      Companion.log("设置保存失败，保留磁盘上的文件：" + e.getClass().getSimpleName());
+    }
+  }
+
   public static void save() {
     // Two launchers may share one game directory. The window selected in the
     // panel owns persistence until it exits; the passive window never overwrites it.
@@ -568,11 +587,19 @@ public final class Store {
         Companion.log("设置保存失败，保留磁盘上的文件：" + e.getClass().getSimpleName());
       }
       Learning.save();
-      atomic(ROOT.resolve("presets.json"), GSON.toJson(SkillCatalog.catalog()));
-      if (libraryReadable)
-        atomic(
-            ROOT.resolve("skills.json"),
-            GSON.toJson(MemoryLayout.library(GSON.toJsonTree(sharedSkills))));
+      Path presetsPath = ROOT.resolve("presets.json");
+      if (!presetsWritten || !Files.exists(presetsPath)) {
+        atomic(presetsPath, GSON.toJson(SkillCatalog.catalog()));
+        presetsWritten = true;
+      }
+      if (libraryReadable) {
+        Path skillsPath = ROOT.resolve("skills.json");
+        String skillsJson = GSON.toJson(MemoryLayout.library(GSON.toJsonTree(sharedSkills)));
+        if (!skillsJson.equals(lastSavedSkillsJson) || !Files.exists(skillsPath)) {
+          atomic(skillsPath, skillsJson);
+          lastSavedSkillsJson = skillsJson;
+        }
+      }
       if (worldReadable && !worldKey.equals("disconnected")) writeWorld();
     } catch (Exception e) {
       Companion.log("保存失败：" + e.getClass().getSimpleName());

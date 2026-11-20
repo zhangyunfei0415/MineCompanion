@@ -29,7 +29,7 @@ public final class BagTask implements LocalRoutine {
 
   public BagTask(Consumer<String> done, boolean attach) {
     this.done = done;
-    policy = Store.GSON.fromJson(Store.GSON.toJson(Store.data.bag), BagPolicy.class);
+    policy = Store.data.bag.copy();
     policy.validate();
     items = new ArrayList<>(policy.desired.keySet());
     var plan = new JsonObject();

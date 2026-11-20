@@ -4,11 +4,27 @@ import com.google.gson.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import net.minecraft.client.Minecraft;
 
 /** Bounded diagnostics. Only allowlisted action fields; never credentials, prompts or GUI text. */
 public final class ActionTrace {
+  private record PendingFlush(Path folder, Path target, Path tmp, String json) {}
+
+  private static final Pattern SECRET_EXCERPT =
+      Pattern.compile("(?is).*?(api.?key|authorization|bearer|sk-[a-z0-9]).*");
+  private static final ExecutorService IO =
+      Executors.newSingleThreadExecutor(
+          r -> {
+            var t = new Thread(r, "Companion-Trace-IO");
+            t.setDaemon(true);
+            return t;
+          });
+  private static final AtomicReference<PendingFlush> pending = new AtomicReference<>();
+  private static final AtomicBoolean scheduled = new AtomicBoolean();
   private static final Deque<JsonObject> records = new ArrayDeque<>();
   private static long sequence;
   private static String recordScope = "";
@@ -78,8 +94,7 @@ public final class ActionTrace {
           result.startsWith("{") || result.startsWith("[")
               ? "structured result"
               : Rules.clean(result, 500);
-      if (excerpt.matches("(?is).*?(api.?key|authorization|bearer|sk-[a-z0-9]).*"))
-        excerpt = "redacted";
+      if (SECRET_EXCERPT.matcher(excerpt).matches()) excerpt = "redacted";
       r.addProperty("result", excerpt);
       TaskTimeline.add(
           "result",
@@ -100,16 +115,36 @@ public final class ActionTrace {
   }
 
   private static void flush() {
-    try {
-      if (records.isEmpty()) return;
-      Path folder = Store.ROOT.resolve("action-traces");
-      Files.createDirectories(folder);
-      String scope =
-          UUID.nameUUIDFromBytes(recordScope.getBytes(StandardCharsets.UTF_8)).toString();
-      Path target = folder.resolve(scope + "-last.json"), tmp = folder.resolve(scope + "-last.tmp");
-      Files.writeString(tmp, Store.GSON.toJson(records), StandardCharsets.UTF_8);
-      Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-    } catch (Exception ignored) {
+    if (records.isEmpty()) return;
+    Path folder = Store.ROOT.resolve("action-traces");
+    String scope =
+        UUID.nameUUIDFromBytes(recordScope.getBytes(StandardCharsets.UTF_8)).toString();
+    pending.set(
+        new PendingFlush(
+            folder,
+            folder.resolve(scope + "-last.json"),
+            folder.resolve(scope + "-last.tmp"),
+            Store.GSON.toJson(records)));
+    if (scheduled.compareAndSet(false, true)) IO.execute(ActionTrace::drainFlushes);
+  }
+
+  private static void drainFlushes() {
+    while (true) {
+      try {
+        PendingFlush job;
+        while ((job = pending.getAndSet(null)) != null) {
+          try {
+            Files.createDirectories(job.folder());
+            Files.writeString(job.tmp(), job.json(), StandardCharsets.UTF_8);
+            Files.move(job.tmp(), job.target(), StandardCopyOption.REPLACE_EXISTING);
+          } catch (Exception ignored) {
+          }
+        }
+      } finally {
+        scheduled.set(false);
+      }
+      // Guard against a concurrent flush arriving right before scheduled.set(false).
+      if (pending.get() == null || !scheduled.compareAndSet(false, true)) return;
     }
   }
 }

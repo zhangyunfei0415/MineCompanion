@@ -23,6 +23,13 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 - 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
 - 原有近战、自卫与弓箭执行功能。
 
+### 0.8.4-G4Neon 分支变更（Gemini）
+
+- 前端设置界面与游戏内浮层基于全新 `UiTheme` / `UiDraw` / `DeskButton` / `SettingsCatalog` / `WorkbenchSettingsViews` 设计体系彻底重构，默认启用 `霓虹`（G4Neon Studio）主题并提供 5 套重调主题即时切换。
+- `WorkbenchScreen` 升级为双层容器与原地平滑滚动/拖拽滚动条，新增中英文实时设置搜索与 `dirtyKeys` 未保存草稿感知，同步统一 HUD、本地对话及 6 个二级窗口视觉体验。
+- 完成 0.8.4 全库代码审阅与 10 项后端优化（`Store.saveSettingsOnly()` 轻量设置保存、`ActionTrace` 后台合并写盘、`Rules.clean()` 单遍零正则清洗、`BaritoneNavigation` 反射缓存、`Agent` 状态清理统一、`BagPolicy.copy()` 深拷贝、`LocalDialogue` 折行缓存等）。
+- 构建产物保留主版本 `0.8.4` 并添加 `-G4Neon` 后缀（从源码构建输出 `build/libs/logistics-companion-0.8.4-G4Neon.jar`；当前为源码分支发布）。详见 [0.8.4-G4Neon 审阅与界面重构说明](RELEASE-0.8.4-G4NEON-20261120.md)。
+
 ### 0.8.4 新增
 
 - 授权玩家可以用 `@小勤 跟着我` 启动跟随。下界与末地陪伴会记住当前观察到的门，沿安全路线接近，并在过门后尝试与同一玩家会合。
@@ -44,7 +51,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## Alpha 状态
 
-当前版本为 **0.8.4 / vanilla-survival-20261120-01**。Windows 开发环境编译通过，645 项自动化测试通过。
+当前 `Gemini` 分支版本为 **0.8.4-G4Neon / g4neon-20261120-01**（基线 0.8.4）。Windows 离线开发环境编译通过，122 个测试套件 / 651 项自动化测试通过；实机 UI 与交互待游戏内验收。
 
 已有实机记录覆盖基础跟随、采矿、熔炼、采收、酿造、附魔与铁砧。0.8.4 的自动过门会合、新生存技能和短程飞行还待实机复核。模组兼容性取决于版本、菜单同步方式和服务器规则。
 

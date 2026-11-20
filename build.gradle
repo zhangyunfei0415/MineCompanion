@@ -4,7 +4,7 @@ plugins {
 }
 group = 'dev.mibao'
 version = '0.8.4'
-def buildId = 'vanilla-survival-20261120-01'
+def buildId = 'g4neon-20261120-01'
 def buildValues = [modVersion: project.version.toString(), buildId: buildId]
 base { archivesName = 'logistics-companion' }
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; withSourcesJar() }
@@ -44,7 +44,14 @@ dependencies {
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17; options.incremental = false }
 test { useJUnitPlatform() }
-jar { manifest { attributes 'Implementation-Version': project.version, 'Implementation-Build': buildId }; finalizedBy 'reobfJar' }
+jar {
+    archiveFileName = "${base.archivesName.get()}-${project.version}-G4Neon.jar"
+    manifest { attributes 'Implementation-Version': project.version, 'Implementation-Build': buildId }
+    finalizedBy 'reobfJar'
+}
+tasks.named('sourcesJar') {
+    archiveFileName = "${base.archivesName.get()}-${project.version}-G4Neon-sources.jar"
+}
 tasks.named('processResources') {
     inputs.properties(buildValues)
     filesMatching(['META-INF/mods.toml', 'minecompanion-build.properties']) { expand(buildValues) }

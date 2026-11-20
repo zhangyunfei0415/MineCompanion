@@ -9,34 +9,105 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
-/**
- * Single-player desk: live task, portable library and effective permissions, no fake companions.
- */
+/** G4Neon Studio Command Deck: unified Ledger & Settings workbench for single-player companion control. */
 public final class WorkbenchScreen extends Screen {
+  record SegmentOption(String label, boolean selected, Runnable action) {}
+
+  record BadgeItem(String text, int color) {}
+
+  private record DrawLine(String text, int x, int y, int color) {}
+
+  private record DrawCard(int x, int y, int w, int h, String title, String badge, int badgeColor, boolean alert) {}
+
+  private record DrawBadge(String text, int x, int y, int color) {}
+
+  private record DrawKeycap(String action, String key, int x, int y, int w) {}
+
+  private record ScrollWidget(AbstractWidget widget, int baseY) {}
+
   private static final ResourceLocation ART =
       new ResourceLocation(Companion.ID, "textures/gui/logistics-desk-20261031.png");
+  private static final String[] SETTINGS_NAV = {"模型与连接", "权限与安全", "输入与感知", "显示与陪伴", "数据与维护"};
+  private static final String[] LEDGER_NAV = {"当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史"};
+
   private final Screen previous;
   private final Object previousMenu;
+  private final WorkbenchPages pages = new WorkbenchPages(this);
+  private final WorkbenchSettingsViews settingsViews = new WorkbenchSettingsViews(this);
+
   private boolean settings;
   private int page, scroll, y, maxY;
   private DeskLayout box;
-  private String query = "", selected = "", command = "", status = "";
-  private final Map<String, String> drafts = new HashMap<>();
-  private final Map<String, EditBox> fields = new LinkedHashMap<>();
-  private final List<Line> lines = new ArrayList<>();
-  private final Map<String, Integer> scrolls = new HashMap<>();
-  private BagPolicy bagDraft;
-  private int section = -1, parentScroll, ticks;
-  private final WorkbenchPages pages = new WorkbenchPages(this);
-  private String miningGoal = "";
+  private int winX, winY, winW, winH, headerBottom, viewLeft, viewRight;
 
-  private record Line(String text, int x, int y, int color) {}
+  private String query = "", selected = "", command = "", status = "", miningGoal = "", settingsSearch = "";
+  private String lastFingerprint = "";
+  private BagPolicy bagDraft;
+  private EditBox searchBox;
+  private int section = -1, parentScroll, ticks;
+  private boolean draggingScrollbar;
+  private int dragStartMouseY, dragStartScroll;
+
+  private final Map<String, String> drafts = new HashMap<>();
+  private final Set<String> dirtyKeys = new HashSet<>();
+  private final Map<String, EditBox> fields = new LinkedHashMap<>();
+  private final Map<String, Integer> scrolls = new HashMap<>();
+  private final List<DrawLine> lines = new ArrayList<>();
+  private final List<DrawCard> cards = new ArrayList<>();
+  private final List<DrawBadge> badges = new ArrayList<>();
+  private final List<DrawKeycap> keycaps = new ArrayList<>();
+  private final List<AbstractWidget> chromeWidgets = new ArrayList<>();
+  private final List<ScrollWidget> contentWidgets = new ArrayList<>();
 
   public WorkbenchScreen() {
-    super(Component.literal("后勤伙伴 · 工作台"));
+    super(Component.literal("后勤伙伴 G4Neon · 工作台"));
     var mc = net.minecraft.client.Minecraft.getInstance();
     previous = mc.screen;
     previousMenu = mc.player == null ? null : mc.player.containerMenu;
+  }
+
+  UiTheme theme() {
+    return UiTheme.current();
+  }
+
+  String settingsQuery() {
+    return settingsSearch;
+  }
+
+  void clearSettingsQuery() {
+    settingsSearch = "";
+    drafts.remove("settings/search");
+    dirtyKeys.remove("settings/search");
+    if (searchBox != null && !searchBox.getValue().isEmpty()) searchBox.setValue("");
+    scroll = 0;
+    rebuild();
+  }
+
+  void clearSettingsQueryOnly() {
+    settingsSearch = "";
+    drafts.remove("settings/search");
+    dirtyKeys.remove("settings/search");
+    if (searchBox != null && !searchBox.getValue().isEmpty()) searchBox.setValue("");
+  }
+
+  void setStatus(String s) {
+    status = s == null ? "" : s;
+  }
+
+  void openNotice(String content) {
+    minecraft.setScreen(new NoticeScreen(this, content));
+  }
+
+  boolean hasDraftPrefix(String prefix) {
+    return dirtyKeys.stream().anyMatch(k -> k.startsWith(prefix));
+  }
+
+  void putDraft(String key, String value) {
+    drafts.put(key, value);
+  }
+
+  String value(String key, String fallback) {
+    return drafts.getOrDefault(key, fallback);
   }
 
   @Override
@@ -44,24 +115,126 @@ public final class WorkbenchScreen extends Screen {
     rebuild();
   }
 
-  private int fg() {
-    return Store.config.theme.equals("纸白")
-        ? 0xff18323e
-        : Store.config.theme.equals("终端") ? 0xffb5f4c7 : 0xffd8e8ed;
+  private void computeGeometry() {
+    // Keep DeskLayout for column math while padding into an elevated G4Neon command window on wide screens.
+    int marginX = width >= 620 ? 18 : 0;
+    int marginY = height >= 360 ? 12 : 0;
+    winX = marginX;
+    winY = marginY;
+    winW = Math.max(300, width - marginX * 2);
+    winH = Math.max(200, height - marginY * 2);
+    DeskLayout base = DeskLayout.of(winW, winH);
+    int navW = Math.min(132, Math.max(base.nav(), width >= 680 ? 128 : base.nav()));
+    int padLeft = winX + navW + 14;
+    int padRight = winX + winW - 18;
+    int contentW = Math.max(160, padRight - padLeft);
+    headerBottom = winY + 52;
+    int bottom = winY + winH - 26;
+    box = new DeskLayout(navW, padLeft, contentW, headerBottom + 8, bottom);
+    viewLeft = box.left() - 2;
+    viewRight = box.left() + box.width() + 2;
   }
 
-  private int muted() {
-    return Store.config.theme.equals("纸白")
-        ? 0xff486371
-        : Store.config.theme.equals("终端") ? 0xff98bfa4 : 0xff9cb4c0;
+  private <T extends AbstractWidget> T addChrome(T widget) {
+    chromeWidgets.add(widget);
+    return addRenderableWidget(widget);
   }
 
-  private void text(String s) {
-    for (var line : font.split(Component.literal(s), box.width() - 8)) {
-      lines.add(new Line(lineText(line), box.left() + 4, y, fg()));
-      y += 12;
+  private <T extends AbstractWidget> T addContent(T widget, int baseY) {
+    if (widget instanceof DeskButton db) db.clip(box.top(), box.bottom());
+    contentWidgets.add(new ScrollWidget(widget, baseY));
+    int py = baseY - scroll;
+    widget.setY(py);
+    widget.visible = py + widget.getHeight() >= box.top() && py <= box.bottom();
+    return addRenderableWidget(widget);
+  }
+
+  private void repositionContentWidgets() {
+    for (var sw : contentWidgets) {
+      int py = sw.baseY() - scroll;
+      sw.widget().setY(py);
+      sw.widget().visible = py + sw.widget().getHeight() >= box.top() && py <= box.bottom();
     }
-    y += 5;
+  }
+
+  private int maxScroll() {
+    return Math.max(0, maxY - box.bottom() + 8);
+  }
+
+  // --- Layout DSL ---
+
+  void card(String title, String badge, int badgeColor, Runnable body) {
+    renderCardBox(title, badge, badgeColor, false, body);
+  }
+
+  void alertCard(String title, String badge, int badgeColor, Runnable body) {
+    renderCardBox(title, badge, badgeColor, true, body);
+  }
+
+  void collapsibleCard(
+      String key, String title, String badge, int badgeColor, boolean defaultOpen, Runnable body) {
+    boolean open =
+        drafts.getOrDefault("group/" + key, Boolean.toString(defaultOpen)).equals("true");
+    var header =
+        new DeskButton(
+                (open ? "▾ " : "▸ ") + title,
+                box.left(),
+                y - scroll,
+                box.width(),
+                22,
+                () ->
+                    safe(
+                        () -> {
+                          drafts.put("group/" + key, Boolean.toString(!open));
+                          rebuild();
+                        }))
+            .variant(DeskButton.Variant.COLLAPSE)
+            .badge(badge, badgeColor);
+    addContent(header, y);
+    y += 26;
+    maxY = Math.max(maxY, y);
+    if (open) {
+      renderCardBox("", "", 0, false, body);
+    } else {
+      y += 4;
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  private void renderCardBox(
+      String title, String badge, int badgeColor, boolean alert, Runnable body) {
+    int cardX = box.left();
+    int cardW = box.width();
+    int startY = y;
+    boolean hasHeader = title != null && !title.isEmpty();
+    y += hasHeader ? 24 : 8;
+    // Temporarily inset horizontal box for card children
+    DeskLayout saved = box;
+    box = new DeskLayout(saved.nav(), cardX + 8, Math.max(120, cardW - 16), saved.top(), saved.bottom());
+    body.run();
+    box = saved;
+    y += 6;
+    int cardH = Math.max(24, y - startY);
+    cards.add(new DrawCard(cardX, startY, cardW, cardH, title == null ? "" : title, badge == null ? "" : badge, badgeColor, alert));
+    y += 8;
+    maxY = Math.max(maxY, y);
+  }
+
+  void text(String s) {
+    coloredText(s, theme().text());
+  }
+
+  void mutedText(String s) {
+    coloredText(s, theme().textSecondary());
+  }
+
+  void coloredText(String s, int color) {
+    if (s == null || s.isEmpty()) return;
+    for (var line : font.split(Component.literal(s), Math.max(40, box.width() - 6))) {
+      lines.add(new DrawLine(lineText(line), box.left() + 3, y, color));
+      y += 11;
+    }
+    y += 4;
     maxY = Math.max(maxY, y);
   }
 
@@ -75,57 +248,186 @@ public final class WorkbenchScreen extends Screen {
     return s.toString();
   }
 
-  private DeskButton button(String label, Runnable run) {
-    int py = y - scroll;
-    var b = new DeskButton(label, box.left(), py, box.width(), () -> safe(run));
-    b.visible = py >= box.top() && py + 22 <= box.bottom();
-    addRenderableWidget(b);
-    y += 28;
+  DeskButton button(String label, Runnable run) {
+    return makeButton(label, DeskButton.Variant.DEFAULT, run);
+  }
+
+  DeskButton primaryButton(String label, Runnable run) {
+    return makeButton(label, DeskButton.Variant.PRIMARY, run);
+  }
+
+  DeskButton dangerButton(String label, Runnable run) {
+    return makeButton(label, DeskButton.Variant.DANGER, run);
+  }
+
+  private DeskButton makeButton(String label, DeskButton.Variant variant, Runnable run) {
+    var b =
+        new DeskButton(label, box.left(), y - scroll, box.width(), 22, () -> safe(run))
+            .variant(variant);
+    addContent(b, y);
+    y += 26;
     maxY = Math.max(maxY, y);
     return b;
   }
 
-  private void row(String a, Runnable ar, String b, Runnable br) {
+  void row(String a, Runnable ar, String b, Runnable br) {
     if (box.columns() == 1) {
       button(a, ar);
       button(b, br);
       return;
     }
-    int py = y - scroll;
-    var aButton = new DeskButton(a, box.left(), py, box.columnWidth(), () -> safe(ar));
-    var bButton =
-        new DeskButton(
-            b, box.left() + box.columnWidth() + 8, py, box.columnWidth(), () -> safe(br));
-    aButton.visible = bButton.visible = py >= box.top() && py + 22 <= box.bottom();
-    addRenderableWidget(aButton);
-    addRenderableWidget(bButton);
-    y += 28;
+    int cw = box.columnWidth();
+    var aButton = new DeskButton(a, box.left(), y - scroll, cw, 22, () -> safe(ar));
+    var bButton = new DeskButton(b, box.left() + cw + 8, y - scroll, cw, 22, () -> safe(br));
+    addContent(aButton, y);
+    addContent(bButton, y);
+    y += 26;
     maxY = Math.max(maxY, y);
   }
 
-  private EditBox field(String key, String label, String value, Consumer<String> responder) {
+  void toggle(String title, BooleanSupplier get, Consumer<Boolean> set) {
+    toggleRow(title, get, set, false, "", 0);
+  }
+
+  void toggleRow(
+      String label,
+      BooleanSupplier get,
+      Consumer<Boolean> set,
+      boolean danger,
+      String badge,
+      int badgeColor) {
+    boolean on = get.getAsBoolean();
+    var b =
+        new DeskButton(
+                label,
+                box.left(),
+                y - scroll,
+                box.width(),
+                22,
+                () ->
+                    safe(
+                        () -> {
+                          set.accept(!get.getAsBoolean());
+                          Store.saveSettingsOnly();
+                          rebuild();
+                        }))
+            .variant(DeskButton.Variant.TOGGLE)
+            .checked(on)
+            .dangerTone(danger)
+            .badge(badge, badgeColor);
+    addContent(b, y);
+    y += 26;
+    maxY = Math.max(maxY, y);
+  }
+
+  void segmentRow(List<SegmentOption> options) {
+    if (options.isEmpty()) return;
+    int count = options.size();
+    int gap = 4;
+    int totalW = box.width();
+    int segW = (totalW - gap * (count - 1)) / count;
+    if (segW < 52 && count > 2) {
+      // Wrap to two lines on very narrow windows
+      int half = (count + 1) / 2;
+      segmentRow(options.subList(0, half));
+      segmentRow(options.subList(half, count));
+      return;
+    }
+    int curX = box.left();
+    for (int i = 0; i < count; i++) {
+      var opt = options.get(i);
+      int w = i == count - 1 ? (box.left() + totalW - curX) : segW;
+      var seg =
+          new DeskButton(opt.label(), curX, y - scroll, w, 20, () -> safe(opt.action()))
+              .variant(DeskButton.Variant.SEGMENT);
+      seg.selected = opt.selected();
+      addContent(seg, y);
+      curX += w + gap;
+    }
+    y += 24;
+    maxY = Math.max(maxY, y);
+  }
+
+  void swatchRow(List<String> themeIds) {
+    int cols = box.width() >= 280 ? 2 : 1;
+    int colW = cols == 2 ? (box.width() - 8) / 2 : box.width();
+    for (int i = 0; i < themeIds.size(); i += cols) {
+      for (int c = 0; c < cols && i + c < themeIds.size(); c++) {
+        String id = themeIds.get(i + c);
+        int bx = box.left() + c * (colW + 8);
+        var b =
+            new DeskButton(
+                    id,
+                    bx,
+                    y - scroll,
+                    colW,
+                    34,
+                    () ->
+                        safe(
+                            () -> {
+                              Store.config.theme = id;
+                              Store.saveSettingsOnly();
+                              rebuild();
+                            }))
+                .swatch(id);
+        b.selected = Store.config.theme.equals(id);
+        addContent(b, y);
+      }
+      y += 38;
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  void badgeGrid(List<BadgeItem> items) {
+    int curX = box.left();
+    int rowH = 16;
+    for (var item : items) {
+      int w = UiDraw.badgeWidth(font, item.text());
+      if (curX > box.left() && curX + w > box.left() + box.width()) {
+        curX = box.left();
+        y += rowH;
+      }
+      badges.add(new DrawBadge(item.text(), curX, y, item.color()));
+      curX += w + 4;
+    }
+    y += rowH + 2;
+    maxY = Math.max(maxY, y);
+  }
+
+  void keybindRow(String actionLabel, String keyText) {
+    keycaps.add(new DrawKeycap(actionLabel, keyText, box.left(), y, box.width()));
+    y += 19;
+    maxY = Math.max(maxY, y);
+  }
+
+  EditBox field(String key, String label, String value, Consumer<String> responder) {
     return flowField(key, label, value, key.equals("command") ? 4000 : 512, responder);
   }
 
   EditBox flowField(String key, String label, String value, int max, Consumer<String> responder) {
-    text(label);
+    mutedText(label);
     int py = y - scroll;
-    var e = new EditBox(font, box.left() + 3, py, box.width() - 6, 20, Component.literal(label));
+    var e = new EditBox(font, box.left() + 2, py, box.width() - 4, 20, Component.literal(label));
     e.setMaxLength(max);
     e.setValue(drafts.getOrDefault(key, value));
+    if (!Objects.equals(e.getValue(), value)) dirtyKeys.add(key);
+    else dirtyKeys.remove(key);
     e.setResponder(
         v -> {
           drafts.put(key, v);
+          if (!Objects.equals(v, value)) dirtyKeys.add(key);
+          else dirtyKeys.remove(key);
           responder.accept(v);
         });
     responder.accept(e.getValue());
-    e.visible = py >= box.top() && py + 20 <= box.bottom();
     fields.put(key, e);
-    addRenderableWidget(e);
-    y += 28;
+    addContent(e, y);
+    y += 25;
     maxY = Math.max(maxY, y);
     return e;
   }
+
+  // --- Navigation & State ---
 
   private void safe(Runnable run) {
     try {
@@ -136,7 +438,7 @@ public final class WorkbenchScreen extends Screen {
     }
   }
 
-  private void go(boolean root, int target) {
+  void go(boolean root, int target) {
     saveDrafts();
     scrolls.put(settings + ":" + page + ":" + selected, scroll);
     settings = root;
@@ -148,7 +450,7 @@ public final class WorkbenchScreen extends Screen {
     rebuild();
   }
 
-  private void saveDrafts() {
+  void saveDrafts() {
     fields.forEach((key, value) -> drafts.put(key, value.getValue()));
   }
 
@@ -160,7 +462,7 @@ public final class WorkbenchScreen extends Screen {
     rebuild();
   }
 
-  private void section(int tab, boolean root) {
+  void section(int tab, boolean root) {
     saveDrafts();
     if (section < 0) {
       var owner = DeskRoute.of(tab, root);
@@ -203,6 +505,7 @@ public final class WorkbenchScreen extends Screen {
 
   void clearDrafts(String prefix) {
     drafts.keySet().removeIf(k -> k.startsWith(prefix));
+    dirtyKeys.removeIf(k -> k.startsWith(prefix));
   }
 
   private void task(String text) {
@@ -214,34 +517,122 @@ public final class WorkbenchScreen extends Screen {
     Agent.submit(text, true);
   }
 
-  private void rebuild() {
+  void rebuild() {
     clearWidgets();
+    chromeWidgets.clear();
+    contentWidgets.clear();
     lines.clear();
+    cards.clear();
+    badges.clear();
+    keycaps.clear();
     fields.clear();
-    box = DeskLayout.of(width, height);
+
+    computeGeometry();
     y = box.top();
     maxY = y;
-    var ledger = new DeskButton("账本", 8, 37, (box.nav() - 20) / 2, () -> go(false, 0));
+    lastFingerprint = liveFingerprint();
+
+    // Left Rail: Root Segment (账本 / 设置)
+    int navX = winX + 8;
+    int navInner = box.nav() - 16;
+    int half = (navInner - 4) / 2;
+    var ledger =
+        new DeskButton("账本", navX, winY + 34, half, 20, () -> go(false, 0))
+            .variant(DeskButton.Variant.SEGMENT);
     ledger.selected = !settings;
-    addRenderableWidget(ledger);
+    addChrome(ledger);
     var cfg =
-        new DeskButton(
-            "设置", 10 + (box.nav() - 20) / 2, 37, (box.nav() - 20) / 2, () -> go(true, 0));
+        new DeskButton("设置", navX + half + 4, winY + 34, navInner - half - 4, 20, () -> go(true, 0))
+            .variant(DeskButton.Variant.SEGMENT);
     cfg.selected = settings;
-    addRenderableWidget(cfg);
-    String[] nav =
-        settings
-            ? new String[] {"模型与连接", "权限与行为", "输入与感知", "显示与陪伴", "数据与维护"}
-            : new String[] {"当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史"};
+    addChrome(cfg);
+
+    // Settings instant search field inside Rail when on Settings (persistent instance preserves cursor/IME)
+    int navTop = winY + 62;
+    if (settings && winH >= 240) {
+      if (searchBox == null) {
+        searchBox =
+            new EditBox(
+                font,
+                navX + 1,
+                navTop,
+                navInner - 2,
+                18,
+                Component.literal("搜索设置项"));
+        searchBox.setMaxLength(64);
+        searchBox.setHint(Component.literal("搜索设置..."));
+        searchBox.setResponder(
+            v -> {
+              if (!Objects.equals(settingsSearch, v)) {
+                settingsSearch = v;
+                scroll = 0;
+                rebuild();
+                setFocused(searchBox);
+              }
+            });
+      } else {
+        searchBox.setX(navX + 1);
+        searchBox.setY(navTop);
+        searchBox.setWidth(navInner - 2);
+      }
+      if (!searchBox.getValue().equals(settingsSearch)) searchBox.setValue(settingsSearch);
+      fields.put("settings/search", searchBox);
+      addChrome(searchBox);
+      navTop += 24;
+    }
+
+    String[] nav = settings ? SETTINGS_NAV : LEDGER_NAV;
     for (int i = 0; i < nav.length; i++) {
       int target = i;
-      var b = new DeskButton(nav[i], 8, 70 + i * 28, box.nav() - 16, () -> go(settings, target));
-      b.selected = page == i;
-      addRenderableWidget(b);
+      var b =
+          new DeskButton(nav[i], navX, navTop + i * 25, navInner, 22, () -> go(settings, target))
+              .variant(DeskButton.Variant.NAV);
+      b.selected = page == i && (!settings || settingsSearch.isBlank());
+      addChrome(b);
     }
-    addRenderableWidget(new DeskButton("返回游戏", 8, height - 28, box.nav() - 16, this::onClose));
-    if (!status.isBlank()) text("提示 · " + status);
-    if (section >= 0) {
+
+    // Bottom rail quick actions
+    int bottomBtnY = winY + winH - 28;
+    addChrome(
+        new DeskButton("返回游戏", navX, bottomBtnY, navInner, 20, this::onClose)
+            .variant(DeskButton.Variant.DEFAULT));
+
+    // Top-right header quick action (Stop / AI Takeover)
+    int actionW = 76;
+    var quickBtn =
+        new DeskButton(
+                Agent.enabled ? "紧急停止" : "AI 接管",
+                winX + winW - actionW - 12,
+                winY + 14,
+                actionW,
+                20,
+                () ->
+                    safe(
+                        () -> {
+                          if (Agent.enabled) Agent.stop("工作台急停");
+                          else Agent.start();
+                          rebuild();
+                        }))
+            .variant(Agent.enabled ? DeskButton.Variant.DANGER : DeskButton.Variant.PRIMARY);
+    addChrome(quickBtn);
+
+    if (!status.isBlank()) {
+      alertCard(
+          "操作提示",
+          "最新",
+          theme().accent(),
+          () -> {
+            text(status);
+            button(
+                "清除提示",
+                () -> {
+                  status = "";
+                  rebuild();
+                });
+          });
+    }
+
+    if (section >= 0 && (!settings || settingsSearch.isBlank())) {
       button(
           "‹ 返回" + (settings ? "设置" : "账本"),
           () -> {
@@ -250,19 +641,15 @@ public final class WorkbenchScreen extends Screen {
             scroll = parentScroll;
             rebuild();
           });
-      text(DeskRoute.of(section, settings).title());
-      pages.render();
+      card(DeskRoute.of(section, settings).title(), "子配置", theme().accentAlt(), pages::render);
+      scroll = Math.min(scroll, maxScroll());
+      repositionContentWidgets();
       return;
     }
+
     if (settings) {
-      switch (page) {
-        case 0 -> connection();
-        case 1 -> permissions();
-        case 2 -> input();
-        case 3 -> appearance();
-        default -> maintenance();
-      }
-    } else
+      settingsViews.render(page);
+    } else {
       switch (page) {
         case 0 -> home();
         case 1 -> world();
@@ -270,208 +657,292 @@ public final class WorkbenchScreen extends Screen {
         case 3 -> knowledge();
         default -> history();
       }
+    }
+    scroll = Math.min(scroll, maxScroll());
+    repositionContentWidgets();
   }
 
-  /** Collapsible group header; open state is kept with the other drafts while the desk is open. */
-  private boolean group(String key, String title, boolean defaultOpen) {
-    boolean open =
-        drafts.getOrDefault("group/" + key, Boolean.toString(defaultOpen)).equals("true");
-    button(
-        (open ? "▾ " : "▸ ") + title,
-        () -> {
-          drafts.put("group/" + key, Boolean.toString(!open));
-          rebuild();
-        });
-    return open;
-  }
-
-  /**
-   * Home: things needing the player first, then the live task, local command, common controls, then
-   * tools.
-   */
+  /** Home: Hero + urgent approvals + live plan/execution + local command + primary controls + collapsible modules. */
   private void home() {
+    UiTheme t = theme();
     if (status.isBlank()) {
-      y += 72;
-      maxY = y;
+      y += 66;
+      maxY = Math.max(maxY, y);
     }
-    // 1. Items waiting for the player. Errors stay here until acknowledged.
+
     if (!Agent.pendingTool.isBlank()) {
-      text("等待授权 · " + Agent.pendingTool);
-      row(
-          "批准一次",
+      alertCard(
+          "等待人工审批 · " + Agent.pendingTool,
+          "需处理",
+          t.warning(),
           () -> {
-            onClose();
-            Agent.approve(true);
-          },
-          "批准本次连续流程",
-          () -> {
-            onClose();
-            Agent.approveTask();
-          });
-      button(
-          "拒绝本次操作",
-          () -> {
-            Agent.approve(false);
-            rebuild();
+            row(
+                "批准一次",
+                () -> {
+                  onClose();
+                  Agent.approve(true);
+                },
+                "批准本次连续流程",
+                () -> {
+                  onClose();
+                  Agent.approveTask();
+                });
+            dangerButton(
+                "拒绝本次操作",
+                () -> {
+                  Agent.approve(false);
+                  rebuild();
+                });
           });
     }
+
     var attention = Hud.FEED.attention();
     if (attention != null && !"info".equals(attention.level)) {
-      text(("alert".equals(attention.level) ? "需处理 · " : "待处理 · ") + attention.text);
-      button(
-          "知道了（记录仍保留在历史）",
+      alertCard(
+          "alert".equals(attention.level) ? "需处理异常" : "待确认事项",
+          "置顶",
+          "alert".equals(attention.level) ? t.danger() : t.warning(),
           () -> {
-            Hud.FEED.acknowledge();
-            rebuild();
+            text(attention.text);
+            button(
+                "知道了（记录仍保留在历史）",
+                () -> {
+                  Hud.FEED.acknowledge();
+                  rebuild();
+                });
           });
     }
-    // 2. Live task: plan summary vs. actual execution are shown separately.
+
+    // Live Task Card
     var p = ProgressBoard.snapshot();
-    if (p.has("goal")) {
-      text("计划 · " + p.get("goal").getAsString());
-      text("当前计划 · " + p.get("current").getAsString());
-      text("下一步 · " + p.get("next").getAsString());
-    }
-    text(
-        "实际执行 · "
-            + (Agent.enabled
-                ? ActionSummary.describe(Actions.job != null ? Actions.status : Agent.state)
-                : StatusFeed.restDetail(Agent.state)));
-    if (RestockTask.latest != null)
-      text("核验进度 · " + RestockTask.latest.progress + "\n" + RestockTask.latest.phase);
-    // 3. Local command.
-    field("command", "在本地派一个任务（不发公屏）", command, v -> command = v);
-    row(
-        "发送任务",
-        () -> task(command),
-        "打开底部对话",
+    card(
+        "当前运行状态",
+        Agent.enabled ? (Agent.paused ? "已暂停" : "运行中") : "待命",
+        Agent.enabled ? (Agent.paused ? t.warning() : t.success()) : t.textMuted(),
         () -> {
-          onClose();
-          LocalDialogue.toggle();
+          if (p.has("goal")) {
+            text("计划 · " + p.get("goal").getAsString());
+            mutedText("当前 · " + p.get("current").getAsString());
+            mutedText("下一步 · " + p.get("next").getAsString());
+          }
+          text(
+              "实际执行 · "
+                  + (Agent.enabled
+                      ? ActionSummary.describe(Actions.job != null ? Actions.status : Agent.state)
+                      : StatusFeed.restDetail(Agent.state)));
+          if (RestockTask.latest != null)
+            mutedText("核验进度 · " + RestockTask.latest.progress + "\n" + RestockTask.latest.phase);
         });
-    // 4. Common controls.
-    row(
-        Agent.enabled ? "交还人工" : "AI 接管",
+
+    // Quick Local Command Card
+    card(
+        "本地派单（仅本地，不发公屏）",
+        "",
+        0,
         () -> {
-          if (Agent.enabled) Agent.stop("玩家交还人工");
-          else Agent.start();
-          rebuild();
-        },
-        Agent.paused ? "继续当前任务" : "暂停当前任务",
-        () -> {
-          Agent.pause(!Agent.paused);
-          rebuild();
+          field("command", "输入任务指令或口令", command, v -> command = v);
+          row(
+              "发送任务",
+              () -> task(command),
+              "打开底部对话",
+              () -> {
+                onClose();
+                LocalDialogue.toggle();
+              });
         });
-    row(
-        "停止当前工作",
+
+    // Primary Controls Card
+    card(
+        "控制中心",
+        Cooperation.active() ? "协同模式" : (Agent.enabled ? "AI 接管" : "人工"),
+        Cooperation.active() ? t.accentAlt() : (Agent.enabled ? t.success() : t.textMuted()),
         () -> {
-          Agent.stop("玩家急停");
-          rebuild();
-        },
-        WatchMode.active() ? "退出观看" : "脱手观看",
+          row(
+              Agent.enabled ? "交还人工" : "AI 接管",
+              () -> {
+                if (Agent.enabled) Agent.stop("玩家交还人工");
+                else Agent.start();
+                rebuild();
+              },
+              Agent.paused ? "继续当前任务" : "暂停当前任务",
+              () -> {
+                Agent.pause(!Agent.paused);
+                rebuild();
+              });
+          row(
+              "查看伙伴工作过程",
+              () -> minecraft.setScreen(new TaskTimelineScreen(this)),
+              WatchMode.active() ? "退出观看" : "脱手观看",
+              () -> {
+                WatchMode.toggle();
+                rebuild();
+              });
+          row(
+              "控制模式 · " + (!Agent.enabled ? "人工" : Cooperation.active() ? "协同" : "AI接管"),
+              () -> {
+                if (!Agent.enabled) Agent.start();
+                else Cooperation.set(!Cooperation.active());
+                rebuild();
+              },
+              "打开设置中心",
+              () -> go(true, 0));
+          if (Cooperation.active()) {
+            row(
+                "协同：交回 AI",
+                () -> {
+                  Cooperation.resume();
+                  onClose();
+                },
+                "协同续接 · " + Store.config.cooperativeResume,
+                () -> {
+                  Store.config.cooperativeResume =
+                      Store.config.cooperativeResume.equals("AUTO") ? "MANUAL" : "AUTO";
+                  Store.saveSettingsOnly();
+                  rebuild();
+                });
+          }
+        });
+
+    collapsibleCard(
+        "home/logistics",
+        "后勤委托与库存",
+        "常用",
+        t.accent(),
+        true,
         () -> {
-          WatchMode.toggle();
-          rebuild();
+          row("统一委托 / 自动交付", () -> section(19, false), "多人任务队列", () -> section(18, false));
+          row("常备背包", () -> section(20, false), "持续库存维护", () -> section(21, false));
+          button("委托结果、常用任务与恢复记录", () -> section(22, false));
         });
-    row(
-        "查看伙伴工作过程",
-        () -> minecraft.setScreen(new TaskTimelineScreen(this)),
-        "控制模式 · " + (!Agent.enabled ? "人工" : Cooperation.active() ? "协同" : "AI接管"),
+
+    collapsibleCard(
+        "home/actions",
+        "直接动作",
+        "",
+        0,
+        false,
         () -> {
-          if (!Agent.enabled) Agent.start();
-          else Cooperation.set(!Cooperation.active());
-          rebuild();
+          row("原版补给与搬运", () -> section(9, false), "制作与熔炼", () -> section(13, false));
+          row("预制动作与农作", () -> section(10, false), "背包操作", () -> section(12, false));
         });
-    if (Cooperation.active())
-      row(
-          "协同：交回AI",
-          () -> {
-            Cooperation.resume();
-            onClose();
-          },
-          "协同续接 · " + Store.config.cooperativeResume,
-          () -> {
-            Store.config.cooperativeResume =
-                Store.config.cooperativeResume.equals("AUTO") ? "MANUAL" : "AUTO";
-            Store.save();
-            rebuild();
-          });
-    // 5. Logistics tools.
-    if (group("home/logistics", "后勤委托与库存", true)) {
-      row("统一委托 / 自动交付", () -> section(19, false), "多人任务队列", () -> section(18, false));
-      row("常备背包", () -> section(20, false), "持续库存维护", () -> section(21, false));
-      button("委托结果、常用任务与恢复记录", () -> section(22, false));
-    }
-    if (group("home/actions", "直接动作", false)) {
-      row("原版补给与搬运", () -> section(9, false), "制作与熔炼", () -> section(13, false));
-      row("预制动作与农作", () -> section(10, false), "背包操作", () -> section(12, false));
-    }
-    if (group("home/follow", "跟随玩家", false)) {
-      var target = FollowControl.savedTarget();
-      text(target == null ? "请选择要跟随的其他玩家" : "已选择 " + target.name());
-      if (FollowControl.active()) text(FollowControl.shortStatus());
-      text("本地对话：跟随 玩家名 / 停止跟随");
-      text("授权玩家聊天：@" + Store.config.name + " 跟我");
-      row("选择玩家", () -> minecraft.setScreen(new FollowTargetScreen(this)),
-          FollowControl.active() ? "停止跟随" : "开始跟随", () -> {
-            onClose();
-            FollowControl.toggle();
-          });
-      button("陪伴预设 · " + FollowControl.profileLabel(Store.data.followProfile), () -> {
-        Store.data.followProfile = switch (Store.data.followProfile) {
-          case "follow" -> "nether";
-          case "nether" -> "end";
-          default -> "follow";
-        };
-        Store.saveWorld();
-        rebuild();
-      });
-      if (Store.data.followProfile.equals("end"))
-        button("允许跟着进出已确认的末地门 · " + (Store.data.followEndPortal ? "开" : "关"), () -> {
-          Store.data.followEndPortal = !Store.data.followEndPortal;
-          Store.saveWorld();
-          rebuild();
+
+    var followTarget = FollowControl.savedTarget();
+    collapsibleCard(
+        "home/follow",
+        "跟随玩家",
+        FollowControl.active() ? "跟随中" : (followTarget == null ? "未选" : followTarget.name()),
+        FollowControl.active() ? t.success() : t.accentAlt(),
+        false,
+        () -> {
+          mutedText(followTarget == null ? "请选择要跟随的其他玩家" : "已选择 " + followTarget.name());
+          if (FollowControl.active()) text(FollowControl.shortStatus());
+          mutedText("本地对话：跟随 玩家名 / 停止跟随 · 聊天：@" + Store.config.name + " 跟我");
+          row(
+              "选择玩家",
+              () -> minecraft.setScreen(new FollowTargetScreen(this)),
+              FollowControl.active() ? "停止跟随" : "开始跟随",
+              () -> {
+                onClose();
+                FollowControl.toggle();
+              });
+          button(
+              "陪伴预设 · " + FollowControl.profileLabel(Store.data.followProfile),
+              () -> {
+                Store.data.followProfile =
+                    switch (Store.data.followProfile) {
+                      case "follow" -> "nether";
+                      case "nether" -> "end";
+                      default -> "follow";
+                    };
+                Store.saveWorld();
+                rebuild();
+              });
+          if (Store.data.followProfile.equals("end")) {
+            button(
+                "允许跟着进出已确认的末地门 · " + (Store.data.followEndPortal ? "开" : "关"),
+                () -> {
+                  Store.data.followEndPortal = !Store.data.followEndPortal;
+                  Store.saveWorld();
+                  rebuild();
+                });
+          }
         });
-    }
-    if (group("home/mining", "采矿委托", false)) {
-      field("mining_goal", "例如：挖 16 个粗铁送回交付箱，或从这里挖台阶下到 Y=16",
-          miningGoal, value -> miningGoal = value);
-      button("交给 AI 规划并执行", () ->
-          task(miningGoal.isBlank() ? "" : "采矿委托：" + miningGoal.strip()));
-    }
-    // 6. Advanced, folded by default.
-    if (group("home/advanced", "推理强度、执行风格与自主", false)) {
-      strategyControls(false);
-      toggle("空闲自主工作", () -> Agent.autonomous, v -> Agent.autonomous = v);
-      toggle("合成手势批量分配", () -> Store.config.craftGestures, v -> Store.config.craftGestures = v);
-    }
+
+    collapsibleCard(
+        "home/mining",
+        "采矿委托",
+        "",
+        0,
+        false,
+        () -> {
+          field(
+              "mining_goal",
+              "例如：挖 16 个粗铁送回交付箱，或从这里挖台阶下到 Y=16",
+              miningGoal,
+              v -> miningGoal = v);
+          primaryButton(
+              "交给 AI 规划并执行",
+              () -> task(miningGoal.isBlank() ? "" : "采矿委托：" + miningGoal.strip()));
+        });
+
+    collapsibleCard(
+        "home/advanced",
+        "推理强度、执行风格与自主",
+        "",
+        0,
+        false,
+        () -> {
+          strategyControls(false);
+          toggle("空闲自主工作", () -> Agent.autonomous, v -> Agent.autonomous = v);
+          toggle(
+              "合成手势批量分配",
+              () -> Store.config.craftGestures,
+              v -> Store.config.craftGestures = v);
+        });
   }
 
   private void world() {
-    text("地图与库存按当前世界隔离。历史库存需要打开重核实。");
-    row("地点与仓库", () -> section(1, false), "附近世界与资源", () -> section(8, false));
-    row(
-        "库存记忆与变化",
-        () -> minecraft.setScreen(new NoticeScreen(this, InventoryMemory.human())),
-        "世界记忆与纠错",
-        () -> section(2, false));
-    text("已记地点 " + Store.data.places.size() + " · 世界对象 " + Store.data.world.objects.size());
-    for (var e : Store.data.places.entrySet()) {
-      text(
-          e.getKey()
-              + " · "
-              + e.getValue().dimension
-              + " · "
-              + e.getValue().x
-              + ", "
-              + e.getValue().y
-              + ", "
-              + e.getValue().z);
-      if (lines.size() > 40) break;
+    UiTheme t = theme();
+    card(
+        "世界对象与库存记忆",
+        Store.data.places.size() + " 地点 · " + Store.data.world.objects.size() + " 对象",
+        t.accent(),
+        () -> {
+          mutedText("地图与库存按当前世界隔离。历史库存需要打开箱子后重新核实。");
+          row("地点与仓库", () -> section(1, false), "附近世界与资源", () -> section(8, false));
+          row(
+              "库存记忆与变化",
+              () -> minecraft.setScreen(new NoticeScreen(this, InventoryMemory.human())),
+              "世界记忆与纠错",
+              () -> section(2, false));
+        });
+    if (!Store.data.places.isEmpty()) {
+      card(
+          "已记命名地点",
+          "",
+          0,
+          () -> {
+            int count = 0;
+            for (var e : Store.data.places.entrySet()) {
+              text(
+                  e.getKey()
+                      + " · "
+                      + e.getValue().dimension
+                      + " ("
+                      + e.getValue().x
+                      + ", "
+                      + e.getValue().y
+                      + ", "
+                      + e.getValue().z
+                      + ")");
+              if (++count >= 25) break;
+            }
+          });
     }
   }
 
   private void library() {
+    UiTheme t = theme();
     if (selected.startsWith("@legacy:")) {
       String name = selected.substring(8);
       var old = Store.data.skills.get(name);
@@ -487,19 +958,27 @@ public final class WorkbenchScreen extends Screen {
             scroll = scrolls.getOrDefault("list", 0);
             rebuild();
           });
-      text(name + " · " + Store.skillCheck(name).status + "\n步骤 " + old.steps.size());
-      row(
-          "运行既有技能",
-          () -> task("技能 " + name),
-          "复制技能定义",
-          () -> minecraft.keyboardHandler.setClipboard(Store.GSON.toJson(old)));
-      button(
-          "查看步骤与当前世界经验",
-          () ->
-              minecraft.setScreen(
-                  new NoticeScreen(
-                      this,
-                      Store.GSON.toJson(old) + "\n" + Store.GSON.toJson(Store.skillCheck(name)))));
+      card(
+          name,
+          "既有技能",
+          t.accentAlt(),
+          () -> {
+            text(Store.skillCheck(name).status + " · 步骤 " + old.steps.size());
+            row(
+                "运行既有技能",
+                () -> task("技能 " + name),
+                "复制技能定义",
+                () -> minecraft.keyboardHandler.setClipboard(Store.GSON.toJson(old)));
+            button(
+                "查看步骤与当前世界经验",
+                () ->
+                    minecraft.setScreen(
+                        new NoticeScreen(
+                            this,
+                            Store.GSON.toJson(old)
+                                + "\n"
+                                + Store.GSON.toJson(Store.skillCheck(name)))));
+          });
       return;
     }
     if (!selected.isBlank()) {
@@ -516,216 +995,252 @@ public final class WorkbenchScreen extends Screen {
             scroll = scrolls.getOrDefault("list", 0);
             rebuild();
           });
-      text(p.name + "\n" + SkillPackage.string(p.definition, "description", ""));
-      text("ID · " + p.id + "\n依赖 · " + p.requires + "\n兼容问题 · " + SkillLibrary.issues(p));
-      var params =
-          p.definition.has("parameters")
-              ? p.definition.getAsJsonObject("parameters")
-              : new JsonObject();
-      for (var e : params.entrySet()) {
-        String key = e.getKey();
-        var spec = e.getValue().getAsJsonObject();
-        String value = spec.has("default") ? spec.get("default").getAsString() : "";
-        field(
-            p.id + "/" + key,
-            key + " · " + SkillPackage.string(spec, "type", "string"),
-            value,
-            v -> {});
-      }
-      button(
-          "执行技能（仍按当前权限）",
+      card(
+          p.name,
+          p.id,
+          t.accent(),
           () -> {
-            var values = new JsonObject();
+            text(SkillPackage.string(p.definition, "description", ""));
+            mutedText("依赖 · " + p.requires + "\n兼容问题 · " + SkillLibrary.issues(p));
+            var params =
+                p.definition.has("parameters")
+                    ? p.definition.getAsJsonObject("parameters")
+                    : new JsonObject();
             for (var e : params.entrySet()) {
-              String val =
-                  drafts.getOrDefault(
-                      p.id + "/" + e.getKey(),
-                      e.getValue().getAsJsonObject().has("default")
-                          ? e.getValue().getAsJsonObject().get("default").getAsString()
-                          : "");
-              String type = SkillPackage.string(e.getValue().getAsJsonObject(), "type", "string");
-              if (type.equals("integer")) values.addProperty(e.getKey(), Integer.parseInt(val));
-              else if (type.equals("boolean")) {
-                if (!Set.of("true", "false").contains(val))
-                  throw new IllegalArgumentException("布尔参数true/false");
-                values.addProperty(e.getKey(), Boolean.parseBoolean(val));
-              } else values.addProperty(e.getKey(), val);
+              String key = e.getKey();
+              var spec = e.getValue().getAsJsonObject();
+              String value = spec.has("default") ? spec.get("default").getAsString() : "";
+              field(
+                  p.id + "/" + key,
+                  key + " · " + SkillPackage.string(spec, "type", "string"),
+                  value,
+                  v -> {});
             }
-            p.expand(values);
-            var a = new JsonObject();
-            a.addProperty("id", p.id);
-            a.add("parameters", values);
-            onClose();
-            if (!Agent.enabled) Agent.start();
-            Agent.execute("run_library_skill", a, Companion::notifyUser);
+            primaryButton(
+                "执行技能（仍按当前权限）",
+                () -> {
+                  var values = new JsonObject();
+                  for (var e : params.entrySet()) {
+                    String val =
+                        drafts.getOrDefault(
+                            p.id + "/" + e.getKey(),
+                            e.getValue().getAsJsonObject().has("default")
+                                ? e.getValue().getAsJsonObject().get("default").getAsString()
+                                : "");
+                    String type =
+                        SkillPackage.string(e.getValue().getAsJsonObject(), "type", "string");
+                    if (type.equals("integer")) values.addProperty(e.getKey(), Integer.parseInt(val));
+                    else if (type.equals("boolean")) {
+                      if (!Set.of("true", "false").contains(val))
+                        throw new IllegalArgumentException("布尔参数true/false");
+                      values.addProperty(e.getKey(), Boolean.parseBoolean(val));
+                    } else values.addProperty(e.getKey(), val);
+                  }
+                  p.expand(values);
+                  var a = new JsonObject();
+                  a.addProperty("id", p.id);
+                  a.add("parameters", values);
+                  onClose();
+                  if (!Agent.enabled) Agent.start();
+                  Agent.execute("run_library_skill", a, Companion::notifyUser);
+                });
+            row(
+                Store.config.disabledPackages.contains(p.id) ? "启用此技能" : "停用此技能",
+                () -> {
+                  if (Store.config.disabledPackages.contains(p.id))
+                    Store.config.disabledPackages.remove(p.id);
+                  else Store.config.disabledPackages.add(p.id);
+                  Store.save();
+                  rebuild();
+                },
+                "导出定义",
+                () -> {
+                  try {
+                    status = "已导出 " + SkillLibrary.export(p.id).getFileName();
+                    rebuild();
+                  } catch (Exception e) {
+                    throw new IllegalArgumentException(e.getMessage());
+                  }
+                });
+            button(
+                "查看定义、核验与恢复说明",
+                () -> minecraft.setScreen(new NoticeScreen(this, Store.GSON.toJson(p.definition))));
           });
-      row(
-          Store.config.disabledPackages.contains(p.id) ? "启用此技能" : "停用此技能",
-          () -> {
-            if (Store.config.disabledPackages.contains(p.id))
-              Store.config.disabledPackages.remove(p.id);
-            else Store.config.disabledPackages.add(p.id);
-            Store.save();
-            rebuild();
-          },
-          "导出定义",
-          () -> {
-            try {
-              status = "已导出 " + SkillLibrary.export(p.id).getFileName();
-              rebuild();
-            } catch (Exception e) {
-              throw new IllegalArgumentException(e.getMessage());
-            }
-          });
-      button(
-          "查看定义、核验与恢复说明",
-          () -> minecraft.setScreen(new NoticeScreen(this, Store.GSON.toJson(p.definition))));
       return;
     }
-    field("library-query", "搜索名称或技能ID", query, v -> query = v);
-    row(
-        "搜索 / 刷新目录",
+
+    card(
+        "技能包目录",
+        "",
+        0,
         () -> {
-          SkillLibrary.refresh();
-          scroll = 0;
-          rebuild();
-        },
-        "打开技能文件夹",
-        () ->
-            net.minecraft.Util.getPlatform()
-                .openFile(SkillLibrary.root().resolve("skills").toFile()));
-    text("放入JSON后刷新；启用不代表运行或验证。地点参数填写当前世界命名地点。");
-    var rows = SkillLibrary.list(query).getAsJsonArray("skills");
-    for (var el : rows) {
-      var r = el.getAsJsonObject();
-      String id = r.get("id").getAsString();
-      button(
-          r.get("name").getAsString() + " · " + (r.get("enabled").getAsBoolean() ? "启用" : "停用"),
-          () -> detail(id));
-      text(
-          r.get("verification").getAsString()
-              + " · "
-              + (r.getAsJsonArray("issues").isEmpty()
-                  ? "依赖检查通过，运行条件另核实"
-                  : r.get("issues").toString()));
-    }
-    for (String error : SkillLibrary.errors) text(error);
-    row(
-        "导出既有技能库",
-        () -> {
-          try {
-            var p = Store.backupSkills();
-            minecraft.keyboardHandler.setClipboard(java.nio.file.Files.readString(p));
-            status = "已备份并复制技能定义";
-            rebuild();
-          } catch (Exception e) {
-            throw new IllegalArgumentException(e.getMessage());
+          field("library-query", "搜索名称或技能ID", query, v -> query = v);
+          row(
+              "搜索 / 刷新目录",
+              () -> {
+                SkillLibrary.refresh();
+                scroll = 0;
+                rebuild();
+              },
+              "打开技能文件夹",
+              () ->
+                  net.minecraft.Util.getPlatform()
+                      .openFile(SkillLibrary.root().resolve("skills").toFile()));
+          mutedText("放入 JSON 后刷新；启用不代表运行或验证。地点参数填写当前世界命名地点。");
+          var rows = SkillLibrary.list(query).getAsJsonArray("skills");
+          for (var el : rows) {
+            var r = el.getAsJsonObject();
+            String id = r.get("id").getAsString();
+            boolean en = r.get("enabled").getAsBoolean();
+            button(r.get("name").getAsString(), () -> detail(id))
+                .badge(en ? "启用" : "停用", en ? t.success() : t.textMuted());
+            mutedText(
+                r.get("verification").getAsString()
+                    + " · "
+                    + (r.getAsJsonArray("issues").isEmpty()
+                        ? "依赖检查通过"
+                        : r.get("issues").toString()));
           }
-        },
-        "导入既有技能库",
+          for (String error : SkillLibrary.errors) coloredText(error, t.danger());
+        });
+
+    card(
+        "既有技能库",
+        Store.data.skills.size() + " 项",
+        t.accentAlt(),
         () -> {
-          try {
-            Agent.stop("导入技能前停止");
-            Store.importSkills(minecraft.keyboardHandler.getClipboard());
-            status = "技能已合并，世界记录独立";
-            rebuild();
-          } catch (Exception e) {
-            throw new IllegalArgumentException(e.getMessage());
+          row(
+              "导出既有技能库",
+              () -> {
+                try {
+                  var p = Store.backupSkills();
+                  minecraft.keyboardHandler.setClipboard(java.nio.file.Files.readString(p));
+                  status = "已备份并复制技能定义";
+                  rebuild();
+                } catch (Exception e) {
+                  throw new IllegalArgumentException(e.getMessage());
+                }
+              },
+              "导入既有技能库",
+              () -> {
+                try {
+                  Agent.stop("导入技能前停止");
+                  Store.importSkills(minecraft.keyboardHandler.getClipboard());
+                  status = "技能已合并，世界记录独立";
+                  rebuild();
+                } catch (Exception e) {
+                  throw new IllegalArgumentException(e.getMessage());
+                }
+              });
+          for (var entry : Store.data.skills.entrySet()) {
+            if (!entry.getKey().contains(query)) continue;
+            String name = entry.getKey();
+            button(name + " · " + Store.skillCheck(name).status, () -> detail("@legacy:" + name));
           }
         });
-    text("既有技能 · 与共享包同一目录，保留原格式");
-    for (var entry : Store.data.skills.entrySet()) {
-      if (!entry.getKey().contains(query)) continue;
-      String name = entry.getKey();
-      button(name + " · " + Store.skillCheck(name).status, () -> detail("@legacy:" + name));
-    }
   }
 
   private void knowledge() {
-    text("资料是参考，不能提高权限或代替实际核验。");
-    row(
-        "配方工坊",
-        () -> minecraft.setScreen(new RecipeBrowserScreen(this)),
-        "导入参考资料",
+    UiTheme t = theme();
+    card(
+        "配方与参考资料",
+        "仅作参考",
+        t.accent(),
         () -> {
-          try {
-            var j =
-                JsonParser.parseString(minecraft.keyboardHandler.getClipboard()).getAsJsonObject();
-            KnowledgeNotes.put(
-                j.get("id").getAsString(),
-                j.get("source").getAsString(),
-                j.get("text").getAsString());
-            status = "参考资料已导入，待验证";
-            rebuild();
-          } catch (Exception e) {
-            throw new IllegalArgumentException("需要JSON id/source/text");
-          }
+          mutedText("资料是参考，不能提高权限或代替实际核验。JEI 状态：" + RecipeBridge.status());
+          row(
+              "打开配方工坊",
+              () -> minecraft.setScreen(new RecipeBrowserScreen(this)),
+              "导入参考资料 (JSON)",
+              () -> {
+                try {
+                  var j =
+                      JsonParser.parseString(minecraft.keyboardHandler.getClipboard())
+                          .getAsJsonObject();
+                  KnowledgeNotes.put(
+                      j.get("id").getAsString(),
+                      j.get("source").getAsString(),
+                      j.get("text").getAsString());
+                  status = "参考资料已导入，待验证";
+                  rebuild();
+                } catch (Exception e) {
+                  throw new IllegalArgumentException("需要JSON id/source/text");
+                }
+              });
+          mutedText("共享知识目录 · " + SkillLibrary.root().resolve("knowledge"));
+          row(
+              "打开知识目录",
+              () ->
+                  net.minecraft.Util.getPlatform()
+                      .openFile(SkillLibrary.root().resolve("knowledge").toFile()),
+              "查看本地经验",
+              () ->
+                  minecraft.setScreen(
+                      new NoticeScreen(this, Store.GSON.toJson(Learning.book.outcomes))));
+          for (var e : KnowledgeNotes.list()) mutedText(e.toString());
         });
-    text("JEI · " + RecipeBridge.status());
-    text("共享知识目录 · " + SkillLibrary.root().resolve("knowledge"));
-    button(
-        "打开知识目录",
-        () ->
-            net.minecraft.Util.getPlatform()
-                .openFile(SkillLibrary.root().resolve("knowledge").toFile()));
-    for (var e : KnowledgeNotes.list()) text(e.toString());
-    button(
-        "查看本地经验",
-        () ->
-            minecraft.setScreen(new NoticeScreen(this, Store.GSON.toJson(Learning.book.outcomes))));
   }
 
   private void history() {
-    row(
-        "任务与交付历史",
-        () -> section(15, false),
-        "对话历史",
-        () -> minecraft.setScreen(new CompanionHistoryScreen(this)));
-    button(
-        "本次测试与视觉统计",
-        () ->
-            minecraft.setScreen(
-                new NoticeScreen(this, Store.GSON.toJson(RuntimeStats.snapshot()))));
-    text("动作 returned 不是业务完成，原回执和核验结果保留。");
+    card(
+        "任务与交流历史",
+        "",
+        0,
+        () -> {
+          row(
+              "任务与交付历史",
+              () -> section(15, false),
+              "伙伴手记 / 对话历史",
+              () -> minecraft.setScreen(new CompanionHistoryScreen(this)));
+          button(
+              "本次测试与视觉统计",
+              () ->
+                  minecraft.setScreen(
+                      new NoticeScreen(this, Store.GSON.toJson(RuntimeStats.snapshot()))));
+          mutedText("动作 returned 不等于业务完成，原回执和核验结果均保留在此。");
+        });
   }
 
-  /**
-   * Reasoning effort and execution style are two separate settings; neither changes permissions.
-   */
-  private void strategyControls(boolean advanced) {
-    button(
-        "模型推理强度 · " + PlanningPolicy.title(Store.config.planningEffort) + "（点击切换）",
-        () -> {
-          Store.config.planningEffort = PlanningPolicy.next(Store.config.planningEffort);
-          Store.save();
-          rebuild();
-        });
-    button(
-        "执行风格 · " + (ExecutionStyle.fluent(Store.config.executionStyle) ? "快速" : "严谨") + "（点击切换）",
-        () -> {
-          Store.config.executionStyle =
-              ExecutionStyle.fluent(Store.config.executionStyle) ? "STRICT" : "FLUENT";
-          Store.save();
-          rebuild();
-        });
-    text("推理强度：规划想得多细。执行风格：取放后怎么核对（快速=优先用已同步槽位，严谨=每次重开）。两项都不改变权限。");
+  /** Reasoning effort and execution style are two separate settings; neither changes permissions. */
+  void strategyControls(boolean advanced) {
+    mutedText("模型推理强度（规划思考深度）");
+    segmentRow(
+        List.of(
+            new SegmentOption(
+                "低 · 复用技能",
+                "LOW".equals(Store.config.planningEffort),
+                () -> preset("LOW", Store.config.executionStyle)),
+            new SegmentOption(
+                "中 · 日常均衡",
+                "MEDIUM".equals(Store.config.planningEffort),
+                () -> preset("MEDIUM", Store.config.executionStyle)),
+            new SegmentOption(
+                "高 · 细化排障",
+                "HIGH".equals(Store.config.planningEffort),
+                () -> preset("HIGH", Store.config.executionStyle))));
+    mutedText("执行风格（取放后核对方式；不改变任何权限）");
+    segmentRow(
+        List.of(
+            new SegmentOption(
+                "快速 · 复用同步槽位",
+                ExecutionStyle.fluent(Store.config.executionStyle),
+                () -> preset(Store.config.planningEffort, "FLUENT")),
+            new SegmentOption(
+                "严谨 · 每次重开核对",
+                !ExecutionStyle.fluent(Store.config.executionStyle),
+                () -> preset(Store.config.planningEffort, "STRICT"))));
     if (!advanced) return;
-    text(
-        "当前上限 "
-            + RuntimeStrategy.rounds()
-            + " 轮规划；不改变本地动作预算。"
-            + RuntimeStrategy.label()
-            + "。低档复用熟悉技能，中档安排小任务，高档细化依赖与恢复。设置从下一次规划/动作生效。");
-    text("常用组合（只改上面两项，不改权限）");
+    mutedText(
+        "当前上限 " + RuntimeStrategy.rounds() + " 轮规划 · " + RuntimeStrategy.label() + "（下次规划生效）");
     row(
-        "日常后勤 · 中 / 快速",
+        "预设：日常后勤 (中/快速)",
         () -> preset("MEDIUM", "FLUENT"),
-        "熟练挂机 · 低 / 快速",
+        "预设：熟练挂机 (低/快速)",
         () -> preset("LOW", "FLUENT"));
     row(
-        "复杂任务 · 高 / 快速",
+        "预设：复杂任务 (高/快速)",
         () -> preset("HIGH", "FLUENT"),
-        "排障验收 · 高 / 严谨",
+        "预设：排障验收 (高/严谨)",
         () -> preset("HIGH", "STRICT"));
     toggle(
         "同步异常后临时加强检查",
@@ -735,194 +1250,35 @@ public final class WorkbenchScreen extends Screen {
         "原生推理强度参数（确认模型支持后开启）",
         () -> Store.config.nativeReasoning,
         v -> Store.config.nativeReasoning = v);
-    text(
-        "原生参数仅接Chat/Responses，模型支持未自动验证；其他协议仅应用策略与预算。Harness收到建议，不会修改外部软件自身强度。输出token预算沿现有设置，不自动增加。临时加强最多30秒，不换模型、不提高思考强度、不重发动作。");
   }
 
   private void preset(String effort, String style) {
     Store.config.planningEffort = effort;
     Store.config.executionStyle = style;
-    Store.save();
+    Store.saveSettingsOnly();
     rebuild();
   }
 
-  private void connection() {
-    decisionSettings();
-    strategyControls(true);
-    text(
-        "当前规划入口 · "
-            + Store.config.driver
-            + "\n游戏控制 · "
-            + (Agent.enabled ? Agent.paused ? "暂停" : "已接管" : "人工"));
-    row(
-        "API 模型",
-        () -> {
-          Agent.stop("切换API规划入口");
-          Store.config.driver = "API";
-          Store.save();
-          rebuild();
-        },
-        "本地 Harness",
-        () -> {
-          Agent.stop("切换Harness规划入口");
-          Store.config.driver = "HARNESS";
-          Store.config.mcp = true;
-          Store.save();
-          McpBridge.sync();
-          rebuild();
-        });
-    var hs = HarnessController.status();
-    text(
-        "Harness · "
-            + (hs.get("lease_active").getAsBoolean()
-                ? "已连接，心跳剩余 " + hs.get("lease_remaining_ms").getAsLong() / 1000 + "s"
-                : "未连接")
-            + "\nAPI · "
-            + Store.config.model
-            + " / "
-            + Store.config.apiProtocol);
-    toggle(
-        "精简模型工具组（按任务切换；适合小模型）",
-        () -> Store.config.compactToolMenu,
-        v -> Store.config.compactToolMenu = v);
-    toggle(
-        "模型使用精简现场（完整槽位/NBT按需读取）",
-        () -> Store.config.compactObservation,
-        v -> Store.config.compactObservation = v);
-    field(
-        "model_context_chars",
-        "历史请求预算 12000..200000字符（非模型token窗口）",
-        "" + Store.config.contextChars,
-        v -> {
-          try {
-            Store.config.contextChars = Rules.bounded(Integer.parseInt(v), 12000, 200000);
-          } catch (NumberFormatException ignored) {
-          }
-        });
-    row("编辑模型与连接配置", () -> section(4, true), "Harness / 截图 / 记录", () -> section(14, true));
-    button(
-        "复制不含凭据的接入说明",
-        () -> {
-          minecraft.keyboardHandler.setClipboard(
-              "Minecraft后勤伙伴 "
-                  + BuildInfo.ID
-                  + "；使用harness-client.py读取本机连接配置。先status、capabilities、tools，游戏中选择HARNESS并明确AI接管后connect。使用原request_id查询回执；截图需独立授权。不要公开连接凭据。");
-          status = "已复制不含令牌的说明";
-          rebuild();
-        });
-    row(
-        "能力目录",
-        () -> minecraft.setScreen(new NoticeScreen(this, capabilities())),
-        "模型用量",
-        () -> minecraft.setScreen(new NoticeScreen(this, UsageStats.human(Store.data.usageStats))));
+  // --- Package-private sub-editors invoked from WorkbenchPages / DeskRoute ---
+
+  String capabilities() {
+    var ids = new HashSet<String>();
+    net.minecraftforge.fml.ModList.get().getMods().forEach(m -> ids.add(m.getModId()));
+    return Store.GSON.toJson(CapabilityCatalog.describe("", ids));
+  }
+
+  void mode(String mode) {
+    Store.config.permission = mode;
+    if (!"FULL".equals(mode)) Store.config.fullGameControl = false;
+    Store.saveSettingsOnly();
+    if (mode.equals("FULL") && !Agent.pendingTool.isBlank()) {
+      onClose();
+      Agent.approve(true);
+    } else rebuild();
   }
 
   private String draft(String key, String fallback) {
     return drafts.getOrDefault("api/" + key, fallback);
-  }
-
-  private void decisionSettings() {
-    button(
-        "从settings.json重载判断配置",
-        () -> {
-          try {
-            Store.reloadDecisionConfig();
-            status = "判断配置已从磁盘重载";
-          } catch (Exception e) {
-            status = "判断配置读取失败，保留现有配置";
-          }
-          rebuild();
-        });
-    text("局部判断层 · 本地服务需另行启动，云端与本地配置分别保留");
-    button(
-        "判断位置 · " + Store.config.decisionMode,
-        () -> {
-          var modes = java.util.List.of("OFF", "CLOUD", "LOCAL");
-          Store.config.decisionMode =
-              modes.get((modes.indexOf(Store.config.decisionMode) + 1) % modes.size());
-          DecisionService.invalidate();
-          Store.save();
-          rebuild();
-        });
-    toggle(
-        "允许判断后提交候选任务（仍检查游戏权限）",
-        () -> Store.config.decisionAutoSubmit,
-        Store::setDecisionAutoSubmit);
-    boolean local = Store.config.decisionMode.equals("LOCAL");
-    String prefix = local ? "decision/local/" : "decision/cloud/";
-    button(
-        "判断协议 · "
-            + (local ? Store.config.decisionLocalProtocol : Store.config.decisionCloudProvider),
-        () -> {
-          var protocols = java.util.List.of("GOOGLE", "JEV", "OPENAI");
-          String old =
-              local ? Store.config.decisionLocalProtocol : Store.config.decisionCloudProvider;
-          String next = protocols.get((protocols.indexOf(old) + 1) % protocols.size());
-          if (local) Store.config.decisionLocalProtocol = next;
-          else {
-            Store.config.decisionCloudProvider = next;
-            if (next.equals("GOOGLE")) {
-              Store.config.decisionCloudEndpoint =
-                  "https://generativelanguage.googleapis.com/v1beta/decisions";
-              Store.config.decisionCloudModel = "gemini-decision-1";
-            } else if (next.equals("JEV")) {
-              Store.config.decisionCloudEndpoint = "https://api.typesafe.ai/v1/systemone";
-              Store.config.decisionCloudModel = "jev-latest";
-            }
-          }
-          drafts.keySet().removeIf(k -> k.startsWith(prefix));
-          DecisionService.invalidate();
-          Store.save();
-          rebuild();
-        });
-    field(
-        prefix + "endpoint",
-        "判断接口完整URL",
-        local ? Store.config.decisionLocalEndpoint : Store.config.decisionCloudEndpoint,
-        v -> {});
-    field(
-        prefix + "model",
-        "判断模型ID",
-        local ? Store.config.decisionLocalModel : Store.config.decisionCloudModel,
-        v -> {});
-    var key =
-        field(
-            prefix + "key",
-            "判断API Key（本地可留空）",
-            local ? Store.config.decisionLocalKey : Store.config.decisionCloudKey,
-            v -> {});
-    key.setFormatter(
-        (s, i) ->
-            net.minecraft.util.FormattedCharSequence.forward(
-                "*".repeat(s.length()), net.minecraft.network.chat.Style.EMPTY));
-    button(
-        "保存判断连接配置",
-        () -> {
-          saveDrafts();
-          if (local) {
-            Store.config.decisionLocalEndpoint =
-                drafts.getOrDefault(prefix + "endpoint", Store.config.decisionLocalEndpoint).trim();
-            Store.config.decisionLocalModel =
-                drafts.getOrDefault(prefix + "model", Store.config.decisionLocalModel).trim();
-            Store.config.decisionLocalKey =
-                drafts.getOrDefault(prefix + "key", Store.config.decisionLocalKey).trim();
-          } else {
-            Store.config.decisionCloudEndpoint =
-                drafts.getOrDefault(prefix + "endpoint", Store.config.decisionCloudEndpoint).trim();
-            Store.config.decisionCloudModel =
-                drafts.getOrDefault(prefix + "model", Store.config.decisionCloudModel).trim();
-            Store.config.decisionCloudKey =
-                drafts.getOrDefault(prefix + "key", Store.config.decisionCloudKey).trim();
-          }
-          drafts.keySet().removeIf(k -> k.startsWith(prefix));
-          DecisionService.invalidate();
-          Store.save();
-          status = "判断配置已保存；decision_select用于验证连接及选择";
-          rebuild();
-        });
-    button(
-        "判断层状态与最近结果",
-        () -> minecraft.setScreen(new NoticeScreen(this, DecisionService.status().toString())));
   }
 
   private void discardApi() {
@@ -930,24 +1286,29 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void connectionForm() {
-    text("先填写草稿，再保存或取消；输入不会修改正在使用的连接。原生推理强度和执行策略在上一层。");
+    mutedText("先填写草稿，再保存或取消；输入不会影响当前正在运行的连接。");
     String protocol = draft("protocol", Store.config.apiProtocol);
-    button(
-        "协议 · " + protocol,
-        () -> {
-          saveDrafts();
-          var all = ProviderWire.PROTOCOLS;
-          drafts.put("api/protocol", all.get((all.indexOf(protocol) + 1) % all.size()));
-          rebuild();
-        });
-    field("api/endpoint", "API地址", Store.config.endpoint, v -> {});
+    segmentRow(
+        ProviderWire.PROTOCOLS.stream()
+            .map(
+                p ->
+                    new SegmentOption(
+                        p,
+                        p.equals(protocol),
+                        () -> {
+                          saveDrafts();
+                          drafts.put("api/protocol", p);
+                          rebuild();
+                        }))
+            .toList());
+    field("api/endpoint", "API 地址", Store.config.endpoint, v -> {});
     field("api/model", "模型名", Store.config.model, v -> {});
     var key = field("api/key", "API Key（仅保存本机）", Store.config.apiKey, v -> {});
     key.setFormatter(
         (v, i) ->
             net.minecraft.util.FormattedCharSequence.forward(
                 "•".repeat(v.length()), net.minecraft.network.chat.Style.EMPTY));
-    field("api/output", "输出token上限 256..12000", Integer.toString(Store.config.maxOutput), v -> {});
+    field("api/output", "输出 token 上限 256..12000", Integer.toString(Store.config.maxOutput), v -> {});
     field("api/turns", "基础规划轮数 1..96（中档）", Integer.toString(Store.config.maxTurns), v -> {});
     field("api/idle", "自主间隔秒 15..3600", Integer.toString(Store.config.idleSeconds), v -> {});
     field("api/port", "本机接口端口 1024..65535", Integer.toString(Store.config.mcpPort), v -> {});
@@ -988,7 +1349,7 @@ public final class WorkbenchScreen extends Screen {
           c.maxTurns = f.turns();
           c.idleSeconds = f.idle();
           c.mcpPort = f.port();
-          Store.save();
+          Store.saveSettingsOnly();
           if (port) McpBridge.restart();
           discardApi();
           status = "连接配置已保存；没有调用模型或发起测试请求";
@@ -1016,7 +1377,7 @@ public final class WorkbenchScreen extends Screen {
           Store.config.name = name;
           Store.config.owner = drafts.getOrDefault("identity/owner", Store.config.owner).trim();
           Store.config.goal = drafts.getOrDefault("identity/goal", Store.config.goal);
-          Store.save();
+          Store.saveSettingsOnly();
           drafts.keySet().removeIf(k -> k.startsWith("identity/"));
           status = "身份与目标已保存，下次任务使用新目标";
           rebuild();
@@ -1029,15 +1390,15 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void inputSettings() {
-    text("导航地形策略也可在权限与行为页集中设置");
-    flowField("input/keys", "LIMITED模组按键白名单", Store.config.allowedKeys, 2000, v -> {});
+    mutedText("导航地形策略也可在权限与安全页集中设置");
+    flowField("input/keys", "LIMITED 模组按键白名单", Store.config.allowedKeys, 2000, v -> {});
     row(
         "保存按键白名单",
         () -> {
           saveDrafts();
           Store.config.allowedKeys = drafts.getOrDefault("input/keys", Store.config.allowedKeys);
-          Store.save();
-          status = "按键白名单已保存，能力权限在权限与行为";
+          Store.saveSettingsOnly();
+          status = "按键白名单已保存";
           rebuild();
         },
         "取消按键草稿",
@@ -1049,25 +1410,24 @@ public final class WorkbenchScreen extends Screen {
     toggle("导航：允许破坏地形", () -> Store.config.navigationBreak, v -> Store.config.navigationBreak = v);
     toggle("导航：允许垫脚与搭路", () -> Store.config.navigationPlace, v -> Store.config.navigationPlace = v);
     button(
-        "导航：仅绕行",
+        "导航：一键设为仅绕行",
         () -> {
           Store.config.navigationDetourOnly = true;
           Store.config.navigationBreak = false;
           Store.config.navigationPlace = false;
-          Store.save();
+          Store.saveSettingsOnly();
           rebuild();
         });
-    button(
+    row(
         "查看导航后端",
-        () -> minecraft.setScreen(new NoticeScreen(this, BaritoneNavigation.status().toString())));
-    button(
+        () -> minecraft.setScreen(new NoticeScreen(this, BaritoneNavigation.status().toString())),
         "查看输入能力与注册按键",
         () ->
             minecraft.setScreen(
                 new NoticeScreen(
                     this, PlayerControls.context() + "\n" + PlayerControls.bindings(""))));
     button(
-        "复制当前物品GUI观察",
+        "复制当前物品 GUI 观察",
         () -> {
           onClose();
           try {
@@ -1077,7 +1437,7 @@ public final class WorkbenchScreen extends Screen {
             Companion.notifyUser(e.getMessage());
           }
         });
-    text("仅允许游戏内注册按键，不向宿主机注入快捷键。FULL/ASK/LIMITED按统一权限检查。");
+    mutedText("仅允许游戏内注册按键，不向宿主机注入快捷键。FULL/ASK/LIMITED 按统一权限检查。");
   }
 
   void advancedPermissions() {
@@ -1095,7 +1455,7 @@ public final class WorkbenchScreen extends Screen {
                 case "RESPAWN_IDLE" -> "REASSESS";
                 default -> "PAUSE";
               };
-          Store.save();
+          Store.saveSettingsOnly();
           rebuild();
         });
     field("trusted", "授权玩家（保存后生效）", Store.config.trusted, v -> {});
@@ -1103,222 +1463,17 @@ public final class WorkbenchScreen extends Screen {
         "保存授权玩家",
         () -> {
           Store.config.trusted = drafts.getOrDefault("trusted", Store.config.trusted);
-          Store.save();
+          Store.saveSettingsOnly();
           status = "已保存授权玩家";
           rebuild();
         });
-    toggle(
-        "允许明确ID的原版资源动物狩猎", () -> Store.config.huntResources, v -> Store.config.huntResources = v);
+    toggle("允许明确ID的原版资源动物狩猎", () -> Store.config.huntResources, v -> Store.config.huntResources = v);
     toggle("近处敌怪主动防卫", () -> Store.config.proactiveDefense, v -> Store.config.proactiveDefense = v);
     toggle("可选命名敌怪", () -> Store.config.attackNamed, v -> Store.config.attackNamed = v);
     toggle("允许显式指定玩家攻击", () -> Store.config.attackPlayers, v -> Store.config.attackPlayers = v);
-    toggle(
-        "测试：低血不停工",
-        () -> Store.config.testIgnoreLowHealth,
-        v -> Store.config.testIgnoreLowHealth = v);
-    toggle(
-        "Harness断连后完成已交代本地任务",
-        () -> Store.config.harnessFinishLocal,
-        v -> Store.config.harnessFinishLocal = v);
-    toggle(
-        "新任务立即切换",
-        () -> Store.config.interruptImmediately,
-        v -> Store.config.interruptImmediately = v);
-    text("这些是进阶行为选择；截图、联网、公屏与各能力权限在上一层，调试显示在输入与感知。");
-  }
-
-  private String capabilities() {
-    var ids = new HashSet<String>();
-    net.minecraftforge.fml.ModList.get().getMods().forEach(m -> ids.add(m.getModId()));
-    return Store.GSON.toJson(CapabilityCatalog.describe("", ids));
-  }
-
-  private void permissions() {
-    toggle(
-        "fill/setblock覆盖关键方块需显式confirm",
-        () -> Store.config.protectCriticalCommandBlocks,
-        v -> Store.config.protectCriticalCommandBlocks = v);
-    toggle(
-        "传送落点预检（未加载落点按未知拒绝，可按需关闭）",
-        () -> Store.config.safeTeleport,
-        v -> Store.config.safeTeleport = v);
-    text("导航地形策略（完全放权允许开路，显式仅绕行优先）");
-    toggle(
-        "导航仅绕行：禁止破坏和搭路",
-        () -> Store.config.navigationDetourOnly,
-        v -> Store.config.navigationDetourOnly = v);
-    toggle(
-        "有限权限：允许导航破坏地形", () -> Store.config.navigationBreak, v -> Store.config.navigationBreak = v);
-    toggle(
-        "有限权限：允许垫脚与搭路", () -> Store.config.navigationPlace, v -> Store.config.navigationPlace = v);
-    toggle(
-        "允许 Harness 恢复人工暂停（急停仍需重新授权）",
-        () -> Store.config.harnessResumeHumanPause,
-        v -> Store.config.harnessResumeHumanPause = v);
-    toggle(
-        "显示 Agent 虚拟指针（不移动系统鼠标）",
-        () -> Store.config.agentPointerVisible,
-        v -> Store.config.agentPointerVisible = v);
-    toggle(
-        "完全游戏控制（免游戏操作审批，允许通用键鼠；公屏/截图仍独立）",
-        () -> Store.config.fullGameControl,
-        v -> Store.config.fullGameControl = v);
-    // Effective permissions summary card
-    var perm = PermissionView.current();
-    text("═ 当前生效权限汇总 ═");
-    text(
-        "游戏操作："
-            + (perm.get("mode").getAsString().equals("FULL")
-                ? "完全放权"
-                : perm.get("mode").getAsString().equals("ASK") ? "逐次批准" : "有限模式"));
-    text(
-        "  采集："
-            + (perm.get("mine").getAsBoolean() ? "✓" : "✗")
-            + " · 种植放置："
-            + (perm.get("plant_and_place").getAsBoolean() ? "✓" : "✗")
-            + " · 主动清怪："
-            + (perm.get("hunt").getAsBoolean() ? "✓" : "✗"));
-    text(
-        "  容器："
-            + (perm.get("containers").getAsBoolean() ? "✓" : "✗")
-            + " · GUI："
-            + (perm.get("gui").getAsBoolean() ? "✓" : "✗")
-            + " · 通用输入："
-            + (perm.get("generic_input").getAsBoolean() ? "✓" : "✗"));
-    text(
-        "联网资料："
-            + (perm.get("network_learning").getAsBoolean() ? "✓" : "✗")
-            + " · 截图："
-            + (perm.get("screenshots").getAsBoolean() ? "✓" : "✗")
-            + " · 公屏回复："
-            + (perm.get("public_replies").getAsBoolean() ? "✓" : "✗"));
-    text(
-        "执行风格："
-            + (ExecutionStyle.fluent(Store.config.executionStyle) ? "快速（复用已同步）" : "严谨（每次重开核对）"));
-    text("说明：权限控制审批流程，不能实现尚未支持的能力。完整能力通过 capability_probe / machine_adapters 查询。");
-    y += 10;
-
-    button(
-        "应用玩家式放权预设（FULL + 自主准备 + 附近补给）",
-        () -> {
-          Agent.stop("玩家应用放权预设，旧作业结束");
-          Store.config.permission = "FULL";
-          Store.config.playerAutonomy = true;
-          Store.config.nearbySupplyPickup = true;
-          Store.config.executionStyle = "FLUENT";
-          Store.config.interruptImmediately = false;
-          Store.save();
-          status = "已应用；联网、截图、公屏与模型选择未改变。需要时重新AI接管";
-          rebuild();
-        });
-    toggle(
-        "玩家式：自主准备与有界恢复策略", () -> Store.config.playerAutonomy, v -> Store.config.playerAutonomy = v);
-    toggle(
-        "玩家式：空闲时拾取身边补给（仅FULL/API）",
-        () -> Store.config.nearbySupplyPickup,
-        v -> Store.config.nearbySupplyPickup = v);
-    button("主人与授权成员", () -> section(17, true));
-    text("当前世界／服务器指令配置（不授予服务器OP权限）");
-    var commands = CommandSettings.profile();
-    button(
-        "已检测模组与接口能力",
-        () ->
-            minecraft.setScreen(
-                new NoticeScreen(this, Store.GSON.toJson(IntegrationStatus.view()))));
-    field(
-        "player_commands",
-        "普通玩家指令与别名（逗号分隔）",
-        commands.playerCommands,
-        v -> {
-          commands.playerCommands = v;
-          Store.save();
-        });
-    toggle(
-        "允许自定义单行指令（仍须Agent操作授权）", () -> commands.customCommands, v -> commands.customCommands = v);
-    toggle(
-        "允许clone / summon测试指令",
-        () -> commands.advancedCommands,
-        v -> commands.advancedCommands = v);
-    toggle("允许广泛对象选择器（@a/@e等）", () -> commands.broadSelectors, v -> commands.broadSelectors = v);
-    toggle(
-        "允许Agent打开聊天框并自由打字",
-        () -> Store.config.allowChatTyping,
-        v -> Store.config.allowChatTyping = v);
-    toggle(
-        "允许Agent提交聊天框（可发公屏或新插件指令）",
-        () -> Store.config.allowChatSubmit,
-        v -> Store.config.allowChatSubmit = v);
-    text("自由打字与提交独立于自动回复；全部开启时原生Enter可发送任意单行内容。指令技能仍走本服指令策略。");
-    field(
-        "command_radius",
-        "坐标命令最大半径 1..1024",
-        "" + commands.radius,
-        v -> {
-          try {
-            commands.radius = Rules.bounded(Integer.parseInt(v), 1, 1024);
-            Store.save();
-          } catch (NumberFormatException ignored) {
-          }
-        });
-    field(
-        "command_volume",
-        "区域命令最大方块数 1..32768",
-        "" + commands.maxBlocks,
-        v -> {
-          try {
-            commands.maxBlocks = Rules.bounded(Integer.parseInt(v), 1, 32768);
-            Store.save();
-          } catch (NumberFormatException ignored) {
-          }
-        });
-
-    text("当前模式 · " + Store.config.permission + "。FULL免逐次游戏操作审批；独立的截图、联网、公屏选择保留。");
-    row("LIMITED 有限权限", () -> mode("LIMITED"), "ASK 逐次 / 本流程批准", () -> mode("ASK"));
-    button("FULL 完全游戏放权", () -> mode("FULL"));
-    button(
-        "执行风格 · "
-            + (ExecutionStyle.fluent(Store.config.executionStyle) ? "快速（优先复用同步）" : "严谨（每次重开核对）"),
-        () -> {
-          Store.config.executionStyle =
-              ExecutionStyle.fluent(Store.config.executionStyle) ? "STRICT" : "FLUENT";
-          Store.save();
-          rebuild();
-        });
-    text("快速：普通箱子优先核对已收槽位更新，必要时刷新一次，再退回重开；不重复发取放。严谨：保留每次重开。两者均保留数量核验与急停；复杂机器沿原适配器。");
-    if (!Agent.pendingTool.isBlank()) {
-      text("待授权 · " + Agent.pendingTool);
-      row(
-          "批准一次",
-          () -> {
-            onClose();
-            Agent.approve(true);
-          },
-          "批准本次连续流程",
-          () -> {
-            onClose();
-            Agent.approveTask();
-          });
-      button(
-          "拒绝本次操作",
-          () -> {
-            Agent.approve(false);
-            rebuild();
-          });
-    }
-    toggle("有限模式：容器与仓储", () -> Store.config.allowContainers, v -> Store.config.allowContainers = v);
-    toggle("有限模式：GUI操作", () -> Store.config.allowGui, v -> Store.config.allowGui = v);
-    toggle("有限模式：丢弃物品", () -> Store.config.allowDrop, v -> Store.config.allowDrop = v);
-    toggle("有限模式：实体交互", () -> Store.config.allowEntityUse, v -> Store.config.allowEntityUse = v);
-    toggle("有限模式：采集", () -> Store.config.allowMine, v -> Store.config.allowMine = v);
-    toggle("有限模式：种植与放置", () -> Store.config.allowPlace, v -> Store.config.allowPlace = v);
-    toggle("有限模式：通用输入", () -> Store.config.allowInput, v -> Store.config.allowInput = v);
-    toggle("有限模式：主动清怪", () -> Store.config.allowHunt, v -> Store.config.allowHunt = v);
-    toggle("本地自卫", () -> Store.config.selfDefense, v -> Store.config.selfDefense = v);
-    toggle("求助通知", () -> Store.config.helpNotifications, v -> Store.config.helpNotifications = v);
-    toggle("Harness截图", () -> Store.config.harnessImages, v -> Store.config.harnessImages = v);
-    toggle("联网参考资料", () -> Store.config.web, v -> Store.config.web = v);
-    toggle("回复公屏", () -> Store.config.publicReply, v -> Store.config.publicReply = v);
-    button("进阶行为与授权玩家", () -> section(5, true));
+    toggle("测试：低血不停工", () -> Store.config.testIgnoreLowHealth, v -> Store.config.testIgnoreLowHealth = v);
+    toggle("Harness断连后完成已交代本地任务", () -> Store.config.harnessFinishLocal, v -> Store.config.harnessFinishLocal = v);
+    toggle("新任务立即切换", () -> Store.config.interruptImmediately, v -> Store.config.interruptImmediately = v);
   }
 
   private void revokeTasks(CommunityBoard.Member m) {
@@ -1344,13 +1499,12 @@ public final class WorkbenchScreen extends Screen {
         "默认成员汇报：详细（关=简短）",
         () -> Store.config.teamReport.equals("DETAIL"),
         v -> Store.config.teamReport = v ? "DETAIL" : "BRIEF");
-    text("默认简短：接单、关键审批阻塞和结案；详细仍有公屏频率限制。仅在公屏回复已开启时发送，完整记录保留本地。");
-    text("成员按当前服务器/世界保存。管理者可调整任何待办，成员只改自己的待办；派出的游戏任务都继承本机当前权限。聊天不能改权限或成员配置。旧主人/授权玩家在身份确认后迁入。");
+    mutedText("成员按当前服务器/世界保存；所有授权成员都可在公屏要求急停。");
     field("team/name", "玩家名（在线可绑定UUID）", "", v -> {});
     {
       String nm = value("team/name", "").trim();
       if (!nm.isEmpty() && !nm.matches("[A-Za-z0-9_]{1,16}"))
-        text("⚠ 玩家名需 1..16 位英文、数字或下划线（当前：“" + nm + "”）");
+        coloredText("⚠ 玩家名需 1..16 位英文、数字或下划线（当前：“" + nm + "”）", theme().warning());
     }
     cycle(
         "team/role",
@@ -1363,7 +1517,7 @@ public final class WorkbenchScreen extends Screen {
         "个人汇报",
         List.of("DEFAULT", "BRIEF", "DETAIL"),
         Map.of("DEFAULT", "跟随默认", "BRIEF", "简短", "DETAIL", "详细"));
-    if (!value("team/id", "").isBlank()) text("正在编辑已有成员；点“取消编辑 / 新建”放弃修改");
+    if (!value("team/id", "").isBlank()) coloredText("正在编辑已有成员；点“取消编辑 / 新建”放弃修改", theme().accent());
     field("team/search", "搜索已授权成员", "", v -> {});
     button(
         value("team/online", "false").equals("true") ? "收起在线玩家" : "从在线玩家选择",
@@ -1461,7 +1615,7 @@ public final class WorkbenchScreen extends Screen {
             Store.save();
             rebuild();
           });
-      button(
+      dangerButton(
           value("team/delete", "").equals(m.id) ? "确认删除 " + m.name + "（历史保留）" : "删除 " + m.name,
           () -> {
             if (!value("team/delete", "").equals(m.id)) {
@@ -1479,11 +1633,11 @@ public final class WorkbenchScreen extends Screen {
             rebuild();
           });
     }
-    text("公屏：@伙伴名 目标；@伙伴名 任务列表；@伙伴名 取消任务 ID；@伙伴名 修改任务 ID 新目标。所有授权成员都可要求急停。身份不明的系统聊天不执行。");
+    mutedText("公屏：@伙伴名 目标；@伙伴名 任务列表；@伙伴名 取消任务 ID；@伙伴名 修改任务 ID 新目标。");
   }
 
   void teamQueue() {
-    text("普通任务FIFO；活动任务不因新聊天被打断。ENDED=会话结束，实际业务结果看工具回执。暂停/停止/断线不会自动重放旧目标。");
+    mutedText("普通任务FIFO；活动任务不因新聊天被打断。ENDED=会话结束，实际业务结果看工具回执。");
     for (var t : Store.data.community.tasks) {
       text(
           t.id
@@ -1505,7 +1659,7 @@ public final class WorkbenchScreen extends Screen {
               rebuild();
             });
     }
-    button(
+    dangerButton(
         "停止当前与所有待办",
         () -> {
           Agent.stop("玩家停止多人队列");
@@ -1513,11 +1667,6 @@ public final class WorkbenchScreen extends Screen {
         });
   }
 
-  private String value(String key, String fallback) {
-    return drafts.getOrDefault(key, fallback);
-  }
-
-  /** Click-to-cycle choice instead of free text, so only valid values can be saved. */
   private void cycle(String key, String label, List<String> values, Map<String, String> names) {
     String raw = value(key, values.get(0)).trim().toUpperCase(Locale.ROOT);
     String now = values.contains(raw) ? raw : values.get(0);
@@ -1555,7 +1704,7 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void orderForm() {
-    text("明确目标后，本地执行器准备并实际交付。普通委托数量1..64；生产仅普通无NBT产物，熔炼输入另填。旧制作口令不变。");
+    mutedText("明确目标后，本地执行器准备并实际交付。普通委托数量1..64；生产仅普通无NBT产物。");
     String kind = value("order/kind", "supply");
     button(
         "工序 · " + kind + "（点击切换）",
@@ -1636,8 +1785,8 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void stockTargets() {
-    text("玩家任务优先；仅API模式空闲、同维度且来源/目标已加载时检查。先复核库存，低于下限再补。停止/重进服需重新启用；连续3次受阻自动暂停。");
-    button(
+    mutedText("玩家任务优先；仅API模式空闲、同维度且来源/目标已加载时检查。连续3次受阻自动暂停。");
+    primaryButton(
         "新增库存目标",
         () -> {
           drafts.put("order/kind", "stock");
@@ -1662,7 +1811,7 @@ public final class WorkbenchScreen extends Screen {
             drafts.put("stock/interval", Integer.toString(t.intervalSeconds));
             rebuild();
           });
-      button(
+      dangerButton(
           "删除 " + t.name,
           () -> {
             if (Agent.routine instanceof LogisticsTask task && task.record.id.equals(t.lastOrder))
@@ -1685,9 +1834,8 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void bagForm() {
-    if (bagDraft == null)
-      bagDraft = Store.GSON.fromJson(Store.GSON.toJson(Store.data.bag), BagPolicy.class);
-    text("先编辑并保存模板。物资可分必要/期望，默认不自动丢弃或替换装备；归仓保留快捷栏、NBT物品、工具与固定物品。");
+    if (bagDraft == null) bagDraft = Store.data.bag.copy();
+    mutedText("先编辑并保存模板；默认不自动丢弃或替换装备。");
     row("基地后勤示例", () -> bagPreset("基地后勤"), "采集出门示例", () -> bagPreset("采集出门"));
     button("跟随补给示例", () -> bagPreset("跟随补给"));
     field("bag/name", "模板名称", bagDraft.name, v -> {});
@@ -1714,7 +1862,7 @@ public final class WorkbenchScreen extends Screen {
         () -> {
           String id = value("bag/item", "minecraft:bread");
           int n = Integer.parseInt(value("bag/count", "8"));
-          var copy = Store.GSON.fromJson(Store.GSON.toJson(bagDraft), BagPolicy.class);
+          var copy = bagDraft.copy();
           copy.desired.put(id, n);
           copy.validate();
           bagDraft = copy;
@@ -1756,7 +1904,7 @@ public final class WorkbenchScreen extends Screen {
     row(
         "保存行装模板",
         () -> {
-          var copy = Store.GSON.fromJson(Store.GSON.toJson(bagDraft), BagPolicy.class);
+          var copy = bagDraft.copy();
           copy.name = value("bag/name", copy.name);
           copy.source = value("bag/source", copy.source).trim();
           copy.destination = value("bag/destination", copy.destination).trim();
@@ -1777,7 +1925,7 @@ public final class WorkbenchScreen extends Screen {
           clearDrafts("bag/");
           rebuild();
         });
-    button(
+    primaryButton(
         "按已保存配置准备一次",
         () -> {
           onClose();
@@ -1787,7 +1935,7 @@ public final class WorkbenchScreen extends Screen {
   }
 
   void logisticsHistory() {
-    text("数量来自唯一执行器回执，外来补给不算自产。COMPLETE为对应委托完成，普通ENDED仍仅会话结束。");
+    mutedText("数量来自唯一执行器回执，外来补给不算自产。COMPLETE 为对应委托完成。");
     text("常用任务（当前世界）");
     for (var e : Store.data.favoriteOrders.entrySet()) {
       String name = e.getKey();
@@ -1820,179 +1968,55 @@ public final class WorkbenchScreen extends Screen {
     }
   }
 
-  private void mode(String mode) {
-    Store.config.permission = mode;
-    Store.save();
-    if (mode.equals("FULL") && !Agent.pendingTool.isBlank()) {
-      onClose();
-      Agent.approve(true);
-    } else rebuild();
-  }
-
-  private void toggle(String title, BooleanSupplier get, Consumer<Boolean> set) {
-    button(
-        title + " · " + (get.getAsBoolean() ? "开启" : "关闭"),
-        () -> {
-          set.accept(!get.getAsBoolean());
-          Store.save();
-          rebuild();
-        });
-  }
-
-  private void input() {
-    toggle("导航自动打开木门/栅栏门", () -> Store.config.autoOpenDoors, v -> Store.config.autoOpenDoors = v);
-    text("动作只作用于当前游戏窗口，停止释放本模组持有的键，不清空玩家人工长按。");
-    toggle("目标与碰撞诊断显示", () -> Store.config.debugScene, v -> Store.config.debugScene = v);
-    button(
-        "查看当前战斗认知边界",
-        () -> {
-          var p = minecraft.player;
-          String weapon =
-              p == null
-                  ? "未进入世界"
-                  : MeleeOps.weapon(p.getMainHandItem()) ? "当前主手可被普通近战识别" : "当前主手不符合普通近战武器规则";
-          minecraft.setScreen(
-              new NoticeScreen(
-                  this,
-                  weapon
-                      + "\n"
-                      + "索敌使用已加载客户端实体与射线；通用清怪仍有目标白名单。\n"
-                      + "装备选择目前主要看普通攻击属性，不代表Mine and Slash实际DPS排名。职业资源、技能冷却和召唤敌我规则仍需针对服务器版本适配。\n"
-                      + (p == null ? "" : DynamicScene.inspect())));
-        });
-    row("主副手、背包与模组按键", () -> section(12, true), "视觉辅助与示范", () -> section(11, true));
-    button(
-        WatchMode.active() ? "退出观看" : "开启脱手观看",
-        () -> {
-          WatchMode.toggle();
-          rebuild();
-        });
-    text(
-        "面板 · "
-            + Companion.PANEL.getTranslatedKeyMessage().getString()
-            + "\n观看 · "
-            + Companion.WATCH.getTranslatedKeyMessage().getString()
-            + "\n对话 · "
-            + Companion.DIALOGUE.getTranslatedKeyMessage().getString()
-            + "\n急停 · "
-            + Companion.STOP.getTranslatedKeyMessage().getString());
-  }
-
-  private void appearance() {
-    toggle("原生API流式接收", () -> Store.config.apiStreaming, v -> Store.config.apiStreaming = v);
-    toggle(
-        "前台过程：详细（关=简洁）", () -> Store.config.processDetailed, v -> Store.config.processDetailed = v);
-    text("Home进入本地输入后，可点侧栏的简洁/详细切换；详细区滚轮翻阅、点击展开，AI继续工作。接口不支持stream时关闭流式，不自动重发。公开工作说明与实际回执分开展示。");
-    text("主题预览与观看布局。切换主题不会改变权限或任务。");
-    for (String theme : List.of("深海", "纸白", "终端", "原版")) {
-      var b =
-          button(
-              theme,
-              () -> {
-                Store.config.theme = theme;
-                Store.save();
-                rebuild();
-              });
-      b.selected = Store.config.theme.equals(theme);
-    }
-    button("拖动观看布局 / 缩放 / 复位", () -> minecraft.setScreen(new HudLayoutEditor(this)));
-    row(
-        "侧栏、头像与本地对话",
-        () -> section(7, true),
-        "恢复默认侧栏布局",
-        () -> {
-          Store.config.hudLeft = false;
-          Store.config.hudY = 42;
-          Store.config.hudWidth = 190;
-          Store.config.hudOpacity = 85;
-          Store.save();
-          rebuild();
-        });
-    button("人设与跨世界偏好", () -> section(16, true));
-    text("通知自动淡出，历史在账本；头像只显示实际工作状态。");
-  }
-
-  private void leaseSetting(int seconds) {
-    HarnessController.configureLease(seconds);
-    status = "Harness租约已应用：" + HarnessLeasePolicy.label(seconds);
-    rebuild();
-  }
-
-  private void maintenance() {
-    text("Harness租约 · " + HarnessLeasePolicy.label(Store.config.harnessLeaseSeconds));
-    row("5分钟", () -> leaseSetting(300), "1小时", () -> leaseSetting(3600));
-    row("6小时", () -> leaseSetting(21600), "12小时", () -> leaseSetting(43200));
-    row("24小时", () -> leaseSetting(86400), "直到手动停止（不按时间到期）", () -> leaseSetting(0));
-    field(
-        "lease/minutes",
-        "自定义时长（分钟，1..43200）",
-        Integer.toString(Math.max(1, Store.config.harnessLeaseSeconds / 60)),
-        v -> {});
-    button(
-        "应用自定义时长",
-        () -> leaseSetting(HarnessLeasePolicy.customMinutes(value("lease/minutes", "60"))));
-    text(
-        "设置立即应用当前连接，不撤销控制权。有限时长为空闲超时：心跳或有效请求会续期；手动模式不按时间到期，F9、主动释放、关闭接口、退出世界仍立即撤销。新版客户端重连时自动跟随所选时长。");
-    field("library-root", "共享库目录（留空使用本实例；修改后保存）", Store.config.libraryFolder, v -> {});
-    button(
-        "保存目录并刷新",
-        () -> {
-          Store.config.libraryFolder = drafts.getOrDefault("library-root", "").trim();
-          Store.save();
-          SkillLibrary.refresh();
-          status = SkillLibrary.errors.isEmpty() ? "目录已刷新" : String.join("；", SkillLibrary.errors);
-          rebuild();
-        });
-    row(
-        "备份 / 恢复 / 数据目录",
-        () -> section(6, true),
-        "本次运行统计",
-        () ->
-            minecraft.setScreen(
-                new NoticeScreen(this, Store.GSON.toJson(RuntimeStats.snapshot()))));
-    text("技能定义可共享；世界库存、设施和当前流程不共享。备份不包含API密钥或Harness令牌。");
-  }
+  // --- Rendering & Input ---
 
   @Override
   public void render(GuiGraphics g, int mx, int my, float delta) {
-    boolean light = Store.config.theme.equals("纸白");
-    g.fill(
-        0,
-        0,
-        width,
-        height,
-        light
-            ? 0xffeef3f3
-            : Store.config.theme.equals("终端")
-                ? 0xff06170f
-                : Store.config.theme.equals("原版") ? 0xff24211c : 0xff091722);
-    g.fill(
-        0,
-        0,
-        box.nav(),
-        height,
-        light
-            ? 0xffdce7e8
-            : Store.config.theme.equals("终端")
-                ? 0xff0b2618
-                : Store.config.theme.equals("原版") ? 0xff353025 : 0xff0e2430);
-    g.fill(box.nav(), 0, box.nav() + 1, height, light ? 0xffb2cbce : 0xff2a4b57);
-    g.drawString(
-        font, font.plainSubstrByWidth(Store.config.name, box.nav() - 16), 9, 14, fg(), false);
+    UiTheme t = theme();
+
+    // 1. Ambient backdrop + floating studio window
+    g.fill(0, 0, width, height, t.backdrop());
+    UiDraw.fillRounded(g, winX, winY, winW, winH, t.windowBg(), t.border());
+    // Signature G4Neon 2px top accent gradient line
+    UiDraw.fillHGradient(g, winX + 1, winY + 1, winW - 2, 2, t.accent(), t.accentAlt());
+
+    // 2. Left Rail
+    g.fill(winX + 1, winY + 3, winX + box.nav(), winY + winH - 1, t.railBg());
+    g.fill(winX + box.nav(), winY + 3, winX + box.nav() + 1, winY + winH - 1, t.border());
+
+    // Brand + Companion Name inside Rail
     g.drawString(
         font,
-        font.plainSubstrByWidth(
-            (settings ? "设置" : "账本")
+        font.plainSubstrByWidth(Store.config.name + " · G4Neon", box.nav() - 16),
+        winX + 10,
+        winY + 12,
+        t.text(),
+        false);
+    g.drawString(
+        font,
+        font.plainSubstrByWidth(BuildInfo.VERSION, box.nav() - 16),
+        winX + 10,
+        winY + 23,
+        t.accent(),
+        false);
+
+    // 3. Top Header Bar
+    g.fill(winX + box.nav() + 1, winY + 3, winX + winW - 1, headerBottom, t.headerBg());
+    g.fill(winX + box.nav() + 1, headerBottom, winX + winW - 1, headerBottom + 1, t.border());
+
+    String crumb =
+        settings && !settingsSearch.isBlank()
+            ? "设置 / 搜索：" + settingsSearch
+            : (settings ? "设置" : "账本")
                 + " / "
-                + (settings
-                        ? new String[] {"模型与连接", "权限与行为", "输入与感知", "显示与陪伴", "数据与维护"}
-                        : new String[] {"当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史"})
-                    [page]
-                + (section >= 0 ? " / " + DeskRoute.of(section, settings).title() : ""),
-            box.width()),
+                + (settings ? SETTINGS_NAV : LEDGER_NAV)[page]
+                + (section >= 0 ? " / " + DeskRoute.of(section, settings).title() : "");
+    g.drawString(
+        font,
+        font.plainSubstrByWidth(crumb, Math.max(40, box.width() - 96)),
         box.left(),
-        18,
-        fg(),
+        winY + 14,
+        t.text(),
         false);
     g.drawString(
         font,
@@ -2002,63 +2026,255 @@ public final class WorkbenchScreen extends Screen {
                 + (Agent.enabled
                     ? ActionSummary.describe(Actions.job != null ? Actions.status : Agent.state)
                     : StatusFeed.restDetail(Agent.state)),
-            box.width()),
+            Math.max(40, box.width() - 96)),
         box.left(),
-        44,
-        muted(),
+        winY + 30,
+        t.textSecondary(),
         false);
-    g.enableScissor(box.left(), box.top(), width - 10, box.bottom());
+
+    // Render Rail & Header Chrome Widgets outside content scissor
+    for (var cw : chromeWidgets) cw.render(g, mx, my, delta);
+
+    // 4. Scissored Scroll Viewport
+    boolean mouseInView =
+        mx >= viewLeft && mx <= viewRight && my >= box.top() && my <= box.bottom();
+    int contentMx = mouseInView ? mx : -9999;
+    int contentMy = mouseInView ? my : -9999;
+
+    g.enableScissor(viewLeft, box.top(), viewRight, box.bottom());
+
     if (section < 0 && !settings && page == 0 && status.isBlank()) {
       int artY = box.top() - scroll;
-      double artScale = Math.max(box.width() / 2172d, 64 / 724d);
-      int sw = (int) Math.round(box.width() / artScale), sh = (int) Math.round(64 / artScale);
+      double artScale = Math.max(box.width() / 2172d, 58 / 724d);
+      int sw = (int) Math.round(box.width() / artScale), sh = (int) Math.round(58 / artScale);
       g.blit(
           ART,
           box.left(),
           artY,
           box.width(),
-          64,
+          58,
           (2172 - sw) / 2f,
           (724 - sh) / 2f,
           sw,
           sh,
           2172,
           724);
-      g.fill(box.left(), artY, box.left() + box.width(), artY + 64, 0x22071923);
-      g.drawString(font, "基地后勤 · 让重复工作交给伙伴", box.left() + 10, artY + 12, 0xffe8f4ee, false);
-      g.drawString(font, "目标明确 / 操作可查 / 结果核实", box.left() + 10, artY + 30, 0xffa6c6cc, false);
+      g.fill(box.left(), artY, box.left() + box.width(), artY + 58, 0x66060b16);
+      UiDraw.fillRounded(g, box.left(), artY, box.width(), 58, 0, t.border());
+      g.drawString(font, "基地后勤 · 让重复工作交给伙伴", box.left() + 10, artY + 12, 0xfff1f5f9, false);
+      g.drawString(font, "目标明确 / 操作可查 / 结果核实", box.left() + 10, artY + 29, 0xff9fb0c9, false);
+      UiDraw.drawBadge(
+          g,
+          font,
+          box.left() + box.width() - 56,
+          artY + 10,
+          "G4Neon",
+          t.textOnAccent(),
+          t.accent(),
+          t.accent());
     }
-    for (var l : lines) g.drawString(font, l.text, l.x, l.y - scroll, l.color, false);
+
+    // Card backgrounds & card headers
+    for (var c : cards) {
+      int cy = c.y() - scroll;
+      if (cy + c.h() < box.top() || cy > box.bottom()) continue;
+      if (c.alert()) {
+        UiDraw.fillRounded(
+            g,
+            c.x(),
+            cy,
+            c.w(),
+            c.h(),
+            UiTheme.withAlpha(c.badgeColor() == 0 ? t.warning() : c.badgeColor(), t.light() ? 22 : 24),
+            c.badgeColor() == 0 ? t.warning() : c.badgeColor());
+      } else {
+        UiDraw.fillCard(g, c.x(), cy, c.w(), c.h(), t);
+      }
+      if (!c.title().isEmpty()) {
+        g.fill(c.x() + 1, cy + 4, c.x() + 3, cy + 14, c.alert() ? t.warning() : t.accent());
+        int rightReserve = 12;
+        if (!c.badge().isEmpty()) {
+          int bw = UiDraw.badgeWidth(font, c.badge());
+          int bc = c.badgeColor() == 0 ? t.accent() : c.badgeColor();
+          UiDraw.drawBadge(
+              g,
+              font,
+              c.x() + c.w() - bw - 8,
+              cy + 4,
+              c.badge(),
+              bc,
+              UiTheme.withAlpha(bc, 30),
+              UiTheme.withAlpha(bc, 110));
+          rightReserve += bw + 8;
+        }
+        g.drawString(
+            font,
+            font.plainSubstrByWidth(c.title(), Math.max(20, c.w() - rightReserve - 10)),
+            c.x() + 8,
+            cy + 6,
+            t.text(),
+            false);
+        g.fill(c.x() + 6, cy + 19, c.x() + c.w() - 6, cy + 20, UiTheme.withAlpha(t.border(), 140));
+      }
+    }
+
+    // Text lines, badges, keycap rows
+    for (var l : lines) {
+      int ly = l.y() - scroll;
+      if (ly + 11 >= box.top() && ly <= box.bottom())
+        g.drawString(font, l.text(), l.x(), ly, l.color(), false);
+    }
+    for (var b : badges) {
+      int by = b.y() - scroll;
+      if (by + 13 >= box.top() && by <= box.bottom())
+        UiDraw.drawBadge(
+            g,
+            font,
+            b.x(),
+            by,
+            b.text(),
+            b.color(),
+            UiTheme.withAlpha(b.color(), 28),
+            UiTheme.withAlpha(b.color(), 100));
+    }
+    for (var k : keycaps) {
+      int ky = k.y() - scroll;
+      if (ky + 16 >= box.top() && ky <= box.bottom()) {
+        int kw = UiDraw.drawKeycap(g, font, k.x() + 2, ky, k.key(), t);
+        g.drawString(
+            font,
+            font.plainSubstrByWidth(k.action(), Math.max(20, k.w() - kw - 12)),
+            k.x() + kw + 10,
+            ky + 3,
+            t.text(),
+            false);
+      }
+    }
+
+    // Render Scrollable Content Widgets
+    for (var sw : contentWidgets) {
+      if (sw.widget().visible) sw.widget().render(g, contentMx, contentMy, delta);
+    }
+
     g.disableScissor();
-    super.render(g, mx, my, delta);
+
+    // 5. Scrollbar & Footer
+    int ms = maxScroll();
+    int sbX = winX + winW - 9;
+    boolean sbHovered =
+        mx >= sbX - 4 && mx <= sbX + 8 && my >= box.top() && my <= box.bottom();
+    UiDraw.drawScrollbar(
+        g, sbX, box.top(), box.bottom() - box.top(), scroll, ms, box.bottom() - box.top(), draggingScrollbar || sbHovered, t);
+
+    g.fill(winX + box.nav() + 1, winY + winH - 22, winX + winW - 1, winY + winH - 21, t.border());
+    String footerText =
+        BuildInfo.ID
+            + (ms > 0 ? " · 滚轮或右侧滚动条查看更多" : " · G4Neon 本地工作台")
+            + (!dirtyKeys.isEmpty() ? " · 存在未保存输入草稿" : "");
     g.drawString(
         font,
-        font.plainSubstrByWidth(
-            BuildInfo.ID + " · " + (maxY > box.bottom() ? "滚轮查看更多" : "本地工作台"), box.width()),
+        font.plainSubstrByWidth(footerText, box.width()),
         box.left(),
-        height - 17,
-        muted(),
+        winY + winH - 15,
+        t.textMuted(),
         false);
+  }
+
+  private String liveFingerprint() {
+    var att = Hud.FEED.attention();
+    return Agent.enabled
+        + "|"
+        + Agent.paused
+        + "|"
+        + Agent.pendingTool
+        + "|"
+        + Cooperation.active()
+        + "|"
+        + WatchMode.active()
+        + "|"
+        + FollowControl.active()
+        + "|"
+        + (att != null ? att.level + ":" + att.at : "")
+        + "|"
+        + Hud.controlLine();
   }
 
   @Override
   public void tick() {
     super.tick();
-    if (++ticks % 20 == 0
+    if (++ticks % 10 == 0
         && !(getFocused() instanceof EditBox)
         && section < 0
         && ((!settings && page == 0) || (settings && page == 0))) {
-      saveDrafts();
-      rebuild();
+      String now = liveFingerprint();
+      if (!now.equals(lastFingerprint)) {
+        saveDrafts();
+        rebuild();
+      }
     }
   }
 
   @Override
+  public boolean mouseClicked(double mx, double my, int button) {
+    int sbX = winX + winW - 9;
+    if (button == 0 && maxScroll() > 0 && mx >= sbX - 6 && mx <= sbX + 10 && my >= box.top() && my <= box.bottom()) {
+      draggingScrollbar = true;
+      dragStartMouseY = (int) my;
+      dragStartScroll = scroll;
+      return true;
+    }
+    for (int i = chromeWidgets.size() - 1; i >= 0; i--) {
+      var cw = chromeWidgets.get(i);
+      if (cw.mouseClicked(mx, my, button)) {
+        setFocused(cw);
+        return true;
+      }
+    }
+    if (mx >= viewLeft && mx <= viewRight && my >= box.top() && my <= box.bottom()) {
+      for (int i = contentWidgets.size() - 1; i >= 0; i--) {
+        var sw = contentWidgets.get(i).widget();
+        if (sw.visible && sw.mouseClicked(mx, my, button)) {
+          setFocused(sw);
+          return true;
+        }
+      }
+    }
+    setFocused(null);
+    return false;
+  }
+
+  @Override
+  public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+    if (draggingScrollbar && button == 0) {
+      int ms = maxScroll();
+      int viewH = Math.max(1, box.bottom() - box.top());
+      int thumbH = Math.max(22, Math.min(viewH, (int) ((long) viewH * viewH / Math.max(1L, viewH + ms))));
+      int travel = Math.max(1, viewH - thumbH);
+      int deltaY = (int) my - dragStartMouseY;
+      scroll = Rules.bounded(dragStartScroll + (int) ((long) deltaY * ms / travel), 0, ms);
+      repositionContentWidgets();
+      return true;
+    }
+    return super.mouseDragged(mx, my, button, dx, dy);
+  }
+
+  @Override
+  public boolean mouseReleased(double mx, double my, int button) {
+    if (button == 0 && draggingScrollbar) {
+      draggingScrollbar = false;
+      return true;
+    }
+    return super.mouseReleased(mx, my, button);
+  }
+
+  @Override
   public boolean mouseScrolled(double mx, double my, double delta) {
-    if (mx > box.nav()) {
-      saveDrafts();
-      scroll = Rules.bounded(scroll - (int) (delta * 28), 0, Math.max(0, maxY - box.bottom() + 4));
-      rebuild();
+    if (mx >= winX + box.nav()) {
+      int next = Rules.bounded(scroll - (int) (delta * 28), 0, maxScroll());
+      if (next != scroll) {
+        scroll = next;
+        repositionContentWidgets();
+      }
       return true;
     }
     return super.mouseScrolled(mx, my, delta);

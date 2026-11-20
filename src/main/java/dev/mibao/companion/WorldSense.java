@@ -63,7 +63,7 @@ public final class WorldSense {
   }
 
   public static void blockChanged(BlockPos pos, BlockState state) {
-    if (!mc().level.hasChunkAt(pos)) return;
+    if (mc().level == null || !mc().level.hasChunkAt(pos)) return;
     Perception.blockChanged(pos);
     String dim = mc().level.dimension().location().toString();
     if (!dim.equals(changeDimension)) {
@@ -89,7 +89,7 @@ public final class WorldSense {
   }
 
   public static void tick() {
-    if (!changeDimension.equals(mc().level.dimension().location().toString())) {
+    if (mc().level == null || !changeDimension.equals(mc().level.dimension().location().toString())) {
       changed.clear();
       return;
     }
@@ -115,6 +115,7 @@ public final class WorldSense {
   }
 
   public static void record(BlockPos p, BlockState s) {
+    if (mc().level == null) return;
     String category = category(s);
     String dim = mc().level.dimension().location().toString();
     var old = Store.data.world.get(WorldMemory.key(dim, p.getX(), p.getY(), p.getZ()));
