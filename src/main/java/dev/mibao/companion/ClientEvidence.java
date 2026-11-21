@@ -66,6 +66,9 @@ public final class ClientEvidence {
                           MenuContext.slot(p.getContainerId(), p.getStateId(), p.getSlot(), stack);
                           PlayerEvidence.slot(p.getContainerId(), p.getSlot(), stack);
                         };
+                  } else if (msg instanceof ClientboundContainerSetDataPacket p) {
+                    int cid = p.getContainerId(), id = p.getId(), val = p.getValue();
+                    receipt = () -> MenuContext.data(cid, id, val);
                   } else if (msg instanceof ClientboundAddEntityPacket p) {
                     receipt =
                         () -> {

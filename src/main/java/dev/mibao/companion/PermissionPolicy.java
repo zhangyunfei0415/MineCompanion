@@ -31,7 +31,7 @@ public final class PermissionPolicy {
                 "ae_craft_confirm")
             .contains(tool)
         && !g.containers()) return "失败：[PERMISSION_REQUIRED] 有限模式未允许容器/仓储操作";
-    if ((tool.startsWith("gui_")
+    if ((tool.startsWith("gui_") && !tool.equals("gui_wait_output")
             || tool.equals("quest_book_open")
             || tool.equals("game_input")
             || tool.equals("vanilla_menu_select")

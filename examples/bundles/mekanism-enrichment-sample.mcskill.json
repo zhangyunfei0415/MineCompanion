@@ -1,0 +1,163 @@
+{
+  "schema": 2,
+  "bundle_id": "community:mekanism-enrichment-basics",
+  "name": "通用机械 · 富集仓矿石倍增（支持 AE2 晋级）",
+  "version": "1.0.0",
+  "author": "MineCompanion-Template",
+  "license": "MIT",
+  "description": "社区示例模板：包含富集仓界面映射、无 AE 轨道 A 手操流程、本地偏移/签名适配指导，以及在有 AE2 环境下验证后晋级持久复用的轨道 B 样板指引。",
+  "tags": ["tech", "mekanism", "ore-processing", "ae2-ready", "example"],
+  "compatibility": {
+    "minecraft": "1.20.1",
+    "mods": {
+      "mekanism": ">=10.4.0 <11.0.0"
+    },
+    "optional_mods": ["ae2", "jei"]
+  },
+  "playbook": {
+    "overview": "富集仓将粗矿或原矿倍增加工为对应矿物粉，需要机器接入足额 FE 能量。",
+    "prerequisites": [
+      "已放置通用机械富集仓并在当前世界命名地点",
+      "机器已有能量供给",
+      "先通过 lookup_recipes 确认当前整合包的精确输入输出比例（通常 3 粗矿 -> 4 粉）"
+    ],
+    "manual_workflow": "轨道A（手操/开荒/建厂核验）：打开机器后先用 inspect_gui / inspect_tooltip 核实当前版本的 portable_signature 与侧面配置按钮位置（如因整合包/版本微调偏移，用 bundle_adapt 记录补丁）；再调用 community:mekanism-enrich-manual 完成真实投料与收货验证。",
+    "ae2_delegation": "轨道B（在轨道A核验通过后晋级并持久复用）：确认贴合 AE2 样板供应器的机器面配置为输入/输出并启用 Auto-Eject 自动弹出；在 AE2 样板编码终端使用 processing 模式（配合 jei_transfer_recipe 与 ae_pattern_action）编码 3 粗矿 -> 4 矿物粉样板存入供应器。通过 bundle_adapt 晋级后后续自动走 AE2 合成下单。",
+    "pitfalls": [
+      "Mekanism 1.20 粗矿富集常见比例为 3:4，只投 1 个粗矿机器不会工作。",
+      "启用 AE2 供应器自动化时若未打开 Auto-Eject，成品会停留在输出槽导致 AE 订单阻塞。"
+    ],
+    "citations": [
+      "https://wiki.aidancbrady.com/wiki/Enrichment_Chamber"
+    ]
+  },
+  "track_a": {
+    "summary": "打开富集仓检查能量与侧面配置后执行一次手操加工并核对产物。",
+    "setup_skills": [],
+    "manual_skills": ["community:mekanism-enrich-manual"],
+    "track_b_promotion": {
+      "enabled": true,
+      "kind": "ae2_delegation",
+      "required_mods": ["ae2", "mekanism"],
+      "preconditions": [
+        "track_a_verified",
+        "side_config_auto_eject_on",
+        "ae2_pattern_encoded"
+      ],
+      "pre_setup_controls": ["side_config", "auto_eject_toggle"],
+      "reuse_skills": [],
+      "patterns": [
+        {
+          "id": "mek_raw_iron_enrich",
+          "mode": "processing",
+          "machine_block": "mekanism:enrichment_chamber",
+          "inputs": [{"item": "minecraft:raw_iron", "count": 3}],
+          "outputs": [{"item": "mekanism:dust_iron", "count": 4}],
+          "note": "配合 JEI + ae_pattern_action 编码后放入贴近富集仓的 AE2 样板供应器"
+        }
+      ],
+      "fallback_to_track_a_on": ["env_changed", "missing_ae2_pattern"]
+    }
+  },
+  "ui_profiles": [
+    {
+      "id": "mekanism:enrichment_chamber_ui",
+      "name": "通用机械富集仓界面",
+      "match": {
+        "portable_signatures": [],
+        "layout_signatures": [],
+        "menu_classes": ["mekanism.common.inventory.container.tile.MekanismTileContainer"],
+        "block_ids": ["mekanism:enrichment_chamber"],
+        "image_width": 176,
+        "image_height": 166
+      },
+      "slots": [
+        {"role": "input", "x": 64, "y": 17, "menu_slot": 0, "virtual": false, "note": "原料输入槽（示例坐标，首次打开请对照实际槽位并用 bundle_adapt 适配）"},
+        {"role": "energy_item", "x": 64, "y": 53, "menu_slot": 1, "virtual": false, "note": "电池充能槽"},
+        {"role": "output", "x": 116, "y": 35, "menu_slot": 2, "virtual": false, "note": "矿物粉输出槽"}
+      ],
+      "controls": [
+        {
+          "name": "side_config",
+          "kind": "relative_point",
+          "dx": -14,
+          "dy": 16,
+          "button": 0,
+          "shift": false,
+          "expected_tooltip_contains": ["Side Config", "侧面配置", "Config"],
+          "effect_note": "打开侧面输入输出配置挂耳面板"
+        },
+        {
+          "name": "auto_eject_toggle",
+          "kind": "relative_point",
+          "dx": 152,
+          "dy": 22,
+          "button": 0,
+          "shift": false,
+          "expected_tooltip_contains": ["Auto-Eject", "自动弹出"],
+          "effect_note": "在侧面配置窗口内切换产物自动弹出开关"
+        }
+      ],
+      "progress_hints": {
+        "completion_signals": ["output_slot_gained"]
+      },
+      "ae2_integration": {
+        "automatable_via_pattern_provider": true,
+        "pattern_mode": "processing",
+        "recommended_provider_faces": ["back", "top", "any_configured"],
+        "pre_setup_controls": ["side_config", "auto_eject_toggle"],
+        "io_note": "将贴合 AE2 样板供应器的一面设为输入/输出，并启用 Auto-Eject。"
+      }
+    }
+  ],
+  "adapters": [
+    {
+      "id": "mekanism-enrichment-chamber",
+      "blocks": ["mekanism:enrichment_chamber"],
+      "skill": "community:mekanism-enrich-manual",
+      "note": "轨道 A 验证后可在安装 AE2 时晋级至轨道 B 样板供应器委派"
+    }
+  ],
+  "skills": [
+    {
+      "schema": 1,
+      "id": "community:mekanism-enrich-manual",
+      "name": "富集仓手操倍增一次",
+      "version": "1",
+      "author": "MineCompanion-Template",
+      "license": "MIT",
+      "minecraft": "1.20.1",
+      "mods": {"mekanism": ">=10.4.0 <11.0.0"},
+      "description": "前往已命名的富集仓，投入原料并等待富集产物取出入包。",
+      "parameters": {
+        "machine": {"type": "string"},
+        "input_item": {"type": "string", "default": "minecraft:raw_iron"},
+        "input_count": {"type": "integer", "default": 3, "min": 1, "max": 64},
+        "output_item": {"type": "string", "default": "mekanism:dust_iron"},
+        "output_min": {"type": "integer", "default": 4, "min": 1, "max": 64}
+      },
+      "requires": [
+        "go_to",
+        "open_container",
+        "gui_put_role",
+        "gui_wait_output",
+        "gui_take_role",
+        "close_screen"
+      ],
+      "seconds": 180,
+      "steps": [
+        {"tool": "go_to", "args": {"place": "${machine}"}},
+        {"tool": "open_container", "args": {"place": "${machine}"}},
+        {"tool": "gui_put_role", "args": {"profile": "mekanism:enrichment_chamber_ui", "role": "input", "item": "${input_item}", "count": "${input_count}"}},
+        {"tool": "gui_wait_output", "args": {"profile": "mekanism:enrichment_chamber_ui", "role": "output", "item": "${output_item}", "min_count": "${output_min}", "seconds": 45}},
+        {"tool": "gui_take_role", "args": {"profile": "mekanism:enrichment_chamber_ui", "role": "output", "item": "${output_item}", "min_count": "${output_min}"}},
+        {"tool": "close_screen", "args": {}}
+      ],
+      "verification": "核对输出槽位产物数量与玩家背包实际增量。"
+    }
+  ],
+  "integrity": {
+    "content_sha256": "96edb164403d9cc0a1e299a82dddef76399f92183ff84d7df01a4ab28ce2314a",
+    "exported_by_build": "g4neon-open-memory-20261121-01"
+  }
+}

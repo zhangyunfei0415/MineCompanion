@@ -23,6 +23,12 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 - 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
 - 原有近战、自卫与弓箭执行功能。
 
+### 0.8.5-G4Neon 分支变更（Gemini）
+
+- 新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），在不硬编码堆叠单个 Mod 适配的前提下，通过通用 GUI 感知原语（`inspect_tooltip` 悬停探测、`UiSignature` 跨整合包双级签名、`gui_relative_point` 相对锚点点击、`ContainerData` 监听）与 `UiProfile` 结构化界面映射实现陌生 Mod 玩法学习与社区共享。
+- 新增 4 个可入 `SessionPlan` 的语义 GUI 技能原语（`gui_put_role` / `gui_take_role` / `gui_trigger_control` / `gui_wait_output`）、`bundle_adapt` 本地环境适配叠加层与 `bundle_pack` 脱敏导出（由 `BundleSanitizer` + `CanonicalJson` SHA-256 保障安全）。
+- 轨道 B（AE2 样板委派）嵌套在轨道 A（通用手操与建厂核验）之内：轨道 A 实机验证通过且 AE2 条件满足后晋级持久复用，整合包环境变动时自动降级待复核；G4Neon 工作台同步升级「开放技能记忆中心 (Bundle Hub)」。详见 [0.8.5-G4Neon 交付报告](RELEASE-0.8.5-G4NEON-OPEN-MEMORY-20261121.md)。
+
 ### 0.8.4-G4Neon 分支变更（Gemini）
 
 - 前端设置界面与游戏内浮层基于全新 `UiTheme` / `UiDraw` / `DeskButton` / `SettingsCatalog` / `WorkbenchSettingsViews` 设计体系彻底重构，默认启用 `霓虹`（G4Neon Studio）主题并提供 5 套重调主题即时切换。
@@ -51,7 +57,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## Alpha 状态
 
-当前 `Gemini` 分支版本为 **0.8.4-G4Neon / g4neon-20261120-01**（基线 0.8.4）。Windows 离线开发环境编译通过，122 个测试套件 / 651 项自动化测试通过；实机 UI 与交互待游戏内验收。
+当前 `Gemini` 分支版本为 **0.8.5-G4Neon / g4neon-open-memory-20261121-01**（基于 0.8.4 演进）。Windows 离线开发环境编译通过，129 个测试套件 / 673 项自动化测试通过；实机 UI、Tooltip 悬停捕获与跨整合包导入待游戏内验收。
 
 已有实机记录覆盖基础跟随、采矿、熔炼、采收、酿造、附魔与铁砧。0.8.4 的自动过门会合、新生存技能和短程飞行还待实机复核。模组兼容性取决于版本、菜单同步方式和服务器规则。
 

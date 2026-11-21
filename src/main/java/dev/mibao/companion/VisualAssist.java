@@ -76,6 +76,37 @@ public final class VisualAssist {
     Companion.notifyUser("当前模型接口拒绝图片；已自动改用结构化文本。本次会话不再向此接口附图，更换模型后可重新尝试。");
   }
 
+  public static String portableSignature() {
+    var p = mc().player;
+    if (p == null || p.containerMenu == p.inventoryMenu) return "";
+    var menu = p.containerMenu;
+    String blockId = "none";
+    var pos = MenuContext.source();
+    if (pos != null && mc().level != null && mc().level.hasChunkAt(pos)) {
+      blockId = BuiltInRegistries.BLOCK.getKey(mc().level.getBlockState(pos).getBlock()).toString();
+    }
+    return UiSignature.portableSignature(menu.getClass().getName(), blockId, slotSpecs(menu, p));
+  }
+
+  public static String layoutSignature() {
+    var p = mc().player;
+    if (p == null || p.containerMenu == p.inventoryMenu) return "";
+    var menu = p.containerMenu;
+    return UiSignature.layoutSignature(menu.getClass().getName(), slotSpecs(menu, p));
+  }
+
+  private static List<UiSignature.SlotSpec> slotSpecs(
+      net.minecraft.world.inventory.AbstractContainerMenu menu,
+      net.minecraft.world.entity.player.Player player) {
+    List<UiSignature.SlotSpec> specs = new ArrayList<>(menu.slots.size());
+    for (var s : menu.slots) {
+      specs.add(
+          new UiSignature.SlotSpec(
+              s.getClass().getName(), s.x, s.y, s.container == player.getInventory()));
+    }
+    return specs;
+  }
+
   public static String signature() {
     var p = mc().player;
     if (p == null || p.containerMenu == p.inventoryMenu) return "";
@@ -110,6 +141,8 @@ public final class VisualAssist {
     String key = signature();
     o.addProperty("mode", mode());
     o.addProperty("signature", key);
+    o.addProperty("portable_signature", portableSignature());
+    o.addProperty("portable_layout_signature", layoutSignature());
     o.addProperty("environment", EnvironmentKey.current());
     o.addProperty("images_disabled_for_endpoint", blocked());
     var n = Learning.book.interfaces.get(key);

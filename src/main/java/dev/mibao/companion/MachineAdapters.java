@@ -49,6 +49,15 @@ public final class MachineAdapters {
       } catch (Exception e) {
         errors.add("adapter directory not readable");
       }
+    for (AdapterDescriptor d : BundleLibrary.allAdapters()) {
+      if (!query.isBlank() && !d.matches(query) && !d.id().contains(query)) continue;
+      var row = Store.GSON.toJsonTree(d).getAsJsonObject();
+      row.addProperty("kind", "bundle_declarative_adapter");
+      row.addProperty("verified", false);
+      row.addProperty(
+          "execution", "use bundle_inspect / inspect_gui then run_library_skill");
+      entries.add(row);
+    }
     out.add("adapters", entries);
     out.add("errors", errors);
     out.addProperty("arbitrary_code", false);

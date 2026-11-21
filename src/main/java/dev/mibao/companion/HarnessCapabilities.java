@@ -41,6 +41,12 @@ public final class HarnessCapabilities {
     o.addProperty("planning_policy_schema", 1);
     o.addProperty("external_effort_control", "advisory_only");
     o.addProperty("skill_package_schema", 1);
+    o.addProperty("skill_bundle_schema", 2);
+    o.addProperty("bundle_local_adaptation", true);
+    o.addProperty("track_b_inside_track_a_promotion", true);
+    o.addProperty("ui_profile_portable_signature", true);
+    o.addProperty("tooltip_probe_tool", true);
+    o.addProperty("container_data_sync", true);
     o.addProperty("gui_coordinate_spaces", "gui,framebuffer; slots use gui_slot");
     o.addProperty("result_envelope_version", 1);
     o.addProperty("protocol", "authenticated_local_json_rpc_tools");
@@ -88,7 +94,8 @@ public final class HarnessCapabilities {
     o.addProperty("jei_recipe_query", true);
     o.addProperty("companion_context_tool", true);
     o.addProperty("historical_actions_replayed", false);
-    o.addProperty("new_mod_machines", "observe_first; dedicated_client_adapter_required");
+    o.addProperty(
+        "new_mod_machines", "observe_tooltip_and_ui_profile_or_dedicated_adapter");
     return o;
   }
 

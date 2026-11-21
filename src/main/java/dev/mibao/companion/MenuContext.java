@@ -17,6 +17,7 @@ public final class MenuContext {
   private static final MenuSyncEvidence<ItemStack> sync =
       new MenuSyncEvidence<>(ItemStack::matches);
   private static final MenuEvidence<ItemStack> evidence = new MenuEvidence<>(ItemStack::matches);
+  private static final MenuDataState serverData = new MenuDataState();
   private static Set<Integer> observedSlots = Set.of();
   private static long observedView, observedAt;
   private static int observedMenuId = -1, observedState = -1;
@@ -74,6 +75,7 @@ public final class MenuContext {
     bound = null;
     remembered = -1;
     sync.clear();
+    serverData.reset();
     clearObservation();
   }
 
@@ -101,6 +103,7 @@ public final class MenuContext {
     if (bound != menu) {
       bound = menu;
       sync.bind(menu, menu.containerId);
+      serverData.bind(menu.containerId);
       remembered = -1;
       clearObservation();
     }
@@ -201,6 +204,20 @@ public final class MenuContext {
 
   public static long receivedAt() {
     return sync.receivedAt();
+  }
+
+  public static void data(int menuId, int dataId, int value) {
+    tick();
+    serverData.update(menuId, dataId, value);
+  }
+
+  public static Map<Integer, Integer> dataSnapshot() {
+    tick();
+    return serverData.snapshot();
+  }
+
+  public static long dataRevision() {
+    return serverData.revision();
   }
 
   public static void refreshMemory() {

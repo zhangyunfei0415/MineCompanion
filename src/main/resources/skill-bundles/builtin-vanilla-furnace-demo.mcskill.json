@@ -1,0 +1,138 @@
+{
+  "schema": 2,
+  "bundle_id": "builtin:vanilla-furnace-demo",
+  "name": "原版熔炉 · 语义UiProfile参考记忆包",
+  "version": "1.0.0",
+  "author": "MineCompanion",
+  "license": "MIT",
+  "description": "零外部Mod依赖的 schema=2 参考记忆包：示范如何通过 UiProfile + gui_put_role / gui_wait_output / gui_take_role 完成容器交互，并在加装 AE2 后晋级至样板自动委派。",
+  "tags": ["builtin", "vanilla", "furnace", "ui-profile", "reference"],
+  "compatibility": {
+    "minecraft": "1.20.1",
+    "mods": {},
+    "optional_mods": ["ae2", "jei"]
+  },
+  "playbook": {
+    "overview": "原版熔炉含 3 个功能槽（input、fuel、output），并通过 ContainerData 同步燃烧与熔炼进度。",
+    "prerequisites": [
+      "已在当前世界命名一个可达的原版熔炉地点",
+      "背包准备待烧原料与可燃燃料"
+    ],
+    "manual_workflow": "轨道A：前往熔炉 -> open_container -> gui_put_role 投入 fuel 与 input -> gui_wait_output 等待 output -> gui_take_role 取出产物 -> close_screen。",
+    "ae2_delegation": "轨道B（嵌套于轨道A之后）：当轨道A已在当前环境核验通过且整合包具备 AE2 时，为熔炉接入样板供应器与漏斗，利用 ae2_patterns 指导编码铁锭等加工样板并调用 ae_pattern_action，此后直接复用 AE2 合成下单。",
+    "pitfalls": [
+      "放入不可熔炼原料会空等超时，请先通过 recipe_status / lookup_recipes 确认配方。",
+      "若用 AE2 自动化熔炉，需确保供应器投原料、底部或侧面吸成品回路已连通。"
+    ],
+    "citations": []
+  },
+  "track_a": {
+    "summary": "使用通用 UiProfile 语义槽位完成单炉熔炼、等待产物与核验取出。",
+    "setup_skills": [],
+    "manual_skills": ["builtin:furnace-role-smelt"],
+    "track_b_promotion": {
+      "enabled": true,
+      "kind": "ae2_delegation",
+      "required_mods": ["ae2"],
+      "preconditions": [
+        "track_a_verified",
+        "hopper_or_provider_attached",
+        "ae2_pattern_encoded"
+      ],
+      "pre_setup_controls": [],
+      "reuse_skills": [],
+      "patterns": [
+        {
+          "id": "vanilla_raw_iron_to_ingot",
+          "mode": "processing",
+          "machine_block": "minecraft:furnace",
+          "inputs": [{"item": "minecraft:raw_iron", "count": 1}],
+          "outputs": [{"item": "minecraft:iron_ingot", "count": 1}],
+          "note": "在 AE2 样板编码终端选择 processing 模式编码后放入熔炉供应器"
+        }
+      ],
+      "fallback_to_track_a_on": ["env_changed", "missing_ae2_pattern"]
+    }
+  },
+  "ui_profiles": [
+    {
+      "id": "minecraft:furnace_ui",
+      "name": "原版熔炉界面",
+      "match": {
+        "portable_signatures": [],
+        "layout_signatures": [],
+        "menu_classes": ["net.minecraft.world.inventory.FurnaceMenu"],
+        "block_ids": ["minecraft:furnace"],
+        "image_width": 176,
+        "image_height": 166
+      },
+      "slots": [
+        {"role": "input", "x": 56, "y": 17, "menu_slot": 0, "virtual": false, "note": "待熔炼原料槽"},
+        {"role": "fuel", "x": 56, "y": 53, "menu_slot": 1, "virtual": false, "note": "燃料槽"},
+        {"role": "output", "x": 116, "y": 35, "menu_slot": 2, "virtual": false, "note": "产物输出槽"}
+      ],
+      "controls": [],
+      "progress_hints": {
+        "completion_signals": ["output_slot_gained", "container_data_changed"]
+      },
+      "ae2_integration": {
+        "automatable_via_pattern_provider": true,
+        "pattern_mode": "processing",
+        "recommended_provider_faces": ["top", "sides"],
+        "pre_setup_controls": [],
+        "io_note": "原版熔炉顶面进原料、侧面进燃料、底面抽成品。"
+      }
+    }
+  ],
+  "adapters": [
+    {
+      "id": "vanilla-furnace-ui-profile",
+      "blocks": ["minecraft:furnace"],
+      "skill": "builtin:furnace-role-smelt",
+      "note": "原版熔炉 UiProfile 语义工作流参考"
+    }
+  ],
+  "skills": [
+    {
+      "schema": 1,
+      "id": "builtin:furnace-role-smelt",
+      "name": "语义熔炉单批烧制 (UiProfile)",
+      "version": "1",
+      "author": "MineCompanion",
+      "license": "MIT",
+      "minecraft": "1.20.1",
+      "description": "使用 UiProfile 语义槽位往熔炉投燃料与原料、等待成品并取出核验。",
+      "parameters": {
+        "furnace": {"type": "string"},
+        "fuel": {"type": "string", "default": "minecraft:coal"},
+        "fuel_count": {"type": "integer", "default": 1, "min": 1, "max": 64},
+        "input": {"type": "string", "default": "minecraft:raw_iron"},
+        "count": {"type": "integer", "default": 1, "min": 1, "max": 64},
+        "output": {"type": "string", "default": "minecraft:iron_ingot"}
+      },
+      "requires": [
+        "go_to",
+        "open_container",
+        "gui_put_role",
+        "gui_wait_output",
+        "gui_take_role",
+        "close_screen"
+      ],
+      "seconds": 240,
+      "steps": [
+        {"tool": "go_to", "args": {"place": "${furnace}"}},
+        {"tool": "open_container", "args": {"place": "${furnace}"}},
+        {"tool": "gui_put_role", "args": {"profile": "minecraft:furnace_ui", "role": "fuel", "item": "${fuel}", "count": "${fuel_count}"}},
+        {"tool": "gui_put_role", "args": {"profile": "minecraft:furnace_ui", "role": "input", "item": "${input}", "count": "${count}"}},
+        {"tool": "gui_wait_output", "args": {"profile": "minecraft:furnace_ui", "role": "output", "item": "${output}", "min_count": "${count}", "seconds": 90}},
+        {"tool": "gui_take_role", "args": {"profile": "minecraft:furnace_ui", "role": "output", "item": "${output}", "min_count": "${count}"}},
+        {"tool": "close_screen", "args": {}}
+      ],
+      "verification": "核对服务端炉槽增量与取回背包增量。"
+    }
+  ],
+  "integrity": {
+    "content_sha256": "4af06873aaf16f16549993b00a2a38f68684a054ade5a55466679d6564abe9c5",
+    "exported_by_build": "g4neon-open-memory-20261121-01"
+  }
+}

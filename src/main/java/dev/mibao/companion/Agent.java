@@ -1508,6 +1508,56 @@ public final class Agent {
             SkillLibrary.run(SkillCatalog.required(a, "id"), obj(a, "parameters"), done);
         case "gui_select" -> SemanticGui.select(a, done);
         case "gui_point" -> done.accept(GuiContext.point(a));
+        case "inspect_tooltip" -> Actions.job = new GuiTooltipProbeJob(a, done);
+        case "gui_relative_point" -> Actions.job = GuiProfileActions.relativePointJob(a, done);
+        case "gui_put_role" -> Actions.job = GuiProfileActions.putRoleJob(a, done);
+        case "gui_take_role" -> Actions.job = GuiProfileActions.takeRoleJob(a, done);
+        case "gui_trigger_control" -> Actions.job = GuiProfileActions.triggerControlJob(a, done);
+        case "gui_wait_output" -> Actions.job = GuiProfileActions.waitOutputJob(a, done);
+        case "ui_profile_draft" -> {
+          if (!Store.claimControl()) throw new IllegalStateException("另一游戏窗口持有控制权");
+          if (a.has("delete") && a.get("delete").getAsBoolean()) {
+            String id = SkillCatalog.required(a, "id");
+            boolean deleted = UiProfileStore.deleteLocal(id);
+            done.accept("{\"deleted\":" + deleted + ",\"id\":\"" + Rules.clean(id, 120) + "\"}");
+          } else {
+            JsonObject profileObj = a.has("profile") && a.get("profile").isJsonObject()
+                ? a.getAsJsonObject("profile") : a;
+            boolean confirmed = a.has("confirmed") && a.get("confirmed").getAsBoolean();
+            var saved = UiProfileStore.saveDraft(profileObj, confirmed);
+            var out = new JsonObject();
+            out.addProperty("saved", true);
+            out.addProperty("id", saved.profile().id);
+            out.addProperty("confirmed", saved.confirmed());
+            out.addProperty("source", saved.source());
+            done.accept(out.toString());
+          }
+        }
+        case "bundle_list" ->
+            done.accept(
+                BundleLibrary.list(
+                        str(a, "query", ""),
+                        str(a, "mod", ""),
+                        str(a, "block", ""),
+                        str(a, "portable_signature", ""))
+                    .toString());
+        case "bundle_inspect" ->
+            done.accept(BundleLibrary.inspect(SkillCatalog.required(a, "bundle_id")).toString());
+        case "bundle_adapt" -> {
+          if (!Store.claimControl()) throw new IllegalStateException("另一游戏窗口持有控制权");
+          var out = BundleLibrary.adapt(SkillCatalog.required(a, "bundle_id"), a);
+          SkillLibrary.refresh();
+          done.accept(out.toString());
+        }
+        case "bundle_pack" -> {
+          if (!Store.claimControl()) throw new IllegalStateException("另一游戏窗口持有控制权");
+          done.accept(BundleLibrary.pack(a).toString());
+        }
+        case "demo_summarize" ->
+            done.accept(
+                GuiProfileActions.summarizeLatestDemo(
+                        Store.ROOT.resolve("demonstrations"), Store.scope())
+                    .toString());
         case "use_entity" ->
             Actions.job =
                 new EntityUseJob(number(a, "entity_id", -1), str(a, "hand", "main"), done);

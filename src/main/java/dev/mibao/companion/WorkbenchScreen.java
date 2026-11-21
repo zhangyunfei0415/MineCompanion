@@ -943,6 +943,184 @@ public final class WorkbenchScreen extends Screen {
 
   private void library() {
     UiTheme t = theme();
+    if (selected.startsWith("@bundle:")) {
+      String bid = selected.substring(8);
+      var eb = BundleLibrary.effectiveEntries.get(bid);
+      if (eb == null) {
+        selected = "";
+        library();
+        return;
+      }
+      button(
+          "‹ 返回开放记忆中心",
+          () -> {
+            selected = "";
+            scroll = scrolls.getOrDefault("list", 0);
+            rebuild();
+          });
+      SkillBundle b = eb.effective();
+      var installed = new LinkedHashMap<String, String>();
+      net.minecraftforge.fml.ModList.get()
+          .getMods()
+          .forEach(m -> installed.put(m.getModId(), m.getVersion().toString()));
+      String mcVer = net.minecraft.SharedConstants.getCurrentVersion().getName();
+      String envKey = EnvironmentKey.current();
+      var ts = BundleLibrary.buildTrackStatusJson(b, eb.adaptation(), installed.keySet(), envKey);
+      String activeTrack = ts.get("active_track").getAsString();
+      String adaptStatus =
+          BundleLibrary.adaptationStatus(eb.upstream(), eb.adaptation(), envKey);
+      var compat = BundleLibrary.compatibilityIssues(b, installed, mcVer);
+      boolean disabled = Store.config.disabledPackages.contains(b.bundleId);
+
+      String trackBadge =
+          switch (activeTrack) {
+            case "track_b_reuse" -> "轨道B复用中";
+            case "track_a_verified" -> "轨道A已核验";
+            case "track_a_reverify" -> "环境变动待复核";
+            default -> "外部待验证";
+          };
+      int trackColor =
+          switch (activeTrack) {
+            case "track_b_reuse" -> t.accent();
+            case "track_a_verified" -> t.success();
+            case "track_a_reverify" -> t.warning();
+            default -> t.textMuted();
+          };
+
+      card(
+          b.name,
+          trackBadge,
+          trackColor,
+          () -> {
+            mutedText(
+                b.bundleId
+                    + " · v"
+                    + b.version
+                    + " · 作者 "
+                    + b.author
+                    + " · 协议 "
+                    + b.license);
+            if (!b.description.isBlank()) text(b.description);
+            if (!compat.blockingIssues().isEmpty()) {
+              coloredText("兼容阻塞：" + compat.blockingIssues(), t.danger());
+            } else if (!compat.advisories().isEmpty()) {
+              coloredText("版本建议：" + compat.advisories(), t.warning());
+            } else {
+              coloredText("依赖环境检查通过", t.success());
+            }
+            if (!b.playbook.overview().isBlank()) text("玩法概述：" + b.playbook.overview());
+            if (!b.playbook.manualWorkflow().isBlank()) {
+              mutedText("轨道A（通用/手操）：" + b.playbook.manualWorkflow());
+            }
+            if (!b.playbook.ae2Delegation().isBlank()) {
+              mutedText("轨道B（AE2 委派晋级）：" + b.playbook.ae2Delegation());
+            }
+            if (!b.playbook.pitfalls().isEmpty()) {
+              mutedText("常见避坑：" + String.join("；", b.playbook.pitfalls()));
+            }
+          });
+
+      card(
+          "嵌套双轨进度与本地适配",
+          adaptStatus.equals("active") ? "已本地适配" : adaptStatus,
+          eb.adapted() ? t.accentAlt() : t.textMuted(),
+          () -> {
+            text(
+                "轨道A核验="
+                    + ts.get("track_a_verified").getAsBoolean()
+                    + "（运行 "
+                    + ts.get("track_a_runs").getAsInt()
+                    + " 次） · 轨道B晋级="
+                    + ts.get("track_b_promoted").getAsBoolean()
+                    + "（运行 "
+                    + ts.get("track_b_runs").getAsInt()
+                    + " 次）");
+            var missing = ts.getAsJsonArray("missing_track_b_preconditions");
+            if (b.hasTrackB() && !missing.isEmpty()) {
+              mutedText("距轨道B晋级尚缺前置：" + missing);
+            }
+            row(
+                disabled ? "启用此记忆包" : "停用此记忆包",
+                () -> {
+                  if (disabled) Store.config.disabledPackages.remove(b.bundleId);
+                  else Store.config.disabledPackages.add(b.bundleId);
+                  Store.save();
+                  SkillLibrary.refresh();
+                  rebuild();
+                },
+                "导出脱敏 .mcskill.json",
+                () -> {
+                  try {
+                    var req = new JsonObject();
+                    req.addProperty("bundle_id", b.bundleId);
+                    req.addProperty("include_local_adaptation", true);
+                    var receipt = BundleLibrary.pack(req);
+                    String exportedText =
+                        java.nio.file.Files.readString(
+                            java.nio.file.Path.of(receipt.get("file").getAsString()));
+                    minecraft.keyboardHandler.setClipboard(exportedText);
+                    status =
+                        "已导出脱敏记忆包（并复制到剪贴板）："
+                            + java.nio.file.Path.of(receipt.get("file").getAsString())
+                                .getFileName();
+                    rebuild();
+                  } catch (Exception e) {
+                    throw new IllegalArgumentException(e.getMessage());
+                  }
+                });
+            if (eb.adaptation() != null) {
+              row(
+                  "查看本地适配详情",
+                  () ->
+                      minecraft.setScreen(
+                          new NoticeScreen(this, Store.GSON.toJson(eb.adaptation().toJson()))),
+                  "清除本地适配",
+                  () -> {
+                    try {
+                      var req = new JsonObject();
+                      req.addProperty("reset", true);
+                      BundleLibrary.adapt(b.bundleId, req);
+                      SkillLibrary.refresh();
+                      status = "已恢复上游记忆包原貌";
+                      rebuild();
+                    } catch (Exception e) {
+                      throw new IllegalArgumentException(e.getMessage());
+                    }
+                  });
+            }
+          });
+
+      card(
+          "界面映射与可执行技能",
+          b.uiProfiles.size() + " 界面 / " + b.skills.size() + " 技能",
+          t.accent(),
+          () -> {
+            for (UiProfile up : b.uiProfiles) {
+              mutedText(
+                  "UI["
+                      + up.name
+                      + "] · 槽位 "
+                      + up.slots.size()
+                      + " · 控件 "
+                      + up.controls.size()
+                      + " · 签名数 "
+                      + up.match.portableSignatures().size());
+            }
+            for (SkillPackage sp : b.skills) {
+              button("运行/查看技能 · " + sp.name, () -> detail(sp.id));
+            }
+            button(
+                "查看完整包结构 (JSON)",
+                () ->
+                    minecraft.setScreen(
+                        new NoticeScreen(
+                            this,
+                            Store.GSON.toJson(
+                                BundleLibrary.inspect(
+                                    b.bundleId, installed, mcVer, envKey)))));
+          });
+      return;
+    }
     if (selected.startsWith("@legacy:")) {
       String name = selected.substring(8);
       var old = Store.data.skills.get(name);
@@ -1070,11 +1248,146 @@ public final class WorkbenchScreen extends Screen {
     }
 
     card(
-        "技能包目录",
+        "开放技能记忆中心 (Bundle Hub)",
+        BundleLibrary.effectiveEntries.size() + " 包",
+        t.accent(),
+        () -> {
+          field("library-query", "搜索名称、包ID、Mod 或标签", query, v -> query = v);
+          row(
+              "刷新全部记忆包",
+              () -> {
+                SkillLibrary.refresh();
+                scroll = 0;
+                rebuild();
+              },
+              "打开 bundles 目录",
+              () ->
+                  net.minecraft.Util.getPlatform()
+                      .openFile(
+                          BundleLibrary.bundlesDir(SkillLibrary.root()).toFile()));
+          row(
+              "从剪贴板导入 .mcskill.json",
+              () -> {
+                try {
+                  var imported =
+                      BundleLibrary.importJson(minecraft.keyboardHandler.getClipboard());
+                  SkillLibrary.refresh();
+                  status = "已导入待验证记忆包：" + imported.effective().name;
+                  detail("@bundle:" + imported.effective().bundleId);
+                } catch (Exception e) {
+                  throw new IllegalArgumentException(
+                      "记忆包导入失败：" + Rules.clean(e.getMessage(), 180));
+                }
+              },
+              "查看开放格式说明",
+              () ->
+                  minecraft.setScreen(
+                      new NoticeScreen(
+                          this,
+                          "Open Skill Memory Hub (schema=2)：\n"
+                              + "1. 将 *.mcskill.json 放入 library/bundles/ 或复制 JSON 后点击「从剪贴板导入」。\n"
+                              + "2. 外来记忆包默认以待验证方式加载，必须经本世界服务端回执核验。\n"
+                              + "3. 轨道B（AE2 委派）嵌套于轨道A内：轨道A核验通过且 AE2 条件满足后晋级复用；环境变动将自动降级复核。\n"
+                              + "4. Agent 可调用 bundle_adapt 在 library/adaptations/ 做本地偏移/参数适配，并用 bundle_pack 脱敏导出回传站点。")));
+          var listJson = BundleLibrary.list(query, "", "", "").getAsJsonArray("bundles");
+          if (listJson.isEmpty()) {
+            mutedText("暂无匹配记忆包。可放入 .mcskill.json 或让 Agent 通过 ui_profile_draft + bundle_pack 沉淀新包。");
+          }
+          for (var el : listJson) {
+            var r = el.getAsJsonObject();
+            String bid = r.get("bundle_id").getAsString();
+            var ts = r.getAsJsonObject("track_status");
+            String activeTrack = ts.get("active_track").getAsString();
+            boolean hasIssues = !r.getAsJsonArray("issues").isEmpty();
+            boolean en = !Store.config.disabledPackages.contains(bid);
+            String badge =
+                !en
+                    ? "已停用"
+                    : hasIssues
+                        ? "缺依赖"
+                        : switch (activeTrack) {
+                          case "track_b_reuse" -> "轨道B复用中";
+                          case "track_a_verified" -> "轨道A已核验";
+                          case "track_a_reverify" -> "待复核";
+                          default -> "待验证";
+                        };
+            int bColor =
+                !en
+                    ? t.textMuted()
+                    : hasIssues
+                        ? t.danger()
+                        : switch (activeTrack) {
+                          case "track_b_reuse" -> t.accent();
+                          case "track_a_verified" -> t.success();
+                          case "track_a_reverify" -> t.warning();
+                          default -> t.accentAlt();
+                        };
+            button(r.get("name").getAsString(), () -> detail("@bundle:" + bid))
+                .badge(badge, bColor);
+            mutedText(
+                bid
+                    + " · UI "
+                    + r.get("ui_profile_count").getAsInt()
+                    + " / 技能 "
+                    + r.get("skill_count").getAsInt()
+                    + (r.get("adapted").getAsBoolean() ? " · 已本地适配" : ""));
+          }
+          for (String err : BundleLibrary.errors) coloredText(err, t.danger());
+        });
+
+    var localProfiles = UiProfileStore.listLocal();
+    if (!localProfiles.isEmpty() || !UiProfileStore.errors.isEmpty()) {
+      collapsibleCard(
+          "library/ui-profiles",
+          "界面映射草稿 (UiProfile)",
+          localProfiles.size() + " 项",
+          t.accentAlt(),
+          false,
+          () -> {
+            mutedText("Agent 探索陌生容器后提交的结构化界面草稿。确认后可用于 gui_put_role 与 bundle_pack。");
+            for (var entry : localProfiles) {
+              var up = entry.profile();
+              text(
+                  up.name
+                      + " ("
+                      + up.id
+                      + ") · "
+                      + (entry.confirmed() ? "已确认可用" : "待人工确认")
+                      + " · 槽位 "
+                      + up.slots.size()
+                      + " / 控件 "
+                      + up.controls.size());
+              row(
+                  entry.confirmed() ? "重新保存确认" : "确认为本地可用",
+                  () -> {
+                    try {
+                      UiProfileStore.confirmDraft(up.id);
+                      status = "已确认界面映射：" + up.id;
+                      rebuild();
+                    } catch (Exception e) {
+                      throw new IllegalArgumentException(e.getMessage());
+                    }
+                  },
+                  "删除草稿",
+                  () -> {
+                    try {
+                      UiProfileStore.deleteLocal(up.id);
+                      status = "已删除草稿：" + up.id;
+                      rebuild();
+                    } catch (Exception e) {
+                      throw new IllegalArgumentException(e.getMessage());
+                    }
+                  });
+            }
+            for (String err : UiProfileStore.errors) coloredText(err, t.danger());
+          });
+    }
+
+    card(
+        "技能包目录 (schema=1)",
         "",
         0,
         () -> {
-          field("library-query", "搜索名称或技能ID", query, v -> query = v);
           row(
               "搜索 / 刷新目录",
               () -> {

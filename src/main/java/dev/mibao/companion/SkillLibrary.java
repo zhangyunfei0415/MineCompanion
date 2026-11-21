@@ -9,6 +9,7 @@ import java.util.function.Consumer;
 /** Explicit shared directory, read-only definitions, world-local verified experience. */
 public final class SkillLibrary {
   public static final Map<String, SkillPackage> entries = new LinkedHashMap<>();
+  public static final Map<String, String> bundleOwners = new LinkedHashMap<>();
   public static final List<String> errors = new ArrayList<>();
 
   public static Path root() {
@@ -19,6 +20,7 @@ public final class SkillLibrary {
 
   public static void refresh() {
     entries.clear();
+    bundleOwners.clear();
     errors.clear();
     try {
       Path folder = root().resolve("skills");
@@ -58,6 +60,19 @@ public final class SkillLibrary {
           } catch (Exception e) {
             errors.add(p.getFileName() + "：" + Rules.clean(e.getMessage(), 180));
           }
+        }
+      }
+      BundleLibrary.refresh();
+      for (var eb : BundleLibrary.effectiveEntries.values()) {
+        String bundleId = eb.effective().bundleId;
+        if (Store.config.disabledPackages.contains(bundleId)) continue;
+        for (SkillPackage sp : eb.effective().skills) {
+          if (entries.containsKey(sp.id)) {
+            errors.add(bundleId + " 技能ID冲突（已忽略）：" + sp.id);
+            continue;
+          }
+          entries.put(sp.id, sp);
+          bundleOwners.put(sp.id, bundleId);
         }
       }
     } catch (Exception e) {
@@ -108,9 +123,11 @@ public final class SkillLibrary {
                 .filter(m -> m.getModId().equals(e.getKey()))
                 .findFirst();
         if (mod.isEmpty()) a.add("缺少模组 " + e.getKey());
-        else if (!e.getValue().getAsString().equals("*")
-            && !mod.get().getVersion().toString().equals(e.getValue().getAsString()))
-          a.add("模组版本需复核 " + e.getKey());
+        else {
+          var match = VersionRange.matches(e.getValue().getAsString(), mod.get().getVersion().toString());
+          if (!match.matched()) a.add("模组版本不匹配 " + e.getKey() + "（" + match.detail() + "）");
+          else if (match.advisory()) a.add("模组版本需复核 " + e.getKey());
+        }
       }
     return a;
   }
@@ -127,6 +144,9 @@ public final class SkillLibrary {
   public static void run(String id, JsonObject params, Consumer<String> done) {
     var p = entries.get(id);
     if (p == null) throw new IllegalArgumentException("未找到技能，先refresh_library");
+    String ownerBundle = bundleOwners.get(id);
+    if (ownerBundle != null && Store.config.disabledPackages.contains(ownerBundle))
+      throw new IllegalArgumentException("所属记忆包已停用，请在开放记忆中心启用：" + ownerBundle);
     if (Store.config.disabledPackages.contains(id))
       throw new IllegalArgumentException("技能已停用，请在技能库启用");
     if (!issues(p).isEmpty()) throw new IllegalArgumentException("技能依赖不满足：" + issues(p));
@@ -147,6 +167,7 @@ public final class SkillLibrary {
           if (success) check.successes++;
           else check.failures++;
           check.status = success ? "当前世界与环境流程核验通过" : "失败或未完成，需复核";
+          BundleLibrary.recordSkillRun(id, success);
           Store.save();
           done.accept(result);
         });

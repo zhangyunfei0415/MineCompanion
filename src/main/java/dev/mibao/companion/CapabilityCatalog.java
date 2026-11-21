@@ -15,10 +15,13 @@ public final class CapabilityCatalog {
     if (tool.startsWith("ae_") || tool.startsWith("rs_")) return "virtual_storage";
     if (Set.of("game_command", "creative_take", "creative_clear_slot").contains(tool))
       return "test_preparation";
-    if (tool.equals("write_sign") || tool.equals("vanilla_menu_select")) return "interface";
+    if (tool.equals("write_sign") || tool.equals("vanilla_menu_select") || tool.equals("inspect_tooltip"))
+      return "interface";
     if (tool.startsWith("gui_")
         || Set.of("click_slot", "open_inventory", "close_screen", "wait_menu", "stow_cursor")
             .contains(tool)) return "interface";
+    if (tool.equals("ui_profile_draft") || tool.startsWith("bundle_")) return "skills";
+    if (tool.equals("demo_summarize")) return "observation";
     if (tool.contains("inventory")
         || Set.of("fetch", "deposit", "transport", "restock", "open_container").contains(tool))
       return "inventory";
@@ -112,6 +115,7 @@ public final class CapabilityCatalog {
     }
     o.add("capabilities", entries);
     o.addProperty("legacy_tool_names_preserved", true);
+    o.addProperty("open_skill_bundle_schema", 2);
     o.addProperty("universal_custom_machine_support", false);
     return o;
   }

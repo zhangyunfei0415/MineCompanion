@@ -136,7 +136,39 @@ public final class MachineObservation {
             "availability",
             "client fields only; absent fields unknown, synchronized GUI/inventory receipts needed"
                 + " for quantities");
-      } else return null;
+      } else {
+        var tag = be.saveWithoutMetadata();
+        out.addProperty("kind", "generic_client_block_entity");
+        out.addProperty("class_name", type);
+        out.addProperty(
+            "block_id",
+            net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                .getKey(mc.level.getBlockState(pos).getBlock())
+                .toString());
+        JsonArray keys = new JsonArray();
+        JsonObject fields = new JsonObject();
+        int totalChars = 0;
+        for (String key : tag.getAllKeys()) {
+          if (keys.size() >= 16) break;
+          String lower = key.toLowerCase(Locale.ROOT);
+          if (Set.of("x", "y", "z", "id", "forgecaps").contains(lower)
+              || lower.contains("tick")
+              || lower.contains("time")
+              || lower.contains("anim")
+              || lower.contains("uuid")
+              || lower.contains("owner")
+              || lower.contains("seed")) continue;
+          String cleaned = Rules.clean(tag.get(key).toString(), 300);
+          if (totalChars + cleaned.length() > 3000) break;
+          keys.add(key);
+          fields.addProperty(key, cleaned);
+          totalChars += cleaned.length();
+        }
+        out.add("keys", keys);
+        out.add("fields", fields);
+        out.addProperty("inventory_authoritative", false);
+        out.addProperty("availability", "generic_client_nbt_summary_only");
+      }
       out.addProperty("source", "loaded_client_block_entity");
       return out;
     } catch (ReflectiveOperationException | LinkageError e) {

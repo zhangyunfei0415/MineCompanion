@@ -179,6 +179,8 @@ public final class Companion {
       DynamicScene.reset();
       ClientEvidence.reset();
       VisualAssist.reset();
+      TooltipCapture.reset();
+      AgentPointer.endProbe();
       StatusLink.reset();
       Hud.FEED.clear();
       LocalDialogue.reset();
@@ -199,6 +201,8 @@ public final class Companion {
       DynamicScene.reset();
       ClientEvidence.reset();
       VisualAssist.reset();
+      TooltipCapture.reset();
+      AgentPointer.endProbe();
       StatusLink.reset();
       Messages.reset();
       RestockTask.latest = null;
@@ -244,6 +248,16 @@ public final class Companion {
     if (!WatchMode.blockButtons()) AgentPointer.intervene();
     Cooperation.human("人工滚轮操作", false);
     if (LocalDialogue.scroll(e.getScrollDelta()) || WatchMode.blockButtons()) e.setCanceled(true);
+  }
+
+  @SubscribeEvent
+  public void onGatherTooltip(net.minecraftforge.client.event.RenderTooltipEvent.GatherComponents e) {
+    GuiTooltipProbe.onGather(e);
+  }
+
+  @SubscribeEvent
+  public void onRenderTooltipPre(net.minecraftforge.client.event.RenderTooltipEvent.Pre e) {
+    GuiTooltipProbe.onRenderPre(e);
   }
 
   @SubscribeEvent

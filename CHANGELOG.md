@@ -1,3 +1,10 @@
+# 0.8.5-G4Neon · g4neon-open-memory-20261121-01 · 2026-11-21
+
+- `Gemini` 分支：新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），保留 `SkillPackage (schema=1)` 完全向后兼容。
+- 通用 GUI 感知与交互元能力：`UiSignature` 跨包双级界面签名、`inspect_tooltip` 只读悬停探测、`gui_relative_point` 容器相对坐标点击、`ClientboundContainerSetDataPacket` 服务端进度监听、未知 `BlockEntity` 脱敏摘要，以及接入 `SessionPlan` 的 4 个语义 GUI 技能原语（`gui_put_role`、`gui_take_role`、`gui_trigger_control`、`gui_wait_output`）。
+- 嵌套双轨与本地适配：`track_b_promotion`（AE2 委派）嵌套于轨道 A 内，轨道 A 实机核验通过且前置满足后晋级持久复用，环境漂移自动降级复核；新增 `BundleAdaptation` + `bundle_adapt` 本地适配叠加层与 `bundle_pack` 脱敏二次分享。
+- 前端与交付：G4Neon 工作台「技能库」升级为「开放技能记忆中心 (Bundle Hub)」，附带零依赖 `builtin-vanilla-furnace-demo.mcskill.json` 与社区模板 `examples/bundles/mekanism-enrichment-sample.mcskill.json`。离线构建（`logistics-companion-0.8.5-G4Neon.jar`）与 129 个测试套件 / 673 项 JUnit 测试通过。详见 [0.8.5-G4Neon 交付报告](RELEASE-0.8.5-G4NEON-OPEN-MEMORY-20261121.md)。
+
 # 0.8.4-G4Neon · g4neon-20261120-01 · 2026-11-20
 
 - `Gemini` 分支：基于 0.8.4 完成全库源码审阅、10 项核心性能优化与前端 G4Neon 设计体系彻底重构。

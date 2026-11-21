@@ -81,6 +81,17 @@ public final class ToolMenu {
                   "deposit",
                   "inspect_gui",
                   "gui_select",
+                  "gui_put_role",
+                  "gui_take_role",
+                  "gui_trigger_control",
+                  "gui_wait_output",
+                  "gui_relative_point",
+                  "inspect_tooltip",
+                  "bundle_list",
+                  "bundle_inspect",
+                  "bundle_adapt",
+                  "bundle_pack",
+                  "ui_profile_draft",
                   "vanilla_menu_select",
                   "jei_transfer_recipe",
                   "ae_inventory",
@@ -147,7 +158,19 @@ public final class ToolMenu {
                   "inspect_screen",
                   "inspect_gui",
                   "inspect_menu",
+                  "inspect_tooltip",
                   "gui_select",
+                  "gui_relative_point",
+                  "gui_put_role",
+                  "gui_take_role",
+                  "gui_trigger_control",
+                  "gui_wait_output",
+                  "ui_profile_draft",
+                  "bundle_list",
+                  "bundle_inspect",
+                  "bundle_adapt",
+                  "bundle_pack",
+                  "demo_summarize",
                   "gui_slot_target",
                   "click_slot",
                   "gui_text",
@@ -183,8 +206,9 @@ public final class ToolMenu {
         || text.matches("(?s).*(采矿|矿道|矿井|矿脉|开矿|挖矿|挖.{0,12}(钻石|铁矿|煤矿|铜矿|红石)|下挖).*"))
       return "gathering";
     if (text.matches("(?s).*(指令|创造|/give|/home|传送).*")) return "commands";
-    if (text.matches("(?s).*(任务书|gui|界面|按钮).*")) return "gui";
-    if (text.matches("(?s).*(ae|rs|样板|配方|合成|做饭|烹饪|生产|熔炼|酿造|抗火药水|治疗药水|机器|附魔|铁砧|改名|修理).*")) return "production";
+    if (text.matches("(?s).*(任务书|gui|界面|按钮|tooltip).*")) return "gui";
+    if (text.matches("(?s).*(ae|rs|样板|配方|合成|做饭|烹饪|生产|熔炼|酿造|抗火药水|治疗药水|机器|附魔|铁砧|改名|修理|记忆包|本地化|适配).*"))
+      return "production";
     if (text.matches("(?s).*(平台|搭建|建造|桥|照明|火把).*")) return "construction";
     if (text.matches("(?s).*(农|种|收割|骨粉|田|作物|甘蔗|竹子|仙人掌|南瓜|西瓜).*")) return "farming";
     if (text.matches("(?s).*(战斗|攻击|防身|怪).*")) return "combat";

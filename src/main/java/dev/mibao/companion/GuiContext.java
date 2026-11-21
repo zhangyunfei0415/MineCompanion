@@ -131,6 +131,8 @@ public final class GuiContext {
     if (screen instanceof AbstractContainerScreen<?> ac) {
       geometry.addProperty("gui_left", ac.getGuiLeft());
       geometry.addProperty("gui_top", ac.getGuiTop());
+      geometry.addProperty("image_width", ac.getXSize());
+      geometry.addProperty("image_height", ac.getYSize());
     }
     geometry.addProperty("gui_scale", mc().getWindow().getGuiScale());
     geometry.addProperty("framebuffer_width", mc().getMainRenderTarget().width);
@@ -138,7 +140,29 @@ public final class GuiContext {
     geometry.addProperty("slot_coordinates", "container_local; add gui_left/gui_top");
     geometry.addProperty("widget_coordinates", "logical_gui_absolute");
     out.add("geometry", geometry);
+    String pSig = VisualAssist.portableSignature();
+    String lSig = VisualAssist.layoutSignature();
     out.addProperty("semantic_signature", VisualAssist.signature());
+    out.addProperty("portable_signature", pSig);
+    out.addProperty("portable_layout_signature", lSig);
+    JsonObject dataObj = new JsonObject();
+    for (var entry : MenuContext.dataSnapshot().entrySet()) {
+      dataObj.addProperty(Integer.toString(entry.getKey()), entry.getValue());
+    }
+    out.add("container_data", dataObj);
+    out.addProperty("data_revision", MenuContext.dataRevision());
+    var match =
+        UiProfileStore.match(
+            pSig, lSig, currentBlockId(), mc().player.containerMenu.getClass().getName());
+    if (match != null) {
+      JsonObject matched = match.entry().profile().summaryJson(match.entry().trust());
+      matched.addProperty("match_source", match.entry().source());
+      matched.addProperty("match_score", match.score());
+      if (!match.entry().bundleId().isEmpty()) {
+        matched.addProperty("bundle_id", match.entry().bundleId());
+      }
+      out.add("matched_ui_profile", matched);
+    }
     if (RsTerminalBridge.available())
       try {
         out.add("rs_network", RsTerminalBridge.observe("", 0, 20));
@@ -332,5 +356,84 @@ public final class GuiContext {
     screen = null;
     stamp = "";
     widgets.clear();
+  }
+
+  public static String currentBlockId() {
+    var pos = MenuContext.source();
+    if (pos == null || mc().level == null || !mc().level.hasChunkAt(pos)) return "";
+    return net.minecraft.core.registries.BuiltInRegistries.BLOCK
+        .getKey(mc().level.getBlockState(pos).getBlock())
+        .toString();
+  }
+
+  public static List<UiProfile.LiveSlot> liveSlots() {
+    var p = mc().player;
+    if (p == null) return List.of();
+    var m = p.containerMenu;
+    List<UiProfile.LiveSlot> out = new ArrayList<>(m.slots.size());
+    for (int i = 0; i < m.slots.size(); i++) {
+      var s = m.getSlot(i);
+      var stack = s.getItem();
+      String itemId =
+          net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+      String fp = stack.isEmpty() ? "" : WorldSense.fingerprint(stack);
+      out.add(
+          new UiProfile.LiveSlot(
+              i, s.x, s.y, s.container == p.getInventory(), itemId, stack.getCount(), fp));
+    }
+    return List.copyOf(out);
+  }
+
+  public static UiProfile resolveProfile(String requestedId) {
+    if (requestedId != null && !requestedId.isBlank()) {
+      var found = UiProfileStore.get(requestedId.trim());
+      if (found == null) throw new IllegalArgumentException("未找到 UiProfile：" + requestedId);
+      return found.profile();
+    }
+    var m = mc().player == null ? null : mc().player.containerMenu;
+    String menuClass = m == null ? "" : m.getClass().getName();
+    var match =
+        UiProfileStore.match(
+            VisualAssist.portableSignature(),
+            VisualAssist.layoutSignature(),
+            currentBlockId(),
+            menuClass);
+    if (match == null) {
+      throw new IllegalArgumentException(
+          "当前界面尚未匹配任何 UiProfile；请先 inspect_gui / inspect_tooltip 并用 ui_profile_draft 创建或传入 profile");
+    }
+    return match.entry().profile();
+  }
+
+  public static AbstractWidget findActiveWidgetByLabel(String label) {
+    require();
+    widgets.clear();
+    collect(mc().screen, 0);
+    for (var w : widgets.values()) {
+      if (w.active && w.visible && w.getMessage().getString().equals(label)) return w;
+    }
+    return null;
+  }
+
+  public static int[] validateRelativePoint(long expectedView, int dx, int dy) {
+    validate(expectedView);
+    if (Panel.managing(mc().screen)) {
+      throw new IllegalArgumentException("禁止操作伴侣管理面板");
+    }
+    if (!(mc().screen instanceof AbstractContainerScreen<?> ac)) {
+      throw new IllegalArgumentException("[WRONG_CONTEXT] gui_relative_point 需要容器界面");
+    }
+    int x = ac.getGuiLeft() + dx;
+    int y = ac.getGuiTop() + dy;
+    if (x < 0 || y < 0 || x >= ac.width || y >= ac.height) {
+      throw new IllegalArgumentException("[INPUT_BOUNDS] 相对偏移超出当前GUI窗口：(" + x + "," + y + ")");
+    }
+    for (var slot : mc().player.containerMenu.slots) {
+      if (GuiGeometry.inside(x, y, ac.getGuiLeft() + slot.x, ac.getGuiTop() + slot.y, 16, 16)) {
+        throw new IllegalArgumentException(
+            "相对坐标命中标准物品槽，须使用 gui_slot / gui_put_role / gui_take_role 取得服务端核验");
+      }
+    }
+    return new int[] {x, y};
   }
 }
