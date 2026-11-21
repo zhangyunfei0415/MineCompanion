@@ -4,7 +4,7 @@
 
 MineCompanion 是面向 **Minecraft Java 1.20.1 · Forge 47.4.x · Java 17** 的客户端模组。AI 操作安装模组的客户端账号，可以陪你探索，也能接手采矿、熔炼、补给和整理。双人陪玩时，让主号和伙伴账号进入同一个世界。
 
-[下载 0.8.5rc1](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [快速开始](#快速开始) · [Harness 接入](#接入外部-harness) · [版本与贡献](VERSION-HISTORY.md) · [English](#english)
+[下载 0.8.5rc1](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [快速开始](#快速开始) · [Harness 接入](#接入外部-harness) · [版本与贡献](VERSION-HISTORY.md) · [发布档案](docs/releases/README.md) · [English](#english)
 
 ## 它能帮你做什么
 
@@ -37,7 +37,7 @@ python -X utf8 harness-client.py --connection $connection capabilities
 
 ## 0.8.5rc1 与贡献
 
-**0.8.5rc1 沿用 0.8.5 G4Neon。** Gemini 完成 G4Neon 界面和开放技能记忆基础，OpenAI Codex 完成轨道校验、回归测试和本次发行。项目维护者确定玩法、验收方向和发布范围，DeepSeek Harness（DSH）参与前序实机验收与问题反馈。 [完整版本与贡献记录](VERSION-HISTORY.md) · [候选版用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)
+**0.8.5rc1 沿用 0.8.5 G4Neon。** Gemini 完成 G4Neon 界面和开放技能记忆基础，OpenAI Codex 完成轨道校验、回归测试和本次发行。项目维护者确定玩法、验收方向和发布范围，DeepSeek Harness（DSH）参与前序实机验收与问题反馈。 [完整版本与贡献记录](VERSION-HISTORY.md) · [候选版用法与验收](docs/releases/RELEASE-0.8.5-RC1-G4NEON-20261121.md)
 
 本版通过离线构建和 **673 项自动化测试**。新界面、原版熔炉技能及跨整合包复用仍待实机验收。
 

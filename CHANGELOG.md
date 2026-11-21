@@ -2,7 +2,7 @@
 
 - 轨道 A 的验证绑定实际生产回执、技能、环境和内容。历史适配文件保留可编辑内容，旧验证需要复验。
 - 轨道 B 在技能派发时检查当前验证证据与晋级状态，等待审批期间有变化时重新校验。
-- 见 [候选版用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)。
+- 见 [候选版用法与验收](docs/releases/RELEASE-0.8.5-RC1-G4NEON-20261121.md)。
 - 发布名与 JAR 文件名统一使用 `0.8.5rc1`。本版沿用 0.8.5 G4Neon，贡献见 [版本与贡献记录](VERSION-HISTORY.md)。
 
 # 0.8.5-G4Neon · g4neon-open-memory-20261121-01 · 2026-11-21
@@ -10,14 +10,14 @@
 - `Gemini` 分支：新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），保留 `SkillPackage (schema=1)` 完全向后兼容。
 - 通用 GUI 感知与交互元能力：`UiSignature` 跨包双级界面签名、`inspect_tooltip` 只读悬停探测、`gui_relative_point` 容器相对坐标点击、`ClientboundContainerSetDataPacket` 服务端进度监听、未知 `BlockEntity` 脱敏摘要，以及接入 `SessionPlan` 的 4 个语义 GUI 技能原语（`gui_put_role`、`gui_take_role`、`gui_trigger_control`、`gui_wait_output`）。
 - 嵌套双轨与本地适配：`track_b_promotion`（AE2 委派）嵌套于轨道 A 内，轨道 A 实机核验通过且前置满足后晋级持久复用，环境漂移自动降级复核；新增 `BundleAdaptation` + `bundle_adapt` 本地适配叠加层与 `bundle_pack` 脱敏二次分享。
-- 前端与交付：G4Neon 工作台「技能库」升级为「开放技能记忆中心 (Bundle Hub)」，附带零依赖 `builtin-vanilla-furnace-demo.mcskill.json` 与社区模板 `examples/bundles/mekanism-enrichment-sample.mcskill.json`。离线构建（`logistics-companion-0.8.5-G4Neon.jar`）与 129 个测试套件 / 673 项 JUnit 测试通过。详见 [0.8.5-G4Neon 交付报告](RELEASE-0.8.5-G4NEON-OPEN-MEMORY-20261121.md)。
+- 前端与交付：G4Neon 工作台「技能库」升级为「开放技能记忆中心 (Bundle Hub)」，附带零依赖 `builtin-vanilla-furnace-demo.mcskill.json` 与社区模板 `examples/bundles/mekanism-enrichment-sample.mcskill.json`。离线构建（`logistics-companion-0.8.5-G4Neon.jar`）与 129 个测试套件 / 673 项 JUnit 测试通过。详见 [0.8.5-G4Neon 交付报告](docs/releases/RELEASE-0.8.5-G4NEON-OPEN-MEMORY-20261121.md)。
 
 # 0.8.4-G4Neon · g4neon-20261120-01 · 2026-11-20
 
 - `Gemini` 分支：基于 0.8.4 完成全库源码审阅、10 项核心性能优化与前端 G4Neon 设计体系彻底重构。
 - 核心优化：`Store.saveSettingsOnly()` 轻量落盘与增量跳过、`ActionTrace` 后台合并写盘、`Rules.clean()` 零正则单遍清洗、`BaritoneNavigation` 反射句柄缓存、`Agent` 低血/会话清理统一、`BagPolicy.copy()` 深拷贝、`LocalDialogue` 折行缓存、`WorldMemory` 与 `WorldSense` 防护清理。
 - 前端重构：新增 `UiTheme`（默认 `霓虹` G4Neon Studio 与 5 套重调主题）、`UiDraw`、`SettingsCatalog`（中英文实时检索）与 `WorkbenchSettingsViews`（五大设置页与实时生效权限矩阵）；`WorkbenchScreen` 改为原地平滑滚动与拖拽滚动条；统一 HUD、本地对话与 6 个二级窗口视觉风格。
-- 输出产物命名带 `-G4Neon` 后缀（`logistics-companion-0.8.4-G4Neon.jar`），离线构建与 122 个测试套件 / 651 项 JUnit 测试通过，游戏内实机界面待验收。详见 [0.8.4-G4Neon 审阅与界面重构说明](RELEASE-0.8.4-G4NEON-20261120.md)。
+- 输出产物命名带 `-G4Neon` 后缀（`logistics-companion-0.8.4-G4Neon.jar`），离线构建与 122 个测试套件 / 651 项 JUnit 测试通过，游戏内实机界面待验收。详见 [0.8.4-G4Neon 审阅与界面重构说明](docs/releases/RELEASE-0.8.4-G4NEON-20261120.md)。
 
 # 0.8.4 Alpha · vanilla-survival-20261120-01 · 2026-11-20
 
@@ -25,7 +25,7 @@
 - 加入开局工具、采铁归仓返矿、临时营地三套原版生存技能。
 - 补充非耕地作物、采蜜、短程船与鞘翅、睡眠和死亡点拾取。
 - 改善工作站复用、六类原版工作站产物取出及采矿异维交付回执。
-- 离线构建和 645 项自动化测试通过。新增流程的实机验收范围见 [0.8.4 功能与验收说明](RELEASE-0.8.4-VANILLA-SURVIVAL-20261120.md)。
+- 离线构建和 645 项自动化测试通过。新增流程的实机验收范围见 [0.8.4 功能与验收说明](docs/releases/RELEASE-0.8.4-VANILLA-SURVIVAL-20261120.md)。
 
 # 0.7.8.2 · permissions-20261103-03 · 2026-11-03
 
@@ -223,13 +223,13 @@ JEI可选公开API查询、模组普通工作台配方、厨房条件读取、�
 
 # 0.8.2 · 2026-11-17
 
-smelt-recovery-20261117-01：R44–R47 熔炼预检与物品归属、燃料缺口及补料箱实际核对、菜单观察上下文统一、采矿阻挡坐标和恢复建议。完整方案与验收见 RELEASE-0.8.2-R44-R47-20261117.md。
+smelt-recovery-20261117-01：R44–R47 熔炼预检与物品归属、燃料缺口及补料箱实际核对、菜单观察上下文统一、采矿阻挡坐标和恢复建议。 [R44–R47 修复与验收](docs/releases/RELEASE-0.8.2-R44-R47-20261117.md)
 
 # 0.8.2 · 2026-11-15
 
-decision-capabilities-20261115-01：按照 JAR 工程需求书补全日常动作候选、合法工具发现、死亡恢复阶段、暂停诊断、落点碰撞容差、HTTP/1.1及错误详情、任务状态实时投影、配置重载和自绘GUI语义入口。保留原接口并增加 contract_version=1，完整验收说明见 RELEASE-0.8.2-CAPABILITIES-20261115.md。
+decision-capabilities-20261115-01：按照 JAR 工程需求书补全日常动作候选、合法工具发现、死亡恢复阶段、暂停诊断、落点碰撞容差、HTTP/1.1及错误详情、任务状态实时投影、配置重载和自绘GUI语义入口。保留原接口并增加 contract_version=1。 [能力补全验收](docs/releases/RELEASE-0.8.2-CAPABILITIES-20261115.md)
 
 # 0.8.2 · 2026-11-14
 
-cloud-local-decision-20261114-01：可选关闭/云端/本地判断层，独立地址、模型与凭据，Google Decisions/Jev/OpenAI协议，候选任务选择及可选提交，旧判断失效与相同现场失败提示。统一导航破坏和搭路权限，显式仅绕行优先；补暂停诊断、授权恢复、落点预检、关键方块覆盖提示、item replace回读、实体ID转向、采矿超时原因与查询裁剪数量。详见 RELEASE-0.8.2.md，真实模型服务和游戏闭环待测。
+cloud-local-decision-20261114-01：可选关闭/云端/本地判断层，独立地址、模型与凭据，Google Decisions/Jev/OpenAI协议，候选任务选择及可选提交，旧判断失效与相同现场失败提示。统一导航破坏和搭路权限，显式仅绕行优先；补暂停诊断、授权恢复、落点预检、关键方块覆盖提示、item replace回读、实体ID转向、采矿超时原因与查询裁剪数量。真实模型服务和游戏闭环待测。 [判断层接入说明](docs/releases/RELEASE-0.8.2.md)
 

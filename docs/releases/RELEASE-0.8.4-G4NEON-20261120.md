@@ -72,25 +72,25 @@
 ## 二、前端设置界面与视觉体验彻底重构（G4Neon 设计体系）
 
 ### 1. 独立设计系统（`UiTheme` + `UiDraw` + `SettingsCatalog` + `DeskButton`）
-- **新增 [UiTheme.java](src/main/java/dev/mibao/companion/UiTheme.java)**（18 项语义色板 Token，无渲染依赖可离线单测）：
+- **新增 [UiTheme.java](../../src/main/java/dev/mibao/companion/UiTheme.java)**（18 项语义色板 Token，无渲染依赖可离线单测）：
   - 全新默认主题 **`霓虹`（G4Neon Studio）**：深曜石玻璃基底 + 电光青（`#38F2E6`）与幻夜紫（`#A855F7`）渐变顶线、高对比度文字与独立语义状态色（成功翠绿 / 警示琥珀 / 高危珊瑚红）。
   - 同时全面重调 **`深海`**、**`纸白`（浅色高对比）**、**`终端`（荧光 CRT）**、**`原版`（工匠橡木金）** 四套原有主题，所有主题共享统一对比度规范。
-- **新增 [UiDraw.java](src/main/java/dev/mibao/companion/UiDraw.java)**：
+- **新增 [UiDraw.java](../../src/main/java/dev/mibao/companion/UiDraw.java)**：
   - 1px 切角圆角卡片（带顶部微高光）、平滑水平渐变条、紧凑状态徽章（Pill Badge）、28×14px 滑块开关（Toggle Switch，支持危险警示红轨道）、立体键帽（Keycap）与比例滚动条。
-- **升级 [DeskButton.java](src/main/java/dev/mibao/companion/DeskButton.java)**：
+- **升级 [DeskButton.java](../../src/main/java/dev/mibao/companion/DeskButton.java)**：
   - 支持 `DEFAULT` / `PRIMARY` / `DANGER` / `NAV` / `TOGGLE` / `SEGMENT` / `SWATCH`（实时双色预览卡片）/ `COLLAPSE` 8 种交互变体；
   - 新增 `clip(top, bottom)` 视口点击与悬停裁剪，彻底杜绝滚动窗口越界穿透点击。
-- **新增 [SettingsCatalog.java](src/main/java/dev/mibao/companion/SettingsCatalog.java)**：
+- **新增 [SettingsCatalog.java](../../src/main/java/dev/mibao/companion/SettingsCatalog.java)**：
   - 建立覆盖全部 5 个设置页及 9 个子编辑器的中英文多词实时检索索引（26 个索引条目）。
 
-### 2. 命令台外壳与交互升级（[WorkbenchScreen.java](src/main/java/dev/mibao/companion/WorkbenchScreen.java)）
+### 2. 命令台外壳与交互升级（[WorkbenchScreen.java](../../src/main/java/dev/mibao/companion/WorkbenchScreen.java)）
 - **双层滚动架构（彻底告别滚动失焦与卡顿）**：
   - 将左侧导航栏 / 顶部搜索框 / 紧急操作按钮归入 `chromeWidgets`，可滚动卡片内容归入 `contentWidgets`。
   - 滚轮翻阅与拖拽右侧滚动条时仅原地更新控件坐标，**不再整页重建 `rebuild()`**，输入框焦点与光标不丢失；同步修复设置搜索框的跨帧持久化（不打断中文输入法 IME 组字）。
 - **准确未保存草稿感知（`dirtyKeys`）**：仅当用户真实修改了输入框内容且尚未保存时，卡片标题与页脚才点亮琥珀色 `未保存修改` 徽章。
 - **指纹防抖 `tick()`**：首页与连接页仅在真实运行状态发生变化时刷新，避免空闲每秒重绘闪烁。
 
-### 3. 五大设置页彻底重构（[WorkbenchSettingsViews.java](src/main/java/dev/mibao/companion/WorkbenchSettingsViews.java)）
+### 3. 五大设置页彻底重构（[WorkbenchSettingsViews.java](../../src/main/java/dev/mibao/companion/WorkbenchSettingsViews.java)）
 1. **模型与连接**：
    - 分段切换 `API 模型` / `本地 Harness (MCP)`，实时展示租约倒计时或协议状态；
    - 独立展示 **模型推理强度（低/中/高）** 与 **执行风格（快速/严谨）** 分段选择器与预设组合；
@@ -107,7 +107,7 @@
 5. **数据与维护**：Harness 租约预设面板 + 共享技能库目录与备份维护卡片。
 
 ### 4. 全界面视觉统一（HUD + 本地交流 + 6 个辅助 Screen）
-- 同步将 **[Hud.java](src/main/java/dev/mibao/companion/Hud.java)**、**[ProcessHud.java](src/main/java/dev/mibao/companion/ProcessHud.java)**（新增详细面板比例滚动条）、**[LocalDialogue.java](src/main/java/dev/mibao/companion/LocalDialogue.java)** 以及全部 6 个二级窗口（**[NoticeScreen](src/main/java/dev/mibao/companion/NoticeScreen.java)**、**[TaskTimelineScreen](src/main/java/dev/mibao/companion/TaskTimelineScreen.java)**、**[CompanionHistoryScreen](src/main/java/dev/mibao/companion/CompanionHistoryScreen.java)**、**[RecipeBrowserScreen](src/main/java/dev/mibao/companion/RecipeBrowserScreen.java)**、**[FollowTargetScreen](src/main/java/dev/mibao/companion/FollowTargetScreen.java)**、**[HudLayoutEditor](src/main/java/dev/mibao/companion/HudLayoutEditor.java)**）升级为统一的 `UiTheme` + `UiDraw` + `DeskButton` 视觉体系。
+- 同步将 **[Hud.java](../../src/main/java/dev/mibao/companion/Hud.java)**、**[ProcessHud.java](../../src/main/java/dev/mibao/companion/ProcessHud.java)**（新增详细面板比例滚动条）、**[LocalDialogue.java](../../src/main/java/dev/mibao/companion/LocalDialogue.java)** 以及全部 6 个二级窗口（**[NoticeScreen](../../src/main/java/dev/mibao/companion/NoticeScreen.java)**、**[TaskTimelineScreen](../../src/main/java/dev/mibao/companion/TaskTimelineScreen.java)**、**[CompanionHistoryScreen](../../src/main/java/dev/mibao/companion/CompanionHistoryScreen.java)**、**[RecipeBrowserScreen](../../src/main/java/dev/mibao/companion/RecipeBrowserScreen.java)**、**[FollowTargetScreen](../../src/main/java/dev/mibao/companion/FollowTargetScreen.java)**、**[HudLayoutEditor](../../src/main/java/dev/mibao/companion/HudLayoutEditor.java)**）升级为统一的 `UiTheme` + `UiDraw` + `DeskButton` 视觉体系。
 
 ---
 
