@@ -1,108 +1,61 @@
 # MineCompanion
 
-**让 AI 成为你的 Minecraft 玩家伙伴。**
+**让 AI 在 Minecraft 里像另一位玩家一样，和你一起生存。**
 
-MineCompanion 是 Minecraft Java 1.20.1 的纯客户端 Forge 模组。它控制当前客户端的正常玩家角色，通过本地执行器完成移动、背包、容器、制作、农作和探索，并可连接模型 API 或外部 Harness。
+MineCompanion 是面向 **Minecraft Java 1.20.1 · Forge 47.4.x · Java 17** 的客户端模组。AI 操作安装模组的客户端账号，可以陪你探索，也能接手采矿、熔炼、补给和整理。双人陪玩时，让主号和伙伴账号进入同一个世界。
 
-A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a local harness to operate a normal player, with local skills, configurable permissions and human cooperation.
+[下载 0.8.5rc1](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [快速开始](#快速开始) · [Harness 接入](#接入外部-harness) · [版本与贡献](VERSION-HISTORY.md) · [English](#english)
 
-## 下载与安装
+## 它能帮你做什么
 
-`main` 已进入 **0.8.5-rc.1（G4Neon 候选版）**，可按下方步骤从源码构建 `logistics-companion-0.8.5-rc.1-G4Neon.jar`。
-
-在 [0.8.4 Alpha 发布页](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.4) 下载 `MineCompanion-0.8.4-Alpha.zip`。退出游戏后，将其中的 `logistics-companion-0.8.4.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。使用 Java 17 和 Forge 47.4.x。升级前备份旧 JAR、设置和记忆。安装 ZIP 随附许可证与第三方源码。
-
-模组显示名和内部 ID 暂沿用 Logistics Companion / `logistics_companion`，公开项目名采用 MineCompanion。
-
-## 功能
-
-- 游戏内配置模型接口，支持 API 与本地 Harness 两种规划入口。
-- 人工、AI 接管与协同操作，观看模式、本地对话和任务过程显示。
-- 可配置权限、授权成员、审批和急停。
-- 已加载世界认知、地点及容器库存记忆，通用技能与具体世界记录分别保存。
-- 背包准备、箱子取放、搬运、基础合成、熔炼、农作与采集。
-- 内嵌 Baritone 导航，挖路和垫脚可分别设置。
-- 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
-- 原有近战、自卫与弓箭执行功能。
-
-### 0.8.5 G4Neon
-
-- 新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），在不硬编码堆叠单个 Mod 适配的前提下，通过通用 GUI 感知原语（`inspect_tooltip` 悬停探测、`UiSignature` 跨整合包双级签名、`gui_relative_point` 相对锚点点击、`ContainerData` 监听）与 `UiProfile` 结构化界面映射实现陌生 Mod 玩法学习与社区共享。
-- 新增 4 个可入 `SessionPlan` 的语义 GUI 技能原语（`gui_put_role` / `gui_take_role` / `gui_trigger_control` / `gui_wait_output`）、`bundle_adapt` 本机适配和 `bundle_pack` 脱敏导出。包内 SHA-256 用于核对内容一致性。
-- 工作台新增开放技能记忆中心。轨道 A 的生产技能取得成功回执后可记录验证，轨道 B 在派发时检查晋级和依赖。环境或内容变化后需复验。见 [0.8.5-rc.1 用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)。
-
-### 0.8.4-G4Neon 分支变更（Gemini）
-
-- 前端设置界面与游戏内浮层基于全新 `UiTheme` / `UiDraw` / `DeskButton` / `SettingsCatalog` / `WorkbenchSettingsViews` 设计体系彻底重构，默认启用 `霓虹`（G4Neon Studio）主题并提供 5 套重调主题即时切换。
-- `WorkbenchScreen` 升级为双层容器与原地平滑滚动/拖拽滚动条，新增中英文实时设置搜索与 `dirtyKeys` 未保存草稿感知，同步统一 HUD、本地对话及 6 个二级窗口视觉体验。
-- 完成 0.8.4 全库代码审阅与 10 项后端优化（`Store.saveSettingsOnly()` 轻量设置保存、`ActionTrace` 后台合并写盘、`Rules.clean()` 单遍零正则清洗、`BaritoneNavigation` 反射缓存、`Agent` 状态清理统一、`BagPolicy.copy()` 深拷贝、`LocalDialogue` 折行缓存等）。
-- 构建产物保留主版本 `0.8.4` 并添加 `-G4Neon` 后缀（从源码构建输出 `build/libs/logistics-companion-0.8.4-G4Neon.jar`；当前为源码分支发布）。详见 [0.8.4-G4Neon 审阅与界面重构说明](RELEASE-0.8.4-G4NEON-20261120.md)。
-
-### 0.8.4 新增
-
-- 授权玩家可以用 `@小勤 跟着我` 启动跟随。下界与末地陪伴会记住当前观察到的门，沿安全路线接近，并在过门后尝试与同一玩家会合。
-- 内置原版开局、采铁归仓返矿和临时营地三套技能，支持本存档的命名地点。
-- 增加成熟可可、地狱疣、甜浆果、蜂箱采收、短程船和鞘翅、睡眠和指定物品回收。
-- 增加六类原版工作站的产物入包核验，完善已打开的工作站复用、采矿交付维度和转移错误回执。
-
-具体用法和实机验收场景见 [0.8.4 功能与验收说明](RELEASE-0.8.4-VANILLA-SURVIVAL-20261120.md)。
-
-### 0.8.2 新增
-
-连续采矿、工具准备、产物账本和归仓；可选云端/本地判断接口；扩展日常动作候选、暂停与死亡恢复诊断、自绘 GUI 语义选项。最新构建补充熔炼投料前燃料核算、中止材料归属证据、菜单共享视图和采矿阻挡恢复建议。
-
-配置和测试见 [R44–R47 交付说明](RELEASE-0.8.2-R44-R47-20261117.md)、[判断层说明](RELEASE-0.8.2.md) 和 [能力补全说明](RELEASE-0.8.2-CAPABILITIES-20261115.md)。
-
-### 0.8.1 新增
-
-区域光照查询、暗处插普通火把、按方块 ID／标签搜索，以及岸边自动钓鱼初版。补充切石／织布选项、附魔条件、流体射线、到达结果与物品使用核验。
-
-## Alpha 状态
-
-当前 `main` 版本为 **0.8.5-rc.1 / g4neon-track-validation-20261121-01**。候选版已完成 Windows 离线构建和自动化测试，G4Neon 界面、Tooltip 悬停捕获、原版熔炉技能及跨整合包复用仍需游戏内验收。
-
-已有实机记录覆盖基础跟随、采矿、熔炼、采收、酿造、附魔与铁砧。0.8.4 的自动过门会合、新生存技能和短程飞行还待实机复核。模组兼容性取决于版本、菜单同步方式和服务器规则。
-
-区域照明支持指定火把补料箱，钓鱼可以搜索已加载水面及岸边并处理换竿和卸货。连续卸货、随行照明和复杂地形恢复仍需按场景复核。
+| 玩法 | 示例 |
+| --- | --- |
+| **陪伴探索** | 授权后说 `@小勤 跟着我`。伙伴会跟住指定玩家，根据陪伴预设尝试过门，并在重新看见同一玩家时继续跟随。 |
+| **原版生存与后勤** | 采矿、熔炼、合成、农作、钓鱼和箱子取放，也可以把采铁、归仓、制火把和返矿照明串成一条流程。 |
+| **陌生模组与技能记忆** | 读取机器槽位、Tooltip 和进度，把跑通的操作整理成可分享的 `.mcskill.json`。换整合包后的界面适配保存在本机。 |
+| **边玩边协同** | 可在玩家、AI 接管和协同操作间切换。查看任务进度，设置授权成员和操作范围，必要时按 **F9** 急停。 |
 
 ## 快速开始
 
-1. 进入世界，使用游戏内按键设置查看伙伴当前绑定。默认 F8 打开面板，F9 急停，F6 观看，Home 本地对话。
-2. 在面板配置模型接口，或启用本机 Harness。填写自己的密钥，选择允许的权限。
-3. 明确开启 AI 接管，从普通箱子搬运和少量材料开始测试。
-4. 请求与结果可在本地界面查看。物品数量和操作成功按实际客户端同步数据核对。
+1. 从发布页下载 **`MineCompanion-0.8.5rc1.zip`**。关闭游戏，将其中的 `logistics-companion-0.8.5rc1.jar` 放进对应实例的 `mods` 目录。升级时先在其他目录备份旧 JAR 和配置。
+2. 进入世界，按 **F8** 打开工作台。配置模型 API，或启用本机 Harness。开启 AI 接管后，按 **Home** 打开本地对话。
+3. 先试一次小任务，例如从指定箱子取 3 个粗铁并熔炼。如果是双人陪玩，在伙伴工作台授权主号，再用主号在游戏聊天发 `@小勤 跟着我`。可用 `@小勤 停止跟随` 结束这次同行。
+4. 通过实际位置、菜单和库存变化确认结果。服务端权限与整合包变化会影响能够执行的操作。
 
-## 外部 Harness
+## 接入外部 Harness
 
-外部助手通过 `harness-client.py` 连接模组。Python 3.10+，仅使用标准库。
+启用本机 Harness 后，使用 Python 3.10+ 运行仓库中的 `harness-client.py`。把路径换成伙伴的实际游戏实例，连接文件由模组生成，按本机凭据保管。
 
 ```powershell
-python -X utf8 harness-client.py --connection "你的游戏目录/config/logistics-companion/harness-connection.json" status
-python -X utf8 harness-client.py --connection "你的游戏目录/config/logistics-companion/harness-connection.json" connect
-python -X utf8 harness-client.py --connection "你的游戏目录/config/logistics-companion/harness-connection.json" capabilities
+$connection = '你的游戏目录/config/logistics-companion/harness-connection.json'
+python -X utf8 harness-client.py --connection $connection status
+python -X utf8 harness-client.py --connection $connection connect
+python -X utf8 harness-client.py --connection $connection capabilities
 ```
 
-连接信息由模组在启用后生成，属于本机凭据。Agent 根据当前 `capabilities` 和工具参数执行动作，网络超时后查询原请求回执。
+根据当前 `capabilities` 和工具说明调用。网络超时后，先查询原请求回执。用 `list_library` 查可用技能，通过 `run_library_skill` 执行。共享包里的轨道 A 需要拿到生产成功回执，轨道 B 复用还会检查晋级状态及当前环境。
 
-照明可调用 `light_survey`、`illuminate_area`，搜索用 `find_blocks`，钓鱼用 `fish`。连续任务支持 `task_submit/task_status/task_result/task_cancel`。
+## 0.8.5rc1 与贡献
 
-## 从源码构建
+**0.8.5rc1 沿用 0.8.5 G4Neon。** Gemini 完成 G4Neon 界面和开放技能记忆基础，OpenAI Codex 完成轨道校验、回归测试和本次发行。项目维护者确定玩法、验收方向和发布范围，DeepSeek Harness（DSH）参与前序实机验收与问题反馈。 [完整版本与贡献记录](VERSION-HISTORY.md) · [候选版用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)
 
-需要 JDK 17、Python 3.10+ 和联网下载构建依赖。
+本版通过离线构建和 **673 项自动化测试**。新界面、原版熔炉技能及跨整合包复用仍待实机验收。
+
+## 开发与反馈
+
+需要 JDK 17、Python 3.10+ 和可下载构建依赖的环境。
 
 ```powershell
 python setup-jei-api.py --download
 .\gradlew.bat build
 ```
 
-Linux/macOS 可使用 `bash gradlew build`。产物位于 `build/libs`。开发者现有 Windows 离线工具链已通过构建，公开仓库的全新机器联网构建仍待独立验证。
+Linux 或 macOS 可运行 `bash gradlew build`。产物在 `build/libs`。离线构建已在现有 Windows 工具链验证。
 
-## 反馈问题
+反馈问题时，请附游戏、Forge 和模组版本、实际操作、预期结果以及脱敏日志。 [提交或查看 Issue](https://github.com/zhangyunfei0415/MineCompanion/issues) · [开发更新日志](CHANGELOG.md)
 
-请提供 Minecraft／Forge／模组版本、构建标识、实际操作、预期与实际结果，并附经过脱敏的相关日志。测试准备与正式生产结果分别说明。
+项目主体采用 MIT，内嵌 Baritone 采用 LGPL。对应源码与许可在 `vendor/baritone`，其他素材及引用来源见第三方声明。 [项目许可证](LICENSE) · [第三方声明](THIRD_PARTY.md)
 
-## 许可证与来源
+## English
 
-项目主体使用 [MIT](LICENSE)。内嵌 Baritone 使用 LGPL，配套源码与许可证保存在 `vendor/baritone`。部分适配来源与美术生成记录见 [第三方声明](THIRD_PARTY.md) 及资源中的 provenance 文件。第三方部分遵守其各自许可证。
-
-模型接口和外部 Harness 的数据处理由对应服务决定。请根据服务器规则使用客户端自动化能力。
+MineCompanion is a client-side AI player companion for **Minecraft Java 1.20.1 on Forge**, running on Java 17. Use a model API or a local harness to automate survival chores, follow an authorized player, or reuse portable skills for modded interfaces. **0.8.5rc1** builds on the Gemini G4Neon redesign and skill memory system, with runtime checks for skill verification and reuse added by OpenAI Codex. [Download the candidate](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [Version history and credits](VERSION-HISTORY.md)

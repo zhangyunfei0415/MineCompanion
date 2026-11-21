@@ -1,6 +1,15 @@
-# MineCompanion 0.8.5-rc.1 G4Neon
+# MineCompanion 0.8.5rc1
 
-构建 `g4neon-track-validation-20261121-01`。适用于 Minecraft Java 1.20.1、Forge 和 Java 17。
+构建 `g4neon-track-validation-20261121-02`，沿用 0.8.5 G4Neon。适用于 Minecraft Java 1.20.1、Forge 47.4.x 和 Java 17。安装包内的运行文件为 `logistics-companion-0.8.5rc1.jar`。
+
+## 本版分工
+
+- **项目维护者**确定玩法、验收场景、发布范围和版本命名。
+- **Gemini**完成 G4Neon 设置界面与 HUD、后端优化，以及开放技能记忆、Tooltip 探测和 `UiProfile`。
+- **OpenAI Codex**完成轨道 A/B 执行与复验的修正、回归测试、构建打包和公开文档整理。
+- **DeepSeek Harness（DSH）**参与前序原版、采矿和陪伴实测，相关反馈用于后续修复。本候选版的新增场景待实机验收。
+
+更早的里程碑及贡献记录见仓库根目录的 `VERSION-HISTORY.md`。
 
 ## 技能包验证与运行
 
