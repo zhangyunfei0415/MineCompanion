@@ -8,6 +8,8 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## 下载与安装
 
+`main` 已进入 **0.8.5-rc.1（G4Neon 候选版）**，可按下方步骤从源码构建 `logistics-companion-0.8.5-rc.1-G4Neon.jar`。
+
 在 [0.8.4 Alpha 发布页](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.4) 下载 `MineCompanion-0.8.4-Alpha.zip`。退出游戏后，将其中的 `logistics-companion-0.8.4.jar` 放入 Minecraft **1.20.1 Forge** 实例的 `mods` 文件夹。使用 Java 17 和 Forge 47.4.x。升级前备份旧 JAR、设置和记忆。安装 ZIP 随附许可证与第三方源码。
 
 模组显示名和内部 ID 暂沿用 Logistics Companion / `logistics_companion`，公开项目名采用 MineCompanion。
@@ -23,11 +25,11 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 - 原版 GUI 槽位、按钮、文本与选择操作，以及可选 JEI、AE2 等客户端适配。
 - 原有近战、自卫与弓箭执行功能。
 
-### 0.8.5-G4Neon 分支变更（Gemini）
+### 0.8.5 G4Neon
 
 - 新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），在不硬编码堆叠单个 Mod 适配的前提下，通过通用 GUI 感知原语（`inspect_tooltip` 悬停探测、`UiSignature` 跨整合包双级签名、`gui_relative_point` 相对锚点点击、`ContainerData` 监听）与 `UiProfile` 结构化界面映射实现陌生 Mod 玩法学习与社区共享。
-- 新增 4 个可入 `SessionPlan` 的语义 GUI 技能原语（`gui_put_role` / `gui_take_role` / `gui_trigger_control` / `gui_wait_output`）、`bundle_adapt` 本地环境适配叠加层与 `bundle_pack` 脱敏导出（由 `BundleSanitizer` + `CanonicalJson` SHA-256 保障安全）。
-- 轨道 B（AE2 样板委派）嵌套在轨道 A（通用手操与建厂核验）之内：轨道 A 实机验证通过且 AE2 条件满足后晋级持久复用，整合包环境变动时自动降级待复核；G4Neon 工作台同步升级「开放技能记忆中心 (Bundle Hub)」。详见 [0.8.5-G4Neon 交付报告](RELEASE-0.8.5-G4NEON-OPEN-MEMORY-20261121.md)。
+- 新增 4 个可入 `SessionPlan` 的语义 GUI 技能原语（`gui_put_role` / `gui_take_role` / `gui_trigger_control` / `gui_wait_output`）、`bundle_adapt` 本机适配和 `bundle_pack` 脱敏导出。包内 SHA-256 用于核对内容一致性。
+- 工作台新增开放技能记忆中心。轨道 A 的生产技能取得成功回执后可记录验证，轨道 B 在派发时检查晋级和依赖。环境或内容变化后需复验。见 [0.8.5-rc.1 用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)。
 
 ### 0.8.4-G4Neon 分支变更（Gemini）
 
@@ -57,7 +59,7 @@ A client-side Minecraft AI companion for Forge 1.20.1. Connect a model API or a 
 
 ## Alpha 状态
 
-当前 `Gemini` 分支版本为 **0.8.5-G4Neon / g4neon-open-memory-20261121-01**（基于 0.8.4 演进）。Windows 离线开发环境编译通过，129 个测试套件 / 673 项自动化测试通过；实机 UI、Tooltip 悬停捕获与跨整合包导入待游戏内验收。
+当前 `main` 版本为 **0.8.5-rc.1 / g4neon-track-validation-20261121-01**。候选版已完成 Windows 离线构建和自动化测试，G4Neon 界面、Tooltip 悬停捕获、原版熔炉技能及跨整合包复用仍需游戏内验收。
 
 已有实机记录覆盖基础跟随、采矿、熔炼、采收、酿造、附魔与铁砧。0.8.4 的自动过门会合、新生存技能和短程飞行还待实机复核。模组兼容性取决于版本、菜单同步方式和服务器规则。
 

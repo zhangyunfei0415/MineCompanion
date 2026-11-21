@@ -856,7 +856,7 @@ public final class ToolSchemas {
             out,
             "bundle_adapt",
             "对已下载/内置记忆包做本地环境适配（补丁ui_profile_patch、追加攻略/避坑、调整参数默认值、标记轨道A核验并检查晋级持久复用轨道B或手动重置）",
-            "bundle_id:s!,profile_id:s,reason:s,append_note:s,append_pitfall:s,verify_track_a:b,promote_track_b:b,preferred_track:s,reset:b");
+            "bundle_id:s!,profile_id:s,reason:s,append_note:s,append_pitfall:s,promote_track_b:b,preferred_track:s,reset:b");
     var adaptProps = adaptSchema.getAsJsonObject("properties");
     adaptProps.add("ui_profile_patch", new JsonObject());
     adaptProps.getAsJsonObject("ui_profile_patch").addProperty("type", "object");

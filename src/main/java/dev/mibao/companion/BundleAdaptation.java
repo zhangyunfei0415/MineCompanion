@@ -21,6 +21,9 @@ public final class BundleAdaptation {
     public Set<String> verifiedPreconditions = new LinkedHashSet<>();
     public String preferredTrack = "auto";
     public String lastVerifiedEnv = "";
+    public String lastVerifiedUpstream = "";
+    public String lastVerifiedContent = "";
+    public String lastVerifiedSkill = "";
   }
 
   public int schema = 1;
@@ -59,10 +62,26 @@ public final class BundleAdaptation {
         || !skillOverrides.isEmpty();
   }
 
-  public List<String> missingTrackBPreconditions(SkillBundle bundle, Set<String> installedMods) {
+  public boolean trackAValid(SkillBundle upstream, SkillBundle effective, String currentEnvKey) {
+    return trackState.trackAVerified && currentEnvKey != null && !currentEnvKey.isBlank()
+        && !"unknown".equals(currentEnvKey)
+        && currentEnvKey.equals(trackState.lastVerifiedEnv)
+        && upstream.contentSha256.equals(trackState.lastVerifiedUpstream)
+        && effective.contentSha256.equals(trackState.lastVerifiedContent)
+        && effective.isManualSkill(trackState.lastVerifiedSkill);
+  }
+
+  void invalidateTrackEvidence() {
+    trackState.trackAVerified = false;
+    trackState.trackBPromoted = false;
+    trackState.verifiedPreconditions.clear();
+  }
+
+  public List<String> missingTrackBPreconditions(
+      SkillBundle upstream, SkillBundle bundle, Set<String> installedMods, String currentEnvKey) {
     if (bundle == null || !bundle.hasTrackB()) return List.of("bundle_has_no_track_b");
     List<String> missing = new ArrayList<>();
-    if (!trackState.trackAVerified) missing.add("track_a_verified");
+    if (!trackAValid(upstream, bundle, currentEnvKey)) missing.add("track_a_verified");
     var promo = bundle.trackA.trackBPromotion();
     Set<String> mods = installedMods == null ? Set.of() : installedMods;
     for (String mod : promo.requiredMods()) {
@@ -78,9 +97,8 @@ public final class BundleAdaptation {
   }
 
   public boolean canPromoteTrackB(
-      SkillBundle bundle, Set<String> installedMods, String currentEnvKey) {
-    if (envDrifted(currentEnvKey)) return false;
-    return missingTrackBPreconditions(bundle, installedMods).isEmpty();
+      SkillBundle upstream, SkillBundle bundle, Set<String> installedMods, String currentEnvKey) {
+    return missingTrackBPreconditions(upstream, bundle, installedMods, currentEnvKey).isEmpty();
   }
 
   /**
@@ -89,17 +107,18 @@ public final class BundleAdaptation {
    * drifted.
    */
   public String effectiveTrack(
-      SkillBundle bundle, Set<String> installedMods, String currentEnvKey) {
-    boolean drifted = envDrifted(currentEnvKey);
-    if (drifted && (trackState.trackBPromoted || trackState.trackAVerified || hasAdaptation())) {
+      SkillBundle upstream, SkillBundle bundle, Set<String> installedMods, String currentEnvKey) {
+    boolean verified = trackAValid(upstream, bundle, currentEnvKey);
+    if (!verified && (trackState.trackARuns > 0 || trackState.trackAVerified || trackState.trackBPromoted
+        || (envDrifted(currentEnvKey) || upstreamChanged(upstream)) && hasAdaptation())) {
       return "track_a_reverify";
     }
     if (trackState.trackBPromoted
         && !"track_a".equals(trackState.preferredTrack)
-        && canPromoteTrackB(bundle, installedMods, currentEnvKey)) {
+        && canPromoteTrackB(upstream, bundle, installedMods, currentEnvKey)) {
       return "track_b_reuse";
     }
-    if (trackState.trackAVerified) return "track_a_verified";
+    if (verified) return "track_a_verified";
     return "track_a_unverified";
   }
 
@@ -160,6 +179,9 @@ public final class BundleAdaptation {
       a.trackState.preferredTrack =
           Set.of("auto", "track_a", "track_b").contains(pref) ? pref : "auto";
       a.trackState.lastVerifiedEnv = Rules.clean(str(ts, "last_verified_env", ""), 80);
+      a.trackState.lastVerifiedUpstream = str(ts, "last_verified_upstream", "");
+      a.trackState.lastVerifiedContent = str(ts, "last_verified_content", "");
+      a.trackState.lastVerifiedSkill = str(ts, "last_verified_skill", "");
       if (ts.has("verified_preconditions") && ts.get("verified_preconditions").isJsonArray()) {
         for (JsonElement el : ts.getAsJsonArray("verified_preconditions")) {
           if (el.isJsonPrimitive()) a.trackState.verifiedPreconditions.add(el.getAsString());
@@ -213,6 +235,9 @@ public final class BundleAdaptation {
     ts.add("verified_preconditions", pre);
     ts.addProperty("preferred_track", trackState.preferredTrack);
     ts.addProperty("last_verified_env", trackState.lastVerifiedEnv);
+    ts.addProperty("last_verified_upstream", trackState.lastVerifiedUpstream);
+    ts.addProperty("last_verified_content", trackState.lastVerifiedContent);
+    ts.addProperty("last_verified_skill", trackState.lastVerifiedSkill);
     root.add("track_state", ts);
     return root;
   }

@@ -3,8 +3,8 @@ plugins {
     id 'net.minecraftforge.gradle' version '6.0.54'
 }
 group = 'dev.mibao'
-version = '0.8.5'
-def buildId = 'g4neon-open-memory-20261121-01'
+version = '0.8.5-rc.1'
+def buildId = 'g4neon-track-validation-20261121-01'
 def buildValues = [modVersion: project.version.toString(), buildId: buildId]
 base { archivesName = 'logistics-companion' }
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; withSourcesJar() }

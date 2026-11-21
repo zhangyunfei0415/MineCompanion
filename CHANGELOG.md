@@ -1,3 +1,9 @@
+# 0.8.5-rc.1 · g4neon-track-validation-20261121-01 · 2026-11-21
+
+- 轨道 A 的验证绑定实际生产回执、技能、环境和内容。历史适配文件保留可编辑内容，旧验证需要复验。
+- 轨道 B 在技能派发时检查当前验证证据与晋级状态，等待审批期间有变化时重新校验。
+- 见 [候选版用法与验收](RELEASE-0.8.5-RC1-G4NEON-20261121.md)。
+
 # 0.8.5-G4Neon · g4neon-open-memory-20261121-01 · 2026-11-21
 
 - `Gemini` 分支：新增开放技能记忆生态（`ModSkillBundle schema=2` / `*.mcskill.json`），保留 `SkillPackage (schema=1)` 完全向后兼容。

@@ -965,7 +965,7 @@ public final class WorkbenchScreen extends Screen {
           .forEach(m -> installed.put(m.getModId(), m.getVersion().toString()));
       String mcVer = net.minecraft.SharedConstants.getCurrentVersion().getName();
       String envKey = EnvironmentKey.current();
-      var ts = BundleLibrary.buildTrackStatusJson(b, eb.adaptation(), installed.keySet(), envKey);
+      var ts = BundleLibrary.buildTrackStatusJson(eb.upstream(), b, eb.adaptation(), installed.keySet(), envKey);
       String activeTrack = ts.get("active_track").getAsString();
       String adaptStatus =
           BundleLibrary.adaptationStatus(eb.upstream(), eb.adaptation(), envKey);

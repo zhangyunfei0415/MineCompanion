@@ -18,13 +18,22 @@ class BundleHubWorkflowTest {
 
     String sampleJson =
         Files.readString(Path.of("examples/bundles/mekanism-enrichment-sample.mcskill.json"));
+    JsonObject sample = JsonParser.parseString(sampleJson).getAsJsonObject();
+    sample.remove("integrity");
+    String manualId = "community:mekanism-enrich-manual";
+    String reuseId = "community:mekanism-enrich-reuse";
+    var reuse = sample.getAsJsonArray("skills").get(0).getAsJsonObject().deepCopy();
+    reuse.addProperty("id", reuseId);
+    sample.getAsJsonArray("skills").add(reuse);
+    sample.getAsJsonObject("track_a").getAsJsonObject("track_b_promotion")
+        .getAsJsonArray("reuse_skills").add(reuseId);
     Map<String, String> modVersionsA = Map.of("minecraft", "1.20.1", "mekanism", "10.4.8", "ae2", "15.2.0");
     Set<String> modsA = modVersionsA.keySet();
     String envA = "pack_env_aaa";
 
     // 1. Import into Pack A
     BundleLibrary.refresh(libA, false);
-    var imported = BundleLibrary.importJson(libA, sampleJson);
+    var imported = BundleLibrary.importJson(libA, sample.toString());
     assertNotNull(imported);
     String bundleId = "community:mekanism-enrichment-basics";
 
@@ -37,7 +46,17 @@ class BundleHubWorkflowTest {
     assertTrue(inspection.getAsJsonObject("track_a").has("track_b_promotion"));
 
     // 2. Track A skill completes -> verified
-    BundleLibrary.recordSkillRun(libA, "community:mekanism-enrich-manual", true, modsA, envA);
+    assertThrows(IllegalArgumentException.class,
+        () -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envA));
+    var manual = BundleLibrary.requireSkillRun(bundleId, manualId, modsA, envA);
+    BundleLibrary.recordSkillRun(libA, manual, true, false, envA);
+    assertFalse(BundleLibrary.inspect(bundleId, modVersionsA, "1.20.1", envA)
+        .getAsJsonObject("track_status").get("track_a_verified").getAsBoolean());
+    var manualFlag = new JsonObject();
+    manualFlag.addProperty("verify_track_a", true);
+    assertThrows(IllegalArgumentException.class,
+        () -> BundleLibrary.adapt(libA, bundleId, manualFlag, modsA, envA));
+    BundleLibrary.recordSkillRun(libA, manual, true, true, envA);
     JsonObject afterTrackA = BundleLibrary.inspect(bundleId, modVersionsA, "1.20.1", envA);
     assertTrue(afterTrackA.getAsJsonObject("track_status").get("track_a_verified").getAsBoolean());
     assertEquals(
@@ -69,6 +88,7 @@ class BundleHubWorkflowTest {
     assertEquals(
         "track_b_reuse",
         persisted.getAsJsonObject("track_status").get("active_track").getAsString());
+    assertDoesNotThrow(() -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envA));
 
     // 5. Modpack environment changes -> automatically downgrades to track_a_reverify
     String envChanged = "pack_env_upgraded_bbb";
@@ -77,6 +97,9 @@ class BundleHubWorkflowTest {
     assertEquals(
         "track_a_reverify",
         drifted.getAsJsonObject("track_status").get("active_track").getAsString());
+    assertFalse(drifted.getAsJsonObject("track_status").get("track_a_verified").getAsBoolean());
+    assertThrows(IllegalArgumentException.class,
+        () -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envChanged));
 
     // 6. Agent performs local adaptation for new environment (shifted UI + signature + defaults + re-promote)
     String newLiveSig = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
@@ -106,17 +129,32 @@ class BundleHubWorkflowTest {
                       "input_item": "minecraft:raw_copper",
                       "output_item": "mekanism:dust_copper"
                     }
-                  },
-                  "verify_track_a": true,
-                  "promote_track_b": true
+                  }
                 }
                 """)
             .getAsJsonObject();
     var reAdapted = BundleLibrary.adapt(libA, bundleId, adaptPatch, modsA, envChanged);
     assertEquals("active", reAdapted.get("adaptation_status").getAsString());
     assertEquals(
-        "track_b_reuse",
+        "track_a_reverify",
         reAdapted.getAsJsonObject("track_status").get("active_track").getAsString());
+    BundleLibrary.recordSkillRun(libA, manual, true, true, envChanged);
+    assertFalse(BundleLibrary.inspect(bundleId, modVersionsA, "1.20.1", envChanged)
+        .getAsJsonObject("track_status").get("track_a_verified").getAsBoolean());
+    var adaptedManual = BundleLibrary.requireSkillRun(bundleId, manualId, modsA, envChanged);
+    BundleLibrary.recordSkillRun(libA, adaptedManual, true, true, envChanged);
+    assertThrows(IllegalArgumentException.class,
+        () -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envChanged));
+    BundleLibrary.adapt(libA, bundleId, promoteReq, modsA, envChanged);
+    assertDoesNotThrow(() -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envChanged));
+    var sameEnvironmentEdit = new JsonObject();
+    sameEnvironmentEdit.addProperty("append_note", "复核新的工作站布置");
+    BundleLibrary.adapt(libA, bundleId, sameEnvironmentEdit, modsA, envChanged);
+    BundleLibrary.recordSkillRun(libA, adaptedManual, true, true, envChanged);
+    assertFalse(BundleLibrary.inspect(bundleId, modVersionsA, "1.20.1", envChanged)
+        .getAsJsonObject("track_status").get("track_a_verified").getAsBoolean());
+    assertThrows(IllegalArgumentException.class,
+        () -> BundleLibrary.requireSkillRun(bundleId, reuseId, modsA, envChanged));
 
     // Upstream remains unchanged while UiProfileStore serves adapted version
     var matchedUi = UiProfileStore.match(newLiveSig, "", "", "");

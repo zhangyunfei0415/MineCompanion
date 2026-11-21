@@ -244,6 +244,11 @@ public final class SkillBundle {
     return skillId != null && trackA.trackBPromotion().reuseSkills().contains(skillId);
   }
 
+  boolean isManualSkill(String skillId) {
+    return skillId != null && trackA.manualSkills().contains(skillId) && !isTrackBSkill(skillId)
+        && skills.stream().anyMatch(skill -> skill.id.equals(skillId));
+  }
+
   /** Apply a local BundleAdaptation overlay to produce the localized effective SkillBundle. */
   public SkillBundle applyAdaptation(BundleAdaptation adapt) {
     if (adapt == null || !adapt.hasAdaptation()) return this;

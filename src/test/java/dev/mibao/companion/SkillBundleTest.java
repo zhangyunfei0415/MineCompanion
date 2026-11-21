@@ -87,26 +87,32 @@ class SkillBundleTest {
     adapt.environmentKey = "env_hash_pack_1";
 
     Set<String> modsWithAe = Set.of("minecraft", "forge", "ae2");
-    assertEquals("track_a_unverified", adapt.effectiveTrack(bundle, modsWithAe, "env_hash_pack_1"));
-    assertFalse(adapt.canPromoteTrackB(bundle, modsWithAe, "env_hash_pack_1"));
+    assertEquals("track_a_unverified", adapt.effectiveTrack(bundle, bundle, modsWithAe, "env_hash_pack_1"));
+    assertFalse(adapt.canPromoteTrackB(bundle, bundle, modsWithAe, "env_hash_pack_1"));
 
     // Verify Track A, still missing AE2 preconditions
     adapt.trackState.trackAVerified = true;
     adapt.trackState.trackARuns = 1;
-    assertEquals("track_a_verified", adapt.effectiveTrack(bundle, modsWithAe, "env_hash_pack_1"));
-    assertFalse(adapt.canPromoteTrackB(bundle, modsWithAe, "env_hash_pack_1"));
+    assertEquals("track_a_reverify", adapt.effectiveTrack(bundle, bundle, modsWithAe, "env_hash_pack_1"));
+    adapt.trackState.lastVerifiedEnv = "env_hash_pack_1";
+    adapt.trackState.lastVerifiedUpstream = bundle.contentSha256;
+    adapt.trackState.lastVerifiedContent = bundle.contentSha256;
+    adapt.trackState.lastVerifiedSkill = "builtin:furnace-role-smelt";
+    assertEquals("track_a_verified", adapt.effectiveTrack(bundle, bundle, modsWithAe, "env_hash_pack_1"));
+    assertFalse(adapt.canPromoteTrackB(bundle, bundle, modsWithAe, "env_hash_pack_1"));
     assertEquals(
-        2, adapt.missingTrackBPreconditions(bundle, modsWithAe).size());
+        2, adapt.missingTrackBPreconditions(bundle, bundle, modsWithAe, "env_hash_pack_1").size());
 
     // Satisfy preconditions and promote
     adapt.trackState.verifiedPreconditions.add("hopper_or_provider_attached");
     adapt.trackState.verifiedPreconditions.add("ae2_pattern_encoded");
-    assertTrue(adapt.canPromoteTrackB(bundle, modsWithAe, "env_hash_pack_1"));
+    assertTrue(adapt.canPromoteTrackB(bundle, bundle, modsWithAe, "env_hash_pack_1"));
     adapt.trackState.trackBPromoted = true;
-    assertEquals("track_b_reuse", adapt.effectiveTrack(bundle, modsWithAe, "env_hash_pack_1"));
+    assertEquals("track_b_reuse", adapt.effectiveTrack(bundle, bundle, modsWithAe, "env_hash_pack_1"));
 
     // Removing ae2 or drifting EnvironmentKey degrades cleanly back to Track A reverify
-    assertEquals("track_a_verified", adapt.effectiveTrack(bundle, Set.of("minecraft"), "env_hash_pack_1"));
-    assertEquals("track_a_reverify", adapt.effectiveTrack(bundle, modsWithAe, "env_hash_pack_2_changed"));
+    assertEquals("track_a_verified", adapt.effectiveTrack(bundle, bundle, Set.of("minecraft"), "env_hash_pack_1"));
+    assertEquals("track_a_reverify", adapt.effectiveTrack(bundle, bundle, modsWithAe, "env_hash_pack_2_changed"));
+    assertEquals("track_a_reverify", adapt.effectiveTrack(bundle, bundle, modsWithAe, "unknown"));
   }
 }

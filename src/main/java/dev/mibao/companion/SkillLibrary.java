@@ -8,6 +8,9 @@ import java.util.function.Consumer;
 
 /** Explicit shared directory, read-only definitions, world-local verified experience. */
 public final class SkillLibrary {
+  private static final Set<String> PRODUCTION_PROOF_TOOLS = Set.of(
+      "gui_take_role", "take_vanilla_output", "craft_item", "smelt_item", "smelt_batch",
+      "brew_batch", "enchant_item", "anvil_item");
   public static final Map<String, SkillPackage> entries = new LinkedHashMap<>();
   public static final Map<String, String> bundleOwners = new LinkedHashMap<>();
   public static final List<String> errors = new ArrayList<>();
@@ -150,11 +153,16 @@ public final class SkillLibrary {
     if (Store.config.disabledPackages.contains(id))
       throw new IllegalArgumentException("技能已停用，请在技能库启用");
     if (!issues(p).isEmpty()) throw new IllegalArgumentException("技能依赖不满足：" + issues(p));
+    var bundleRun = ownerBundle == null ? null : BundleLibrary.requireSkillRun(ownerBundle, id);
     JsonObject session = p.expand(params);
     var steps =
         SkillSteps.prepare(
             session.getAsJsonArray("steps"), false, Store.data.places.keySet(), new JsonObject());
     session.add("steps", steps);
+    boolean hasProductionStep = bundleRun != null
+        && java.util.stream.StreamSupport.stream(steps.spliterator(), false)
+            .anyMatch(step -> PRODUCTION_PROOF_TOOLS.contains(
+                step.getAsJsonObject().get("tool").getAsString()));
     var worldData = Store.data;
     String worldScope = Store.scope();
     Agent.execute(
@@ -167,9 +175,17 @@ public final class SkillLibrary {
           if (success) check.successes++;
           else check.failures++;
           check.status = success ? "当前世界与环境流程核验通过" : "失败或未完成，需复核";
-          BundleLibrary.recordSkillRun(id, success);
+          BundleLibrary.recordSkillRun(bundleRun,
+              success && result.startsWith("成功：连续流程 "), hasProductionStep);
           Store.save();
           done.accept(result);
+        },
+        () -> {
+          if (bundleRun == null) return;
+          if (Store.config.disabledPackages.contains(ownerBundle) || Store.config.disabledPackages.contains(id)
+              || !ownerBundle.equals(bundleOwners.get(id))
+              || !bundleRun.equals(BundleLibrary.requireSkillRun(ownerBundle, id)))
+            throw new IllegalArgumentException("[BUNDLE_SKILL_CHANGED] 记忆包已变化，请重新选择技能");
         });
   }
 

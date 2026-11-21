@@ -1329,6 +1329,11 @@ public final class Agent {
 
   public static void execute(
       String tool, JsonObject args, java.util.function.Consumer<String> callback) {
+    execute(tool, args, callback, null);
+  }
+
+  static void execute(
+      String tool, JsonObject args, java.util.function.Consumer<String> callback, Runnable preflight) {
     final java.util.function.Consumer<String> done = ActionTrace.wrap(tool, args, callback);
     if (Rules.WRITE.contains(tool)) DecisionService.invalidate();
     if (!Rules.TOOLS.contains(tool)) {
@@ -1390,7 +1395,7 @@ public final class Agent {
         long t = epoch;
         approval =
             () -> {
-              if (t == epoch) perform(tool, args, done);
+              if (t == epoch) perform(tool, args, done, preflight);
             };
         rejection =
             () -> {
@@ -1407,15 +1412,17 @@ public final class Agent {
       }
     }
     ProgressBoard.action(tool);
-    perform(tool, args, done);
+    perform(tool, args, done, preflight);
   }
 
-  private static void perform(String tool, JsonObject a, java.util.function.Consumer<String> done) {
+  private static void perform(
+      String tool, JsonObject a, java.util.function.Consumer<String> done, Runnable preflight) {
     try {
       if (HealthRecovery.restricted() && !HealthRecovery.allowed(tool)) {
         done.accept("失败：[RECOVERY_REQUIRED] 生命恢复中，旧作业已停止；先观察、进食或等待恢复，不重复危险动作。");
         return;
       }
+      if (preflight != null) preflight.run();
       if (Rules.WRITE.contains(tool) && !tool.equals("follow_start") && !tool.equals("follow_enter_portal"))
         FollowControl.suspend("等待当前任务安全完成");
       if (Set.of(
