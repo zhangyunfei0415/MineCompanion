@@ -28,12 +28,15 @@ public final class WorkbenchScreen extends Screen {
   private static final ResourceLocation ART =
       new ResourceLocation(Companion.ID, "textures/gui/logistics-desk-20261031.png");
   private static final String[] SETTINGS_NAV = {"模型与连接", "权限与安全", "输入与感知", "显示与陪伴", "数据与维护"};
-  private static final String[] LEDGER_NAV = {"当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史"};
+  private static final String[] LEDGER_NAV = {
+      "当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史", "空间与地图", "跟随与陪同"
+  };
 
   private final Screen previous;
   private final Object previousMenu;
   private final WorkbenchPages pages = new WorkbenchPages(this);
   private final WorkbenchSettingsViews settingsViews = new WorkbenchSettingsViews(this);
+  private final WorkbenchDutyView dutyView = new WorkbenchDutyView(this);
 
   private boolean settings;
   private int page, scroll, y, maxY;
@@ -43,7 +46,7 @@ public final class WorkbenchScreen extends Screen {
   private String query = "", selected = "", command = "", status = "", miningGoal = "", settingsSearch = "";
   private String lastFingerprint = "";
   private BagPolicy bagDraft;
-  private EditBox searchBox;
+  private DeskEditBox searchBox;
   private int section = -1, parentScroll, ticks;
   private boolean draggingScrollbar;
   private int dragStartMouseY, dragStartScroll;
@@ -142,6 +145,7 @@ public final class WorkbenchScreen extends Screen {
 
   private <T extends AbstractWidget> T addContent(T widget, int baseY) {
     if (widget instanceof DeskButton db) db.clip(box.top(), box.bottom());
+    if (widget instanceof DeskEditBox de) de.clip(box.top(), box.bottom());
     contentWidgets.add(new ScrollWidget(widget, baseY));
     int py = baseY - scroll;
     widget.setY(py);
@@ -289,6 +293,47 @@ public final class WorkbenchScreen extends Screen {
     toggleRow(title, get, set, false, "", 0);
   }
 
+  void worldToggleRow(
+      String label,
+      BooleanSupplier get,
+      Consumer<Boolean> set,
+      boolean danger,
+      String badge,
+      int badgeColor) {
+    boolean on = get.getAsBoolean();
+    var b =
+        new DeskButton(
+                label,
+                box.left(),
+                y - scroll,
+                box.width(),
+                22,
+                () ->
+                    safe(
+                        () -> {
+                          set.accept(!get.getAsBoolean());
+                          if (Store.data != null && Store.data.duty != null)
+                            Store.data.duty.normalize();
+                          Store.save();
+                          rebuild();
+                        }))
+            .variant(DeskButton.Variant.TOGGLE)
+            .checked(on)
+            .dangerTone(danger)
+            .badge(badge, badgeColor);
+    addContent(b, y);
+    y += 26;
+    maxY = Math.max(maxY, y);
+  }
+
+  void openFollowTargets() {
+    minecraft.setScreen(new FollowTargetScreen(this));
+  }
+
+  void goToPermissions() {
+    go(true, 1);
+  }
+
   void toggleRow(
       String label,
       BooleanSupplier get,
@@ -407,16 +452,22 @@ public final class WorkbenchScreen extends Screen {
   EditBox flowField(String key, String label, String value, int max, Consumer<String> responder) {
     mutedText(label);
     int py = y - scroll;
-    var e = new EditBox(font, box.left() + 2, py, box.width() - 4, 20, Component.literal(label));
+    var e =
+        new DeskEditBox(font, box.left() + 2, py, box.width() - 4, 20, Component.literal(label))
+            .placeholder(label);
     e.setMaxLength(max);
     e.setValue(drafts.getOrDefault(key, value));
-    if (!Objects.equals(e.getValue(), value)) dirtyKeys.add(key);
+    boolean isDirty = !Objects.equals(e.getValue(), value);
+    if (isDirty) dirtyKeys.add(key);
     else dirtyKeys.remove(key);
+    e.dirty(isDirty);
     e.setResponder(
         v -> {
           drafts.put(key, v);
-          if (!Objects.equals(v, value)) dirtyKeys.add(key);
+          boolean d = !Objects.equals(v, value);
+          if (d) dirtyKeys.add(key);
           else dirtyKeys.remove(key);
+          e.dirty(d);
           responder.accept(v);
         });
     responder.accept(e.getValue());
@@ -548,19 +599,19 @@ public final class WorkbenchScreen extends Screen {
     addChrome(cfg);
 
     // Settings instant search field inside Rail when on Settings (persistent instance preserves cursor/IME)
-    int navTop = winY + 62;
+    int navTop = winY + 64;
     if (settings && winH >= 240) {
       if (searchBox == null) {
         searchBox =
-            new EditBox(
-                font,
-                navX + 1,
-                navTop,
-                navInner - 2,
-                18,
-                Component.literal("搜索设置项"));
+            new DeskEditBox(
+                    font,
+                    navX + 1,
+                    navTop,
+                    navInner - 2,
+                    18,
+                    Component.literal("搜索设置项"))
+                .placeholder("搜索设置...");
         searchBox.setMaxLength(64);
-        searchBox.setHint(Component.literal("搜索设置..."));
         searchBox.setResponder(
             v -> {
               if (!Objects.equals(settingsSearch, v)) {
@@ -582,10 +633,14 @@ public final class WorkbenchScreen extends Screen {
     }
 
     String[] nav = settings ? SETTINGS_NAV : LEDGER_NAV;
+    boolean compactNav = !settings && nav.length >= 7 && winH < 280;
+    int navStep = compactNav ? 21 : 25;
+    int navItemH = compactNav ? 19 : 22;
     for (int i = 0; i < nav.length; i++) {
       int target = i;
       var b =
-          new DeskButton(nav[i], navX, navTop + i * 25, navInner, 22, () -> go(settings, target))
+          new DeskButton(
+                  nav[i], navX, navTop + i * navStep, navInner, navItemH, () -> go(settings, target))
               .variant(DeskButton.Variant.NAV);
       b.selected = page == i && (!settings || settingsSearch.isBlank());
       addChrome(b);
@@ -655,7 +710,9 @@ public final class WorkbenchScreen extends Screen {
         case 1 -> world();
         case 2 -> library();
         case 3 -> knowledge();
-        default -> history();
+        case 4 -> history();
+        case 5 -> exploration();
+        default -> dutyView.render();
       }
     }
     scroll = Math.min(scroll, maxScroll());
@@ -786,6 +843,19 @@ public final class WorkbenchScreen extends Screen {
               },
               "打开设置中心",
               () -> go(true, 0));
+          row(
+              "空间与地图（三维探索）",
+              () -> go(false, 5),
+              "全屏分层探索地图",
+              () -> minecraft.setScreen(new ExplorationMapScreen(this)));
+          row(
+              "跟随与陪同（" + DutyScheduler.duty().modeEnum().label + "）",
+              () -> go(false, 6),
+              WatchPowerSaver.manualActive() ? "退出省电降占" : "一键省电降占",
+              () -> {
+                WatchPowerSaver.toggleManual();
+                rebuild();
+              });
           if (Cooperation.active()) {
             row(
                 "协同：交回 AI",
@@ -1512,6 +1582,173 @@ public final class WorkbenchScreen extends Screen {
                       new NoticeScreen(this, Store.GSON.toJson(RuntimeStats.snapshot()))));
           mutedText("动作 returned 不等于业务完成，原回执和核验结果均保留在此。");
         });
+  }
+
+  /** Spatial & Exploration Memory workspace tab (`空间与地图`). */
+  private void exploration() {
+    UiTheme t = theme();
+    var eg = ExplorationMemory.graph();
+    String curDim = minecraft.level == null ? "" : minecraft.level.dimension().location().toString();
+    long frontiers =
+        eg == null
+            ? 0
+            : eg.nodes().stream().filter(n -> n.kind() == ExplorationGraph.Kind.FRONTIER).count();
+    long blockedEdges =
+        eg == null
+            ? 0
+            : eg.edges().stream()
+                .filter(
+                    e ->
+                        e.state() == ExplorationGraph.State.BLOCKED
+                            || e.state() == ExplorationGraph.State.STALE)
+                .count();
+
+    card(
+        "空间与探索总览",
+        eg == null ? "未加载" : (blockedEdges > 0 ? blockedEdges + " 受阻" : frontiers + " 岔口"),
+        eg == null
+            ? t.textMuted()
+            : (blockedEdges > 0 ? t.warning() : frontiers > 0 ? t.accent() : t.success()),
+        () -> {
+          if (eg == null) {
+            mutedText("进入世界后按维度隔离保存探索拓扑图（exploration/*.graph.json），记录已走通路段、未探开口、安全点与矿洞工作面。");
+          } else {
+            text("当前维度 · " + (curDim.isBlank() ? "当前世界" : curDim));
+            List<Integer> layers = eg.layers();
+            String layerRange =
+                layers.isEmpty()
+                    ? "无"
+                    : layers.size() == 1
+                        ? "Y " + layers.get(0)
+                        : "Y " + layers.get(0) + " .. " + layers.get(layers.size() - 1) + "（" + layers.size() + " 层）";
+            mutedText(
+                "节点 "
+                    + eg.nodes().size()
+                    + " · 路径边 "
+                    + eg.edges().size()
+                    + " · 未探岔口 "
+                    + frontiers
+                    + " · 楼层 "
+                    + layerRange
+                    + (blockedEdges > 0 ? "\n存在受阻/待复查路段 " + blockedEdges + " 条" : ""));
+          }
+          primaryButton("全屏打开分层探索地图", () -> minecraft.setScreen(new ExplorationMapScreen(this)));
+          row(
+              "标记当前为入口",
+              () -> quickMarkExploration("entry"),
+              "标记当前为安全点",
+              () -> quickMarkExploration("safe_point"));
+          button("标记当前为工作面", () -> quickMarkExploration("work_face"));
+        });
+
+    if (eg == null) return;
+
+    ExplorationGraph.Cell here = ExplorationMemory.current();
+    List<ExplorationGraph.Node> anchors =
+        eg.nodes().stream()
+            .filter(
+                n ->
+                    n.kind() == ExplorationGraph.Kind.ENTRY
+                        || n.kind() == ExplorationGraph.Kind.SAFE_POINT
+                        || n.kind() == ExplorationGraph.Kind.WORK_FACE
+                        || !n.name().isBlank())
+            .sorted(
+                Comparator.comparingLong(
+                    n -> here == null ? 0L : n.cell().distanceSquared(here)))
+            .limit(10)
+            .toList();
+    card(
+        "重要入口 · 安全点与地标",
+        anchors.size() + " 处",
+        t.success(),
+        () -> {
+          if (anchors.isEmpty()) {
+            mutedText("暂无已标记入口/安全点或命名地标，可点击上方快捷按钮登记当前位置。");
+          } else {
+            for (var n : anchors) {
+              String label =
+                  (n.name().isBlank() ? n.kind().name() : n.name())
+                      + " ("
+                      + n.cell().id()
+                      + ")";
+              text(
+                  label
+                      + (n.landmark_hints().isEmpty()
+                          ? ""
+                          : " · " + String.join("、", n.landmark_hints())));
+              row(
+                  "地图定位",
+                  () -> minecraft.setScreen(new ExplorationMapScreen(this, n.cell())),
+                  "沿已验证路前往",
+                  () -> runExplorationAction(false, n.cell().id()));
+            }
+          }
+        });
+
+    List<ExplorationGraph.Node> openFronts =
+        eg.nodes().stream()
+            .filter(n -> n.kind() == ExplorationGraph.Kind.FRONTIER)
+            .sorted(
+                Comparator.comparingLong(
+                    n -> here == null ? 0L : n.cell().distanceSquared(here)))
+            .limit(6)
+            .toList();
+    List<ExplorationGraph.Edge> problemEdges =
+        eg.edges().stream()
+            .filter(
+                e ->
+                    e.state() == ExplorationGraph.State.BLOCKED
+                        || e.state() == ExplorationGraph.State.STALE)
+            .limit(6)
+            .toList();
+    card(
+        "未探岔口与受阻复查",
+        openFronts.size() + " 岔口",
+        blockedEdges > 0 ? t.danger() : t.warning(),
+        () -> {
+          if (openFronts.isEmpty() && problemEdges.isEmpty()) {
+            mutedText("周边暂无已登记未探岔口或受阻路段。");
+          } else {
+            for (var f : openFronts) {
+              text("未探开口 · " + f.cell().id() + (f.name().isBlank() ? "" : " · " + f.name()));
+              row(
+                  "地图查看",
+                  () -> minecraft.setScreen(new ExplorationMapScreen(this, f.cell())),
+                  "派小勤探此岔口",
+                  () -> runExplorationAction(true, f.cell().id()));
+            }
+            for (var e : problemEdges) {
+              coloredText(
+                  "["
+                      + e.state()
+                      + "] "
+                      + e.from().id()
+                      + " → "
+                      + e.to().id()
+                      + (e.reason().isBlank() ? "" : " · " + e.reason()),
+                  t.danger());
+            }
+          }
+        });
+  }
+
+  private void quickMarkExploration(String kind) {
+    var a = new JsonObject();
+    a.addProperty("kind", kind);
+    status = ExplorationMemory.mark(a);
+    rebuild();
+  }
+
+  private void runExplorationAction(boolean exploring, String idOrTarget) {
+    if (!Agent.enabled || Agent.paused || Cooperation.yielding() || HarnessController.busy()) {
+      status = "请先启用 AI 接管，并在暂停或作业结束后执行探索路线动作。";
+      rebuild();
+      return;
+    }
+    var args = new JsonObject();
+    args.addProperty(exploring ? "frontier_id" : "target", idOrTarget);
+    onClose();
+    Agent.execute(exploring ? "explore_branch" : "explore_return", args, Companion::notifyUser);
   }
 
   /** Reasoning effort and execution style are two separate settings; neither changes permissions. */
@@ -2290,8 +2527,8 @@ public final class WorkbenchScreen extends Screen {
     // 1. Ambient backdrop + floating studio window
     g.fill(0, 0, width, height, t.backdrop());
     UiDraw.fillRounded(g, winX, winY, winW, winH, t.windowBg(), t.border());
-    // Signature G4Neon 2px top accent gradient line
-    UiDraw.fillHGradient(g, winX + 1, winY + 1, winW - 2, 2, t.accent(), t.accentAlt());
+    // Signature top aurora gradient bar with soft ambient glow
+    UiDraw.fillAuroraBar(g, winX + 1, winY + 1, winW - 2, 2, t);
 
     // 2. Left Rail
     g.fill(winX + 1, winY + 3, winX + box.nav(), winY + winH - 1, t.railBg());
@@ -2300,14 +2537,14 @@ public final class WorkbenchScreen extends Screen {
     // Brand + Companion Name inside Rail
     g.drawString(
         font,
-        font.plainSubstrByWidth(Store.config.name + " · G4Neon", box.nav() - 16),
+        font.plainSubstrByWidth(Store.config.name, box.nav() - 16),
         winX + 10,
         winY + 12,
         t.text(),
         false);
     g.drawString(
         font,
-        font.plainSubstrByWidth(BuildInfo.VERSION, box.nav() - 16),
+        font.plainSubstrByWidth(BuildInfo.VERSION + " · " + t.shortBadge(), box.nav() - 16),
         winX + 10,
         winY + 23,
         t.accent(),
@@ -2317,12 +2554,14 @@ public final class WorkbenchScreen extends Screen {
     g.fill(winX + box.nav() + 1, winY + 3, winX + winW - 1, headerBottom, t.headerBg());
     g.fill(winX + box.nav() + 1, headerBottom, winX + winW - 1, headerBottom + 1, t.border());
 
+    String[] navTitles = settings ? SETTINGS_NAV : LEDGER_NAV;
+    String navTitle = navTitles[Math.max(0, Math.min(page, navTitles.length - 1))];
     String crumb =
         settings && !settingsSearch.isBlank()
             ? "设置 / 搜索：" + settingsSearch
             : (settings ? "设置" : "账本")
                 + " / "
-                + (settings ? SETTINGS_NAV : LEDGER_NAV)[page]
+                + navTitle
                 + (section >= 0 ? " / " + DeskRoute.of(section, settings).title() : "");
     g.drawString(
         font,
@@ -2372,16 +2611,18 @@ public final class WorkbenchScreen extends Screen {
           sh,
           2172,
           724);
-      g.fill(box.left(), artY, box.left() + box.width(), artY + 58, 0x66060b16);
+      g.fill(box.left(), artY, box.left() + box.width(), artY + 58, t.light() ? 0x82081020 : 0x6a060b16);
       UiDraw.fillRounded(g, box.left(), artY, box.width(), 58, 0, t.border());
-      g.drawString(font, "基地后勤 · 让重复工作交给伙伴", box.left() + 10, artY + 12, 0xfff1f5f9, false);
-      g.drawString(font, "目标明确 / 操作可查 / 结果核实", box.left() + 10, artY + 29, 0xff9fb0c9, false);
+      g.drawString(font, "基地后勤 · 让重复工作交给伙伴", box.left() + 10, artY + 12, 0xfff4f7ff, false);
+      g.drawString(font, "目标明确 / 操作可查 / 结果核实", box.left() + 10, artY + 29, 0xffc6d4ea, false);
+      String badgeText = t.shortBadge();
+      int bw = UiDraw.badgeWidth(font, badgeText);
       UiDraw.drawBadge(
           g,
           font,
-          box.left() + box.width() - 56,
+          box.left() + box.width() - bw - 8,
           artY + 10,
-          "G4Neon",
+          badgeText,
           t.textOnAccent(),
           t.accent(),
           t.accent());
@@ -2479,16 +2720,16 @@ public final class WorkbenchScreen extends Screen {
     UiDraw.drawScrollbar(
         g, sbX, box.top(), box.bottom() - box.top(), scroll, ms, box.bottom() - box.top(), draggingScrollbar || sbHovered, t);
 
-    g.fill(winX + box.nav() + 1, winY + winH - 22, winX + winW - 1, winY + winH - 21, t.border());
+    g.fill(winX + box.nav() + 1, winY + winH - 23, winX + winW - 1, winY + winH - 22, t.border());
     String footerText =
         BuildInfo.ID
-            + (ms > 0 ? " · 滚轮或右侧滚动条查看更多" : " · G4Neon 本地工作台")
+            + (ms > 0 ? " · 滚轮或右侧滚动条查看更多" : " · 本地工作台")
             + (!dirtyKeys.isEmpty() ? " · 存在未保存输入草稿" : "");
     g.drawString(
         font,
         font.plainSubstrByWidth(footerText, box.width()),
         box.left(),
-        winY + winH - 15,
+        winY + winH - 16,
         t.textMuted(),
         false);
   }

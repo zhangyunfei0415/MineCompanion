@@ -14,6 +14,9 @@ public final class HarnessCapabilities {
   public static JsonObject describe(int tools, int leaseSeconds) {
     var o = new JsonObject();
     o.addProperty("build", BuildInfo.ID);
+    o.addProperty("exploration_memory",
+        "explore_mark/explore_query/explore_branch/explore_return; world/dimension shards;"
+            + " maze_strict_detour; per-step client rechecks; directed jumps excluded from return");
     o.addProperty(
         "flat_construction",
         "preview_platform/build_platform/build_bridge/build_status; full blocks only; confirmed"

@@ -33,6 +33,7 @@ public final class HealthRecovery {
   public static boolean allowed(String tool) {
     return java.util.Set.of(
             "observe_compact",
+            "explore_query",
             "decision_select",
             "decision_status",
             "permission_status",

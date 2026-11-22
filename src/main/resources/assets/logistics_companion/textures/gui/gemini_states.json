@@ -1,0 +1,25 @@
+{
+  "width": 1774,
+  "height": 887,
+  "columns": 4,
+  "rows": 2,
+  "states": [
+    "rest",
+    "carry",
+    "mine",
+    "wood",
+    "combat",
+    "craft",
+    "smelt",
+    "help"
+  ],
+  "character": "Gemini Star Spirit",
+  "styles": {
+    "MOE": "gemini_states_moe.png",
+    "MC": "gemini_states_mc.png"
+  },
+  "sha256": {
+    "gemini_states_moe.png": "cb413922f23edb634a613d289edb19c879962abf553d0ece9aa041a2f3b17c90",
+    "gemini_states_mc.png": "555673fbabe897a5646675dd3c2a10b65439193e60cf3c69a59e74f77b7e85cf"
+  }
+}

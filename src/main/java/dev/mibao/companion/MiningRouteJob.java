@@ -315,6 +315,8 @@ final class MiningRouteJob extends Actions.Job {
   }
 
   private void stopForBlockage() {
+    if (blockage.kind().contains("FLUID") || blockage.kind().contains("FIRE"))
+      ExplorationMemory.hazard(blockage.position(), blockage.block());
     finishResult("ROUTE_BREAK_BLOCKED", "矿道停止：" + blockage.kind()
         + " @ " + blockage.position().toShortString()
         + (blockage.block().isBlank() ? "" : "（" + blockage.block() + "）"));
@@ -388,6 +390,11 @@ final class MiningRouteJob extends Actions.Job {
     if (arrival.step(atTarget, player.onGround(), player.getDeltaMovement().y)) {
       PlayerControls.release();
       lastStance = to;
+      if (!returning) {
+        var segment = request.route().steps().get(step);
+        boolean cleared = segment.clearance().stream().map(MiningRouteJob::pos).anyMatch(confirmed::contains);
+        ExplorationMemory.minedStep(from, to, cleared);
+      }
       if (returning) back--;
       else {
         int previous = visited.size() - 2;

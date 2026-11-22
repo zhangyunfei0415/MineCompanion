@@ -67,7 +67,7 @@ public final class TaskTimelineScreen extends Screen {
     UiTheme t = UiTheme.current();
     g.fill(0, 0, width, height, t.backdrop());
     UiDraw.fillRounded(g, 10, 8, width - 20, height - 16, t.windowBg(), t.border());
-    UiDraw.fillHGradient(g, 11, 9, width - 22, 2, t.accent(), t.accentAlt());
+    UiDraw.fillAuroraBar(g, 11, 9, width - 22, 2, t);
 
     g.drawString(font, "任务 · 计划 · 实际操作时间线", 20, 44, t.text(), false);
     g.drawString(font, "点击事件卡片展开回执细节 · 工作说明不是完成证明", 20, 58, t.textSecondary(), false);

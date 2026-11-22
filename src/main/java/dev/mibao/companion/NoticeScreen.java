@@ -42,7 +42,7 @@ public final class NoticeScreen extends Screen {
     UiTheme t = UiTheme.current();
     g.fill(0, 0, width, height, t.backdrop());
     UiDraw.fillRounded(g, 12, 10, width - 24, height - 20, t.windowBg(), t.border());
-    UiDraw.fillHGradient(g, 13, 11, width - 26, 2, t.accent(), t.accentAlt());
+    UiDraw.fillAuroraBar(g, 13, 11, width - 26, 2, t);
     g.drawString(font, "伙伴详情与全文查看 · 滚轮翻阅", 22, 20, t.accent(), false);
 
     int cardY = 38, cardH = Math.max(40, height - 76);

@@ -1,3 +1,9 @@
+# 0.8.6 · release-0.8.6-20261122-02 · 2026-11-22
+
+- 正式发布版：整合三维探索记忆（`rc1`）、通用科技模组菜单重同步与全主题 `DeskEditBox`（`rc2`）、G9/G10 易变 NBT 修复与女仆式值守系统（`rc3`）、涉水/爬梯/跑酷与 F4 一键限帧静音节能（`rc4`）。
+- 0.8.6 收口与最终审阅加固：驻守基地持续清场拾取（`CollectionJob` + 45 秒卡死过滤）、双开同目录防公屏串台与伴侣只读联动（`ClientRolePolicy` + `ExplorationMemory`）、AI 自主切档与 `MANUAL_LOCK` 保护（`DutyAutonomyPolicy`）、主人视线感知与安全递物（`observe_owner_focus` / `handoff_to_owner`）、木活板门防坠坑与按钮/拉杆铁门可达开关优先（`NavigationPassage`）、前台工作零 `[BUSY]` 抢占、刷石机水平流体与底部收集水流安全放行（`GeneratorPolicy`）、内置智能挂机连点引擎（`AutoActionJob` / `auto_action`）及「Gemini 星灵」双画风 8 态透明立绘。
+- 见 [0.8.6 正式版发布说明](docs/releases/RELEASE-0.8.6-20261122.md) 与 [版本与贡献记录](VERSION-HISTORY.md)。
+
 # 0.8.5rc1 · g4neon-track-validation-20261121-02 · 2026-11-21
 
 - 轨道 A 的验证绑定实际生产回执、技能、环境和内容。历史适配文件保留可编辑内容，旧验证需要复验。

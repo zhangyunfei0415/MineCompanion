@@ -17,6 +17,7 @@ public final class HuntJob extends Actions.Job {
   private final BlockPos center;
   private final String type;
   private final int radius;
+  private final boolean allowCreeper;
   private final TargetRecovery<UUID> recovery = new TargetRecovery<>(2, 8);
   private net.minecraft.world.entity.LivingEntity target;
   private UUID identity;
@@ -33,11 +34,19 @@ public final class HuntJob extends Actions.Job {
   }
 
   public HuntJob(String type, int count, int radius, Consumer<String> done) {
+    this(type, count, radius, false, done);
+  }
+
+  HuntJob(String type, int count, int radius, boolean allowCreeper, Consumer<String> done) {
     super(done);
     this.type = type;
     this.radius = radius;
+    this.allowCreeper = allowCreeper;
     plan = new WorkPlan(new WorkPlan.Step(WorkPlan.ScanType.ENTITY, type, count, radius));
-    if (!CombatPolicy.accepted(type, Store.config.huntResources, Store.config.attackPlayers))
+    boolean accepted =
+        allowCreeper && "minecraft:creeper".equals(type)
+            || CombatPolicy.accepted(type, Store.config.huntResources, Store.config.attackPlayers);
+    if (!accepted)
       throw new IllegalArgumentException(
           "[UNSUPPORTED_TARGET]"
               + " 支持hostile或明确ID的普通敌怪/原版资源动物；资源动物与玩家按独立开关，命名/宠物/Boss仍受筛选；水生目标不承诺入水追击");
@@ -123,11 +132,12 @@ public final class HuntJob extends Actions.Job {
             .getEntitiesOfClass(
                 Monster.class,
                 mc().player.getBoundingBox().inflate(4),
-                m ->
-                    m.isAlive()
-                        && !CombatPolicy.HUNTABLE.contains(
-                            BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString())
-                        && mc().player.hasLineOfSight(m));
+                m -> {
+                  if (!m.isAlive() || !mc().player.hasLineOfSight(m)) return false;
+                  String mid = BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString();
+                  if (CombatPolicy.HUNTABLE.contains(mid)) return false;
+                  return !(allowCreeper && "minecraft:creeper".equals(mid));
+                });
     if (!danger.isEmpty()) {
       result(
           "近处有未适配威胁 " + BuiltInRegistries.ENTITY_TYPE.getKey(danger.get(0).getType()) + "，停止通用近战。");
@@ -144,7 +154,7 @@ public final class HuntJob extends Actions.Job {
                   m ->
                       recovery.available(m.getUUID(), ticks)
                           && m.blockPosition().distSqr(center) <= (double) radius * radius
-                          && MeleeOps.eligible(m, type)
+                          && MeleeOps.eligible(m, type, allowCreeper)
                           && mc().player.hasLineOfSight(m));
       found.sort(Comparator.comparingDouble(MeleeOps::targetScore));
       if (found.isEmpty()) {
@@ -182,7 +192,7 @@ public final class HuntJob extends Actions.Job {
     }
     seekTick = 0;
     if (!target.getUUID().equals(identity)
-        || !MeleeOps.eligible(target, type)
+        || !MeleeOps.eligible(target, type, allowCreeper)
         || target.blockPosition().distSqr(center) > (double) radius * radius) {
       skip();
       return;

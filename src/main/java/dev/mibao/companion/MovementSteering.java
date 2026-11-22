@@ -11,4 +11,11 @@ public final class MovementSteering {
     float turn = Math.max(-55, Math.min(55, delta));
     return new Step(current + turn, Math.abs(delta - turn) <= 35);
   }
+
+  public static float remainingYaw(float current, float desired) {
+    float delta = (desired - current) % 360;
+    if (delta >= 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    return Math.abs(delta);
+  }
 }

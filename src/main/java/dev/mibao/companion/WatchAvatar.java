@@ -4,13 +4,18 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
 
-/** One generated atlas, two characters, two styles and eight actual task states. */
+/** Three characters, two styles each (MOE / MC pixel) and eight actual task states. */
 public final class WatchAvatar {
   private static final ResourceLocation ATLAS =
       new ResourceLocation(Companion.ID, "textures/gui/watch_states.png");
   private static final ResourceLocation DRAGON =
       new ResourceLocation(Companion.ID, "textures/gui/dragon_states_client04.png");
+  private static final ResourceLocation GEMINI_MOE =
+      new ResourceLocation(Companion.ID, "textures/gui/gemini_states_moe.png");
+  private static final ResourceLocation GEMINI_MC =
+      new ResourceLocation(Companion.ID, "textures/gui/gemini_states_mc.png");
   private static int dragonWidth, dragonHeight;
+  private static int geminiMoeWidth, geminiMoeHeight, geminiMcWidth, geminiMcHeight;
   private static int width, height;
   private static int[] columns;
   private static int[][] rows;
@@ -56,9 +61,28 @@ public final class WatchAvatar {
     var rect = Hud.layout(w, h).avatar();
     int x = rect.x(), y = rect.y(), size = rect.width();
     if (size < 32) return;
-    boolean newDragon =
-        Store.config.avatar.equals("CHATGPT") && !Store.config.avatarStyle.equals("MC");
-    if (newDragon && dragonWidth == 0)
+    boolean mcStyle = Store.config.avatarStyle.equals("MC");
+    boolean geminiAvatar = Store.config.avatar.equals("GEMINI");
+    boolean newDragon = Store.config.avatar.equals("CHATGPT") && !mcStyle;
+    if (geminiAvatar) {
+      if (mcStyle && geminiMcWidth == 0) {
+        try (var stream = mc.getResourceManager().open(GEMINI_MC);
+            var image = com.mojang.blaze3d.platform.NativeImage.read(stream)) {
+          geminiMcWidth = image.getWidth();
+          geminiMcHeight = image.getHeight();
+        } catch (Exception e) {
+          geminiMcWidth = -1;
+        }
+      } else if (!mcStyle && geminiMoeWidth == 0) {
+        try (var stream = mc.getResourceManager().open(GEMINI_MOE);
+            var image = com.mojang.blaze3d.platform.NativeImage.read(stream)) {
+          geminiMoeWidth = image.getWidth();
+          geminiMoeHeight = image.getHeight();
+        } catch (Exception e) {
+          geminiMoeWidth = -1;
+        }
+      }
+    } else if (newDragon && dragonWidth == 0) {
       try (var stream = mc.getResourceManager().open(DRAGON);
           var image = com.mojang.blaze3d.platform.NativeImage.read(stream)) {
         dragonWidth = image.getWidth();
@@ -66,10 +90,20 @@ public final class WatchAvatar {
       } catch (Exception e) {
         dragonWidth = -1;
       }
+    }
     com.mojang.blaze3d.systems.RenderSystem.enableBlend();
     com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
     g.enableScissor(x, y, x + size, y + size);
-    if (newDragon && dragonWidth > 0) {
+    int gW = mcStyle ? geminiMcWidth : geminiMoeWidth;
+    int gH = mcStyle ? geminiMcHeight : geminiMoeHeight;
+    if (geminiAvatar && gW > 0) {
+      ResourceLocation tex = mcStyle ? GEMINI_MC : GEMINI_MOE;
+      int sx = column % 4 * gW / 4,
+          sy = column / 4 * gH / 2,
+          sw = (column % 4 + 1) * gW / 4 - sx,
+          sh = (column / 4 + 1) * gH / 2 - sy;
+      g.blit(tex, x, y, size, size, (float) sx, (float) sy, sw, sh, gW, gH);
+    } else if (newDragon && dragonWidth > 0) {
       int sx = column % 4 * dragonWidth / 4,
           sy = column / 4 * dragonHeight / 2,
           sw = (column % 4 + 1) * dragonWidth / 4 - sx,
@@ -90,7 +124,12 @@ public final class WatchAvatar {
           height);
     g.disableScissor();
     com.mojang.blaze3d.systems.RenderSystem.disableBlend();
-    String name = Store.config.avatar.equals("CHATGPT") ? "ChatGPT 龙娘" : "DeepSeek 鲸娘";
+    String name =
+        switch (Store.config.avatar) {
+          case "CHATGPT" -> "ChatGPT 龙娘";
+          case "GEMINI" -> "Gemini 星灵";
+          default -> "DeepSeek 鲸娘";
+        };
     name += " · " + view.kind.title;
     g.drawString(
         mc.font, mc.font.plainSubstrByWidth(name, size + 8), x, y + size, 0xffd5e7fb, true);

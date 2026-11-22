@@ -13,9 +13,9 @@ import net.minecraft.world.item.ItemStack;
  */
 final class GuiExitJob extends Actions.Job {
   private final boolean back;
-  private boolean stowIssued, stowed;
+  private boolean stowIssued, stowed, refreshRequested;
   private long stowBefore;
-  private int stowTarget = -1;
+  private int stowTarget = -1, waitTicks;
   private String stowNote = "";
 
   GuiExitJob(boolean back, Consumer<String> done) {
@@ -46,14 +46,32 @@ final class GuiExitJob extends Actions.Job {
           return;
         }
         if (!MenuContext.targetConfirmed(stowTarget)) {
-          finish("失败：[MENU_UNCONFIRMED] 收回目标槽或鼠标物品尚无一致服务器快照；先刷新观察，未关闭界面。");
+          if (!refreshRequested && MenuRefresh.request()) {
+            refreshRequested = true;
+            return;
+          }
+          if (++waitTicks <= 40) return;
+          if (back) {
+            stowNote =
+                "提示：鼠标槽位重同步超时（mismatch="
+                    + MenuContext.diagnoseSync()
+                    + "），已直接执行界面返回，请核对鼠标物品；";
+            stowed = true;
+          } else {
+            finish(
+                "失败：[MENU_UNCONFIRMED] 收回目标槽或鼠标物品尚无一致服务器快照（mismatch="
+                    + MenuContext.diagnoseSync()
+                    + "）；未关闭界面。");
+            return;
+          }
+        }
+        if (!stowed) {
+          stowBefore = MenuContext.revision();
+          Actions.status = "GUI退出 · 自动收回鼠标物品";
+          Actions.click(stowTarget, 0, ClickType.PICKUP);
+          stowIssued = true;
           return;
         }
-        stowBefore = MenuContext.revision();
-        Actions.status = "GUI退出 · 自动收回鼠标物品";
-        Actions.click(stowTarget, 0, ClickType.PICKUP);
-        stowIssued = true;
-        return;
       }
     } else if (!stowed) {
       if (carried.isEmpty()

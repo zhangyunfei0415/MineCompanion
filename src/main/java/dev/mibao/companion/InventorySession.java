@@ -62,13 +62,7 @@ public final class InventorySession {
     if (!requested) {
       before = InventoryEvidence.fullRevision;
       requested = true;
-      // Vanilla 1.20.1 accepts slot -1 PICKUP as a no-op (unlike -999 which drops).
-      // An out-of-date state requests a full authoritative resync. No inventory/world mutation.
-      // Only menu 0 is allowed. Never issue outside-drop clicks or change the local state id.
-      mc().getConnection()
-          .send(
-              new ServerboundContainerClickPacket(
-                  0, -1, -1, 0, ClickType.PICKUP, ItemStack.EMPTY, new Int2ObjectOpenHashMap<>()));
+      requestMenu0Sync();
       return 0;
     }
     if (InventoryEvidence.fullRevision > before) {
@@ -82,10 +76,63 @@ public final class InventorySession {
           p.inventoryMenu.getCarried(),
           InventoryEvidence.cursor,
           p.inventoryMenu.getCarried(),
-          ItemStack::matches)) return 1;
+          StackSyncMatcher::syncStable)) return 1;
     }
-    if (++wait > 100) return fail("5秒内没有完整且一致的服务器背包快照，停止并保留现场");
+    ++wait;
+    if (wait == 30 || wait == 65) requestMenu0Sync();
+    if (wait > 100)
+      return fail("5秒内没有完整且一致的服务器背包快照，停止并保留现场（" + diagnoseMismatch() + "）");
     return 0;
+  }
+
+  private static void requestMenu0Sync() {
+    var conn = mc().getConnection();
+    if (conn == null) return;
+    // Vanilla 1.20.1 accepts slot -1 PICKUP as a no-op (unlike -999 which drops).
+    // An out-of-date state requests a full authoritative resync. No inventory/world mutation.
+    // Only menu 0 is allowed. Never issue outside-drop clicks or change the local state id.
+    conn.send(
+        new ServerboundContainerClickPacket(
+            0, -1, -1, 0, ClickType.PICKUP, ItemStack.EMPTY, new Int2ObjectOpenHashMap<>()));
+  }
+
+  public static String diagnoseMismatch() {
+    var p = mc().player;
+    if (p == null) return "player_unavailable";
+    if (InventoryEvidence.receivedAt == 0 || InventoryEvidence.slots.isEmpty())
+      return "no_server_inventory_content";
+    var actual = snapshot();
+    if (actual.size() != InventoryEvidence.slots.size())
+      return "slot_count_mismatch(sync=" + InventoryEvidence.slots.size() + ",client=" + actual.size() + ")";
+    List<String> diffs = new ArrayList<>();
+    if (!StackSyncMatcher.syncStable(InventoryEvidence.cursor, p.inventoryMenu.getCarried()))
+      diffs.add("cursor(" + StackSyncMatcher.describeDiff(InventoryEvidence.cursor, p.inventoryMenu.getCarried()) + ")");
+    for (int i = 0; i < actual.size(); i++) {
+      var srv = InventoryEvidence.slots.get(i);
+      var cli = actual.get(i);
+      if (!StackSyncMatcher.syncStable(srv, cli)) {
+        diffs.add("slot:" + i + "(" + StackSyncMatcher.describeDiff(srv, cli) + ")");
+        if (diffs.size() >= 6) break;
+      }
+    }
+    return diffs.isEmpty() ? "waiting_fresh_full_revision" : String.join(",", diffs);
+  }
+
+  public static com.google.gson.JsonArray volatileSlots() {
+    var arr = new com.google.gson.JsonArray();
+    var p = mc().player;
+    if (p == null || InventoryEvidence.slots.isEmpty()) return arr;
+    var actual = snapshot();
+    int n = Math.min(actual.size(), InventoryEvidence.slots.size());
+    for (int i = 0; i < n; i++) {
+      if (StackSyncMatcher.isVolatileOnlyMismatch(InventoryEvidence.slots.get(i), actual.get(i))) {
+        var row = new com.google.gson.JsonObject();
+        row.addProperty("slot", i);
+        row.addProperty("item", StackSyncMatcher.itemId(actual.get(i)));
+        arr.add(row);
+      }
+    }
+    return arr;
   }
 
   public boolean confirms(List<ItemStack> expected, ItemStack cursor) {
@@ -98,7 +145,7 @@ public final class InventorySession {
         cursor,
         InventoryEvidence.cursor,
         mc().player.inventoryMenu.getCarried(),
-        ItemStack::matches);
+        StackSyncMatcher::syncStable);
   }
 
   private int fail(String reason) {

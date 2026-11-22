@@ -7,9 +7,15 @@ public final class PermissionPolicy {
   public record Grants(
       String mode, boolean containers, boolean gui, boolean drop, boolean entities) {}
 
+  static String explorationDenial(String policy) {
+    return "maze_strict_detour".equals(policy) ? ""
+        : "[PERMISSION_REQUIRED] 探索工具仅允许只走不拆；矿洞破障由采矿作业和导航权限决定";
+  }
+
   public static String denial(String tool, Grants g) {
     if ("FULL".equals(g.mode()) || !"LIMITED".equals(g.mode())) return "";
-    if (tool.equals("drop_inventory") && !g.drop()) return "失败：[PERMISSION_REQUIRED] 有限模式未允许丢弃物品";
+    if ((tool.equals("drop_inventory") || tool.equals("handoff_to_owner")) && !g.drop())
+      return "失败：[PERMISSION_REQUIRED] 有限模式未允许丢弃/递交物品";
     if (tool.equals("use_entity") && !g.entities()) return "失败：[PERMISSION_REQUIRED] 有限模式未允许实体交互";
     if (Set.of(
                 "fetch",

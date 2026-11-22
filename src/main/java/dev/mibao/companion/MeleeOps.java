@@ -45,6 +45,10 @@ public final class MeleeOps {
   }
 
   public static boolean eligible(LivingEntity e, String type) {
+    return eligible(e, type, false);
+  }
+
+  public static boolean eligible(LivingEntity e, String type, boolean allowCreeper) {
     String id = BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString();
     boolean player = e instanceof net.minecraft.world.entity.player.Player;
     return e != mc().player
@@ -55,7 +59,8 @@ public final class MeleeOps {
         && !(e instanceof TamableAnimal)
         && ((player && Store.config.attackPlayers && type.equals("minecraft:player"))
             || !player
-                && (CombatPolicy.HUNTABLE.contains(id)
+                && ((CombatPolicy.HUNTABLE.contains(id)
+                            || allowCreeper && "minecraft:creeper".equals(id))
                         && (type.equals("hostile") || type.equals(id))
                     || Store.config.huntResources
                         && CombatPolicy.RESOURCES.contains(id)

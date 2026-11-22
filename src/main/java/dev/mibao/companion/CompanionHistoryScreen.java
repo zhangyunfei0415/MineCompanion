@@ -82,7 +82,7 @@ public final class CompanionHistoryScreen extends Screen {
     UiTheme t = UiTheme.current();
     g.fill(0, 0, width, height, t.backdrop());
     UiDraw.fillRounded(g, 10, 8, width - 20, height - 16, t.windowBg(), t.border());
-    UiDraw.fillHGradient(g, 11, 9, width - 22, 2, t.accent(), t.accentAlt());
+    UiDraw.fillAuroraBar(g, 11, 9, width - 22, 2, t);
 
     g.drawString(font, "伙伴手记 · 人设与本世界交流", 22, 18, t.accent(), false);
     g.drawString(font, "人设与偏好跨世界共享 · 对话按世界保存 · 旧动作不重放", 22, 32, t.textSecondary(), false);

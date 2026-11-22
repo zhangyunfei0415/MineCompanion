@@ -1,5 +1,7 @@
 package dev.mibao.companion;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import java.net.URI;
 import java.util.Set;
 
@@ -9,6 +11,10 @@ public final class Rules {
 
   public static final Set<String> TOOLS =
       Set.of(
+          "explore_mark",
+          "explore_query",
+          "explore_branch",
+          "explore_return",
           "decision_select",
           "decision_status",
           "config_reload",
@@ -168,6 +174,12 @@ public final class Rules {
           "follow_start",
           "follow_stop",
           "follow_enter_portal",
+          "duty_status",
+          "duty_set",
+          "observe_owner_focus",
+          "handoff_to_owner",
+          "auto_action",
+          "resync_inventory",
           "build_shelter",
           "boat_to",
           "elytra_land",
@@ -210,8 +222,15 @@ public final class Rules {
           "finish");
   public static final Set<String> WRITE =
       Set.of(
+          "explore_mark",
+          "explore_branch",
+          "explore_return",
           "follow_start",
           "follow_enter_portal",
+          "duty_set",
+          "handoff_to_owner",
+          "auto_action",
+          "resync_inventory",
           "build_shelter",
           "boat_to",
           "elytra_land",
@@ -416,5 +435,38 @@ public final class Rules {
     } catch (Exception e) {
       return false;
     }
+  }
+
+  public static long requiredLong(JsonObject args, String key) {
+    JsonElement el = requiredNumericElement(args, key);
+    try {
+      return el.getAsLong();
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 参数 " + key + " 须为整数");
+    }
+  }
+
+  public static int requiredInt(JsonObject args, String key) {
+    JsonElement el = requiredNumericElement(args, key);
+    try {
+      return el.getAsInt();
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 参数 " + key + " 须为整数");
+    }
+  }
+
+  public static double requiredDouble(JsonObject args, String key) {
+    JsonElement el = requiredNumericElement(args, key);
+    try {
+      return el.getAsDouble();
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 参数 " + key + " 须为数值");
+    }
+  }
+
+  private static JsonElement requiredNumericElement(JsonObject args, String key) {
+    if (args == null || !args.has(key) || args.get(key).isJsonNull())
+      throw new IllegalArgumentException("[ARGUMENT_REQUIRED] 缺少必要数值参数：" + key);
+    return args.get(key);
   }
 }

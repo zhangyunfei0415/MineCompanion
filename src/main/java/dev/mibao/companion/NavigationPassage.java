@@ -13,7 +13,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 /** Only the path search may ignore an operable gate. Movement waits for observed open geometry. */
 public final class NavigationPassage {
   private final AimGate aim = new AimGate();
-  private BlockPos pending;
+  private BlockPos pending, triggerPos;
   private int wait, attempts;
   private String error = "";
 
@@ -26,13 +26,38 @@ public final class NavigationPassage {
   }
 
   private static boolean operable(BlockState s) {
-    return s.is(BlockTags.WOODEN_DOORS) || s.getBlock() instanceof FenceGateBlock;
+    return s.is(BlockTags.WOODEN_DOORS)
+        || s.getBlock() instanceof FenceGateBlock
+        || s.is(BlockTags.WOODEN_TRAPDOORS);
   }
 
   private static boolean closed(BlockState s) {
-    return operable(s)
+    return (operable(s) || s.is(Blocks.IRON_DOOR))
         && s.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN)
         && !s.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.OPEN);
+  }
+
+  private static BlockPos findIronDoorTrigger(BlockPos doorPos, boolean requireReachable) {
+    var level = mc().level;
+    var player = mc().player;
+    if (level == null) return null;
+    BlockPos origin = player != null ? player.blockPosition() : doorPos;
+    BlockPos best = null;
+    double bestDist = Double.MAX_VALUE;
+    for (BlockPos p :
+        BlockPos.betweenClosed(
+            doorPos.offset(-2, -1, -2), doorPos.offset(2, 2, 2))) {
+      if (!level.hasChunkAt(p)) continue;
+      var st = level.getBlockState(p);
+      if (!st.is(BlockTags.BUTTONS) && !st.is(Blocks.LEVER)) continue;
+      if (requireReachable && Reach.hit(p) == null) continue;
+      double dist = p.distSqr(origin);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = p.immutable();
+      }
+    }
+    return best;
   }
 
   public static boolean clear(AABB area, boolean planning) {
@@ -45,7 +70,8 @@ public final class NavigationPassage {
             BlockPos.containing(area.maxX + 1, area.maxY + 1, area.maxZ + 1))) {
       if (!mc().level.hasChunkAt(at)) return false;
       var state = mc().level.getBlockState(at);
-      if (operable(state)) continue;
+      if (operable(state) || (state.is(Blocks.IRON_DOOR) && findIronDoorTrigger(at, false) != null))
+        continue;
       for (var box :
           state.getCollisionShape(mc().level, at, CollisionContext.of(mc().player)).toAabbs())
         if (box.move(at).intersects(area)) return false;
@@ -65,6 +91,7 @@ public final class NavigationPassage {
             proof != null && proof.equals(state),
             proof == null || closed(proof))) {
           pending = null;
+          triggerPos = null;
           wait = attempts = 0;
           return 0;
         }
@@ -90,7 +117,19 @@ public final class NavigationPassage {
             state.getCollisionShape(mc().level, at).toAabbs().stream()
                 .anyMatch(b -> b.move(at).intersects(corridor));
         if (intersects) {
+          if (state.is(BlockTags.WOODEN_TRAPDOORS)
+              && at.getY() < Math.floor(corridor.minY + 0.05)
+              && mc().level.hasChunkAt(at.below())) {
+            var below = mc().level.getBlockState(at.below());
+            if (below.getCollisionShape(mc().level, at.below()).isEmpty()
+                && !below.is(BlockTags.CLIMBABLE)) {
+              continue;
+            }
+          }
+          BlockPos trig = state.is(Blocks.IRON_DOOR) ? findIronDoorTrigger(at, true) : null;
+          if (state.is(Blocks.IRON_DOOR) && trig == null) continue;
           pending = at.immutable();
+          triggerPos = trig;
           wait = attempts = 0;
           break;
         }
@@ -100,9 +139,10 @@ public final class NavigationPassage {
       error = "[DOOR_BLOCKED] 关闭的门阻挡路线；自动开门关闭或玩家正潜行：" + pending.toShortString();
       return -1;
     }
-    var hit = Reach.hit(pending);
+    BlockPos clickTarget = triggerPos != null ? triggerPos : pending;
+    var hit = Reach.hit(clickTarget);
     if (hit == null) {
-      error = "[DOOR_BLOCKED] 门暂不可交互：" + pending.toShortString();
+      error = "[DOOR_BLOCKED] 门或开关暂不可交互：" + clickTarget.toShortString();
       return -1;
     }
     if (!aim.ready(hit.getLocation())) return 0;

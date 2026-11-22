@@ -85,7 +85,17 @@ public final class ControlJob extends Actions.Job {
       }
       if (!MenuContext.synchronizedNow()
           || (MenuRefresh.supported() && MenuContext.revision() <= closeRevision)) {
-        if (++ticks > 100) finish("失败：没有一致的服务器菜单快照，保持界面；请核对鼠标物品。");
+        ++ticks;
+        if (!MenuRefresh.vanillaWhitelisted() && ticks > 40 && InventorySession.canClose()) {
+          mc.player.closeContainer();
+          GuiContext.invalidate();
+          finish(
+              mc.screen == null
+                  ? "成功：已关闭自定义物品界面（重同步超时）；未核实的生产/库存结果仍保持未核实。"
+                  : "失败：界面未关闭。");
+          return;
+        }
+        if (ticks > 100) finish("失败：没有一致的服务器菜单快照，保持界面；请核对鼠标物品（" + MenuContext.diagnoseSync() + "）。");
         return;
       }
       if (!InventorySession.canClose()) {

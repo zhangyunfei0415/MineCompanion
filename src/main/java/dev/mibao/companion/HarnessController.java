@@ -322,6 +322,12 @@ public final class HarnessController {
         if (!Rules.TOOLS.contains(tool)
             || Set.of("finish", "run_skill", "save_skill", "read_web", "search_web").contains(tool))
           throw new IllegalArgumentException("外部action仅允许已有游戏工具；不直接执行模型、网页或技能定义");
+        if (!Agent.paused && !Cooperation.yielding() && DutyScheduler.ownsCurrentJob()
+            && Agent.routine == null && Agent.production == null && Agent.transport == null
+            && Agent.restock == null && Agent.resource == null && Agent.session == null
+            && !Agent.busy && Agent.pendingTool.isBlank()) {
+          DutyScheduler.yieldCurrentJob("明确指令抢占：" + tool);
+        }
         if ((Agent.paused || Cooperation.yielding() || busy())
             && !Set.of(
                     "capability_probe",
@@ -338,6 +344,9 @@ public final class HarnessController {
                     "follow_targets",
                     "follow_status",
                     "follow_stop",
+                    "duty_status",
+                    "duty_set",
+                    "observe_owner_focus",
                     "resume_control",
                     "pause_control",
                     "permission_status",
@@ -354,6 +363,7 @@ public final class HarnessController {
                     "mining_status",
                     "plan_mining",
                     "preview_mining_route",
+                    "explore_query",
                     "command_status")
                 .contains(tool))
           return publicReceipt(session.blocked(id, signature, Agent.epoch, tool,

@@ -188,7 +188,12 @@ final class ContainerJob extends Actions.Job {
         complete(proof, true);
         return;
       }
-      if ((!MenuContext.kind().equals("storage") || !Rules.standardStorage(block))
+      boolean lootrAllowed =
+          Store.data != null
+              && Store.data.duty != null
+              && Store.data.duty.preferLootrContainers
+              && VolatileTagPolicy.isLootrContainer(block);
+      if ((!MenuContext.kind().equals("storage") || !(Rules.standardStorage(block) || lootrAllowed))
           && !ModMenuReceipts.supported()) {
         finish("失败：界面已观察并记忆，但该方块/菜单尚未适配自动取放；请使用 observe 检查槽位，或反馈该机器/仓储界面。");
         return;

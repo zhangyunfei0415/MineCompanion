@@ -35,6 +35,8 @@ final class AgentObservation {
     o.add("inventory", inv);
     o.add("cursor", Actions.item(mc.player.containerMenu.getCarried()));
     o.addProperty("screen", mc.screen == null ? "world" : mc.screen.getClass().getName());
+    o.add("duty", DutyScheduler.status());
+    o.add("owner_focus", OwnerContext.compact());
     o.addProperty(
         "detail_tools",
         "inspect_gui/menu/block; integration_status; command_status; task_timeline; task_status");

@@ -132,7 +132,9 @@ public final class Agent {
 
   public static void stop(String why) {
     FollowControl.stop("跟随结束 · " + why);
+    DutyScheduler.disarmForSafety("停止接管 · " + why);
     stopInternal(why, false);
+    WatchPowerSaver.sync();
   }
 
   static void cancelSubmittedTask(String why) {
@@ -158,6 +160,7 @@ public final class Agent {
 
   static void suspendForDeath() {
     FollowControl.beforeDeath();
+    DutyScheduler.disarmForSafety("角色死亡，值守进入安全待命");
     DecisionService.invalidate();
     stopInternal("角色死亡，旧作业已作废；按已选策略等待正常重生", true, true);
     paused = true;
@@ -513,6 +516,11 @@ public final class Agent {
     }
     if (local && ChatCommand.incompleteFollow(text)) {
       Companion.notifyUser("请说「跟随 玩家名」或先选人，再说「开始跟随」");
+      return;
+    }
+    var dutyCmd = local ? ChatCommand.duty(text) : null;
+    if (dutyCmd != null) {
+      DutyScheduler.handleChatCommand(dutyCmd, Companion::notifyUser);
       return;
     }
     if (local && !enabled) start();
@@ -1073,7 +1081,8 @@ public final class Agent {
   }
 
   private static String system() {
-    return "空岛施工优先preview_platform/build_platform/build_bridge，不要让模型逐格反复place_block；地板y是方块层而非脚部高度，使用普通完整方块，未知边缘不盲走，build_status查进度。任务详情的只读TextField允许观察，role=task_action是任务按钮，claim_reward是单项奖励，客户端完成/可领状态不是物品到账证据。权限不等于能力：可先capability_probe预检；扫描对象列表是稀疏记忆，缺条目不代表空气，几何用inspect_block/inspect_client，query_world可分页。定点拆牌用break_block/attack_block，存储需confirm与近期真实空库存；未知机器先machine_adapters查技能入口。place_block的x/y/z是目标空格，face是支撑面的外法线，自动潜行。write_sign接受1..4行。水中受困先swim_out，失败不代表接管被撤销；原版资源动物需明确注册ID，不把hostile扩大为动物。"
+    return "探路先explore_query，入口用explore_mark(kind=entry)，要求探路后返回用explore_branch(return_after=true)，回程用explore_return。不把单向跌落或传送当作可逆通道。"
+        + "空岛施工优先preview_platform/build_platform/build_bridge，不要让模型逐格反复place_block；地板y是方块层而非脚部高度，使用普通完整方块，未知边缘不盲走，build_status查进度。任务详情的只读TextField允许观察，role=task_action是任务按钮，claim_reward是单项奖励，客户端完成/可领状态不是物品到账证据。权限不等于能力：可先capability_probe预检；扫描对象列表是稀疏记忆，缺条目不代表空气，几何用inspect_block/inspect_client，query_world可分页。定点拆牌用break_block/attack_block，存储需confirm与近期真实空库存；未知机器先machine_adapters查技能入口。place_block的x/y/z是目标空格，face是支撑面的外法线，自动潜行。write_sign接受1..4行。水中受困先swim_out，失败不代表接管被撤销；原版资源动物需明确注册ID，不把hostile扩大为动物。"
                + "任务开始和计划改变时用report_plan报告公开的目标、当前判断和下一步；可用report_progress补充一两句工作说明，不输出私有推理，不对每次点击重复解释。明确物品与数量的委托优先run_order(kind=supply/craft/smelt/deliver，item为目标产物，smelt另给input)，可省destination使用当前成员交付点；该执行器准备并实际交付，数量在logistics_status查。prepare_bag按世界常备模板准备，期望项不足不一律挡任务。旧craft_item/smelt_item口令语义不变。优先用capability_catalog按family筛选能力，list_library查询可复用技能。gui_select可按当前物品或精确控件标签定位，不用固化屏幕坐标。use_entity只对可见近处实体发送一次交互，不证明交易。使用report_plan向侧栏更新简洁目标、当前步骤和下一步，不输出私有推理；工具失败或计划改变时更新。inspect_client提供客户端朝向、准星、加载、光照和交互几何诊断，不能据此猜测库存。你是"
                + " Minecraft Forge 模组服里的玩家角色，名字是"
         + Store.config.name
@@ -1094,7 +1103,8 @@ public final class Agent {
         + "采矿委托由你拆解并选择挖法，玩家只需要说目标。先用plan_mining：矿物数量、拾取或送箱用collect，开通道用tunnel，下到某一层用descend，有主巷要开分支用branches。结合现有入口、指定方向、宽度、脚底高度和权限；未指定预设不提问。"
         + "用report_plan简报选出的挖法与原因，先核对next_action和预览：支路缩短或跳过时按实际能做的范围汇报，用户要求的长度未达不能算完整。执行后核对回执。指定坐标须先到入口并站稳；指定采集地点也先走到现场。缺露头时先按观测换作业点；只有目标和授权允许开挖才做短段勘探。"
         + "连续矿物不足时以completed_count和mining_status核对剩余需求；原作业可用返回的request和job_id恢复，不把未知回执当失败重放。先开矿道再采集时，施工不计产量；需要从终点继续时让中间段return_home=false，记住各段入口，再检测终点、采集、按任务要求返程。"
-        + "计划的remaining_depth_after_segment或remaining_length_after_segment大于零时，站稳后从实际前沿重新规划，扣除已花的总预算，最终按已通过的路线逐段返。复合任务如挖完再熔炼，可切换对应工具组继续。用户指定的方位、截面、预算、禁止破坏或交付限制均不可自行更改。只有缺关键目标或缺权限、路线持续不安全才询问。旧mine_resource的count仍是方块数。";
+        + "计划的remaining_depth_after_segment或remaining_length_after_segment大于零时，站稳后从实际前沿重新规划，扣除已花的总预算，最终按已通过的路线逐段返。复合任务如挖完再熔炼，可切换对应工具组继续。用户指定的方位、截面、预算、禁止破坏或交付限制均不可自行更改。只有缺关键目标或缺权限、路线持续不安全才询问。旧mine_resource的count仍是方块数。"
+        + "AI 拥有自主调档权（遵循玩家设置的自主调档权限）：根据主人上线/远行或背包满载等局势可主动调用 duty_set 在 STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER 间切换；协同互动可用 observe_owner_focus 读取主人视线与手持、handoff_to_owner 递物资；刷石机/曲柄/筛网/刷怪塔连续挂机优先使用 auto_action。";
   }
 
   public static String recall(String query) {
@@ -1423,13 +1433,21 @@ public final class Agent {
         return;
       }
       if (preflight != null) preflight.run();
-      if (Rules.WRITE.contains(tool) && !tool.equals("follow_start") && !tool.equals("follow_enter_portal"))
+      if (Rules.WRITE.contains(tool) && DutyScheduler.ownsCurrentJob()) {
+        DutyScheduler.yieldCurrentJob("任务指令抢占：" + tool);
+      }
+      if (Rules.WRITE.contains(tool)
+          && !tool.equals("follow_start")
+          && !tool.equals("follow_enter_portal")
+          && !tool.equals("duty_set"))
         FollowControl.suspend("等待当前任务安全完成");
       if (Set.of(
               "swim_out",
               "unstick",
               "break_block",
               "attack_block",
+              "auto_action",
+              "handoff_to_owner",
               "interact_block",
               "use_item_on_block",
               "plant_crops",
@@ -1453,6 +1471,8 @@ public final class Agent {
               "use_hand",
               "fish",
               "illuminate_area",
+              "explore_branch",
+              "explore_return",
               "go_to",
               "mine_resource",
               "mine_blocks",
@@ -1485,6 +1505,9 @@ public final class Agent {
         }
       }
       switch (tool) {
+        case "explore_mark" -> done.accept(ExplorationMemory.mark(a));
+        case "explore_query" -> done.accept(ExplorationMemory.query(a).toString());
+        case "explore_branch", "explore_return" -> ExplorationJob.start(tool, a, done);
         case "run_order" -> LogisticsRuntime.start(a, done);
         case "prepare_bag" -> LogisticsRuntime.bag(done);
         case "logistics_status" -> done.accept(LogisticsRuntime.view(a).toString());
@@ -1595,6 +1618,48 @@ public final class Agent {
         case "follow_start" -> done.accept(FollowControl.start(a, false).toString());
         case "follow_stop" -> done.accept(FollowControl.stopRequest(a).toString());
         case "follow_enter_portal" -> done.accept(FollowControl.requestPortal(a).toString());
+        case "duty_status" -> done.accept(DutyScheduler.status().toString());
+        case "duty_set" -> done.accept(DutyScheduler.setFromTool(a).toString());
+        case "observe_owner_focus" -> done.accept(OwnerContext.observe().toString());
+        case "handoff_to_owner" ->
+            Actions.job =
+                new HandoffJob(
+                    SkillCatalog.required(a, "item"),
+                    a.has("stack") && a.get("stack").getAsBoolean(),
+                    str(a, "player_name", ""),
+                    done);
+        case "auto_action" -> {
+          var mode = GeneratorPolicy.AutoMode.parse(SkillCatalog.required(a, "mode"));
+          boolean full = Store.config.fullGameControl || "FULL".equals(Store.config.permission);
+          if (!full && "LIMITED".equals(Store.config.permission)) {
+            if (mode == GeneratorPolicy.AutoMode.MINE_HOLD && !Store.config.allowMine)
+              throw new IllegalArgumentException("失败：当前禁止采集；请在权限面板授权");
+            if (mode == GeneratorPolicy.AutoMode.ATTACK_CLICK && !Store.config.allowHunt)
+              throw new IllegalArgumentException("失败：当前禁止主动清怪；请在权限面板授权");
+            if ((mode == GeneratorPolicy.AutoMode.USE_HOLD
+                    || mode == GeneratorPolicy.AutoMode.USE_CLICK)
+                && !Store.config.allowPlace
+                && !Store.config.allowContainers)
+              throw new IllegalArgumentException("失败：[PERMISSION_REQUIRED] 有限模式未允许方块交互/放置");
+          }
+          net.minecraft.core.BlockPos pos =
+              a.has("x") && a.has("y") && a.has("z")
+                  ? new net.minecraft.core.BlockPos(
+                      a.get("x").getAsInt(), a.get("y").getAsInt(), a.get("z").getAsInt())
+                  : null;
+          Actions.job =
+              new AutoActionJob(
+                  mode,
+                  pos,
+                  number(a, "count", mode == GeneratorPolicy.AutoMode.MINE_HOLD ? 64 : 0),
+                  number(a, "interval_ticks", 0),
+                  number(a, "max_seconds", 180),
+                  a.has("until_tools_spent") && a.get("until_tools_spent").getAsBoolean(),
+                  number(a, "min_durability", 0),
+                  str(a, "item", ""),
+                  done);
+        }
+        case "resync_inventory" -> Actions.job = new ResyncInventoryJob(done);
         case "brew_batch" -> Actions.job = new BrewJob(a, done);
         case "enchant_item" -> Actions.job = new VanillaGearJob(true, a, done);
         case "anvil_item" -> Actions.job = new VanillaGearJob(false, a, done);
@@ -1968,7 +2033,7 @@ public final class Agent {
           for (var e : a.getAsJsonArray("slots")) targets.add(e.getAsBigDecimal().intValueExact());
           Actions.job =
               new GuiGestureJob(
-                  number(a, "source", -1), targets, a.get("gui_view").getAsLong(), done);
+                  number(a, "source", -1), targets, Rules.requiredLong(a, "gui_view"), done);
         }
         case "inspect_screen" -> done.accept(ScreenInput.inspect().toString());
         case "quest_book_open" -> {
@@ -2031,7 +2096,7 @@ public final class Agent {
                 "[ARGUMENT_REQUIRED] 需要inspect_gui返回的gui_view与widget；告示牌使用write_sign");
           var w =
               GuiContext.widget(
-                  a.get("gui_view").getAsLong(), SkillCatalog.bounded(a, "widget", -1, 0, 127));
+                  Rules.requiredLong(a, "gui_view"), SkillCatalog.bounded(a, "widget", -1, 0, 127));
           if (tool.equals("gui_button")) {
             if (!(w instanceof net.minecraft.client.gui.components.AbstractButton b))
               throw new IllegalArgumentException("该控件不是可操作按钮");
@@ -2224,6 +2289,9 @@ public final class Agent {
                       a.has("confirm") && a.get("confirm").getAsBoolean(),
                       SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
                       WriteTrace.written(p, done))
+                  .allowFluidNeighbor(
+                      a.has("allow_fluid_neighbor")
+                          && a.get("allow_fluid_neighbor").getAsBoolean())
                   .groundDrops(
                       DropCapacityPolicy.allowGround(str(a, "drop_policy", "allow_ground")));
         }
@@ -2551,13 +2619,7 @@ public final class Agent {
   }
 
   public static long requiredView(JsonObject args) {
-    if (!args.has("gui_view") || args.get("gui_view").isJsonNull())
-      throw new IllegalArgumentException("[INVALID_ARGUMENT] 需要inspect_gui返回的gui_view");
-    try {
-      return args.get("gui_view").getAsLong();
-    } catch (RuntimeException e) {
-      throw new IllegalArgumentException("[INVALID_ARGUMENT] gui_view须为整数");
-    }
+    return Rules.requiredLong(args, "gui_view");
   }
 
   private static int transferCount(JsonObject args) {

@@ -59,6 +59,9 @@ public final class BundleSanitizer {
         String key = entry.getKey();
         String lower = key.toLowerCase(Locale.ROOT);
         JsonElement val = entry.getValue();
+        if (lower.equals("tool") && val != null && val.isJsonPrimitive()
+            && val.getAsString().startsWith("explore_"))
+          violations.add(path + "." + key + " 属于世界探索记忆");
         if (SECRET_KEYS.contains(lower)
             && val != null
             && val.isJsonPrimitive()

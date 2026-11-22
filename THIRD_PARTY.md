@@ -98,3 +98,7 @@ Wire references: https://developers.openai.com/api/docs/guides/streaming-respons
 本轮阅读了 More Overlays Updated 的 1.20.1 Forge 源码（MIT）、XPlus Autofish 的对应 Forge 分支（源码声明 GPLv3 或之后版本）及 North-West-Wind AutoFish 多版本源码（GPLv3）。固定提交、归档校验值与文件分析见 `docs/RESEARCH-LIGHTING-FISHING-20261112.md`。
 
 新照明与钓鱼任务使用项目独立实现，基于正常客户端区域数据、自己浮漂运动、物品使用及库存同步。上游源码保存在工作区研究目录，相关运行代码采用本项目许可。
+
+## 0.8.6 新增立绘与独立实现声明
+
+「Gemini 星灵」双画风 4×2 透明状态图集（`assets/logistics_companion/textures/gui/gemini_states_moe.png` 与 `gemini_states_mc.png`，尺寸及校验元数据记录于 `gemini_states.json`）由项目维护者生成并提供给本模组随包发布；三维探索记忆、科技模组通用重同步、易变 NBT 剥离、女仆值守与自主切档、涉水/爬梯/跑酷与 F4 节能、刷石机安全放行及内置 `AutoActionJob` 连点挂机引擎均为项目独立客户端实现，未复制或捆绑任何第三方自动化模组源码或外部键鼠程序。

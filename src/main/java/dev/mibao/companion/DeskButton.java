@@ -199,28 +199,44 @@ public final class DeskButton extends Button {
     UiTheme preview = UiTheme.of(swatchTheme);
     int fill =
         selected
-            ? UiTheme.withAlpha(t.accent(), t.light() ? 32 : 34)
+            ? UiTheme.withAlpha(t.accent(), t.light() ? 34 : 38)
             : hovered ? t.cardHover() : t.inputBg();
     int border = selected ? t.accent() : hovered ? t.borderStrong() : t.border();
     UiDraw.fillRounded(g, x, y, w, h, fill, border);
-    int px = x + 6, py = y + 6, ph = Math.max(12, h - 12);
-    UiDraw.fillRounded(g, px, py, 24, ph, preview.windowBg(), preview.border());
-    g.fill(px + 2, py + 2, px + 14, py + ph - 2, preview.cardBg());
-    UiDraw.fillHGradient(g, px + 2, py + 2, 20, 3, preview.accent(), preview.accentAlt());
-    g.fill(px + 15, py + 7, px + 21, py + ph - 3, preview.accent());
+    if (selected) g.fill(x, y + 4, x + 2, y + h - 4, t.accent());
+    int px = x + 6, py = y + 5, ph = Math.max(14, h - 10), pw = 28;
+    UiDraw.fillRounded(g, px, py, pw, ph, preview.windowBg(), preview.border());
+    g.fill(px + 2, py + 5, px + 8, py + ph - 2, preview.railBg());
+    g.fill(px + 9, py + 6, px + pw - 2, py + ph - 2, preview.cardBg());
+    UiDraw.fillHGradient(g, px + 2, py + 2, 12, 2, preview.accent(), preview.auroraMid());
+    UiDraw.fillHGradient(g, px + 14, py + 2, 12, 2, preview.auroraMid(), preview.accentAlt());
+    g.fill(px + pw - 8, py + 9, px + pw - 4, py + 13, preview.accent());
+    g.fill(px + 11, py + 9, px + 17, py + 11, preview.text());
 
     String title = preview.label();
-    int rightSpace = selected ? 44 : 10;
+    String modeTag = preview.light() ? "亮" : "暗";
+    int modeW = UiDraw.badgeWidth(f, modeTag);
+    int rightSpace = (selected ? 38 : 6) + modeW + 6;
     g.drawString(
         f,
         f.plainSubstrByWidth(title, Math.max(12, w - 42 - rightSpace)),
-        px + 30,
+        px + pw + 7,
         y + (h - 8) / 2,
         selected ? t.text() : t.textSecondary(),
         false);
+    int modeX = x + w - modeW - (selected ? 40 : 6);
+    UiDraw.drawBadge(
+        g,
+        f,
+        modeX,
+        y + (h - 13) / 2,
+        modeTag,
+        preview.light() ? t.textSecondary() : t.textMuted(),
+        UiTheme.withAlpha(t.borderStrong(), 36),
+        UiTheme.withAlpha(t.border(), 120));
     if (selected) {
       UiDraw.drawBadge(
-          g, f, x + w - 40, y + (h - 13) / 2, "当前", t.textOnAccent(), t.accent(), t.accent());
+          g, f, x + w - 36, y + (h - 13) / 2, "当前", t.textOnAccent(), t.accent(), t.accent());
     }
   }
 
@@ -272,10 +288,10 @@ public final class DeskButton extends Button {
           selected
               ? t.accent()
               : hovered
-                  ? UiTheme.withAlpha(t.accent(), t.light() ? 55 : 58)
-                  : UiTheme.withAlpha(t.accent(), t.light() ? 32 : 34);
+                  ? UiTheme.withAlpha(t.accent(), t.light() ? 38 : 58)
+                  : UiTheme.withAlpha(t.accent(), t.light() ? 22 : 34);
       border = t.accent();
-      fg = !active ? t.textMuted() : selected ? t.textOnAccent() : t.light() ? t.accent() : t.text();
+      fg = !active ? t.textMuted() : selected ? t.textOnAccent() : t.text();
     } else if (variant == Variant.DANGER || dangerTone) {
       fill =
           hovered

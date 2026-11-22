@@ -154,16 +154,24 @@ public final class StatusFeed {
           : Kind.REST;
     if (approval) return Kind.WAITING;
     if (action) {
-      if (detail.startsWith("进食")) return Kind.EATING;
+      if (detail.startsWith("进食") || detail.contains("自动进食")) return Kind.EATING;
       if (detail.startsWith("GUI")
           || detail.startsWith("背包")
           || detail.startsWith("打开背包")
           || detail.contains("准备 ·")) return Kind.INTERFACE;
       if (detail.startsWith("观察")) return Kind.SENSING;
-      if (detail.startsWith("采集") || detail.startsWith("采矿")) return Kind.MINING;
-      if (detail.startsWith("清怪") || detail.startsWith("自卫")) return Kind.COMBAT;
+      if (detail.startsWith("采集")
+          || detail.startsWith("采矿")
+          || detail.startsWith("刷石机")
+          || detail.contains("连挖")) return Kind.MINING;
+      if (detail.startsWith("清怪")
+          || detail.startsWith("自卫")
+          || detail.startsWith("刷怪塔")) return Kind.COMBAT;
       if (detail.startsWith("前往")) return Kind.WALKING;
-      if (detail.startsWith("存入") || detail.startsWith("取出")) return Kind.STORAGE;
+      if (detail.startsWith("存入")
+          || detail.startsWith("取出")
+          || detail.startsWith("收集掉落物")
+          || detail.startsWith("递交物品")) return Kind.STORAGE;
       return Kind.WORKING;
     }
     return thinking ? Kind.THINKING : Kind.IDLE;

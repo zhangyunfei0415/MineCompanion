@@ -159,12 +159,13 @@ public final class MenuClickJob extends Actions.Job {
     }
     if (MenuContext.revision() > before && MenuContext.synchronizedNow()) {
       var m = mc().player.containerMenu;
-      boolean same = expected.size() == m.slots.size() && ItemStack.matches(cursor, m.getCarried());
+      boolean same =
+          expected.size() == m.slots.size() && StackSyncMatcher.syncStable(cursor, m.getCarried());
       for (int i = 0; same && i < expected.size(); i++)
-        same = ItemStack.matches(expected.get(i), m.getSlot(i).getItem());
+        same = StackSyncMatcher.syncStable(expected.get(i), m.getSlot(i).getItem());
       boolean observed =
-          !ItemStack.matches(priorTarget, m.getSlot(affected).getItem())
-              || !ItemStack.matches(priorCursor, m.getCarried());
+          !StackSyncMatcher.syncStable(priorTarget, m.getSlot(affected).getItem())
+              || !StackSyncMatcher.syncStable(priorCursor, m.getCarried());
       finishResult(
           same && changed
               ? "成功：槽位与鼠标物品变化已由服务器同步核对；生产完成需再检查产物。"
@@ -180,7 +181,20 @@ public final class MenuClickJob extends Actions.Job {
       refreshRequested = true;
       MenuRefresh.request();
     }
-    if (ticks > 100) finishResult("部分完成：点击已发送，但没有获得完整一致的服务器结果；未知机器可能需要专用适配。保留界面，请核对后再操作。");
+    if (ticks > 100) {
+      String menuName = menu == null ? "null" : menu.getClass().getSimpleName();
+      finishResult(
+          "部分完成：[MENU_SYNC_TIMEOUT] 点击已发送，但没有获得完整一致的服务器结果"
+              + "（menu="
+              + menuName
+              + ", resync="
+              + MenuRefresh.mode()
+              + ", sync="
+              + MenuContext.syncStatus()
+              + ", mismatch="
+              + MenuContext.diagnoseSync()
+              + "）；保留界面，请核对后再操作。");
+    }
   }
 
   /**

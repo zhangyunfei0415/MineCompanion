@@ -29,6 +29,7 @@ public final class MiningExpedition extends Actions.Job {
   private final JsonObject request;
   private final List<String> deliveryTargets;
   private int deliveryIndex;
+  private int campApproached = -1;
   private String transferState = "idle";
   private JsonObject confirmedDestination;
   private Map<String, Integer> pendingCargo = Map.of();
@@ -95,8 +96,10 @@ public final class MiningExpedition extends Actions.Job {
       for (var value : old.getAsJsonArray("broken")) broken.add(position(value.getAsJsonArray()));
     } else if (Store.data.checkpoints.keySet().stream().filter(k -> k.startsWith("mining:")).count()
         >= 128) throw new IllegalArgumentException("[MINING_LEDGER_FULL] 已有128项作业，请备份整理检查点");
-    home = old == null ? origin : position(old.getAsJsonArray("home"));
-    workReturn = mc().player.blockPosition();
+    home = old == null ? Navigator.standingCell() : position(old.getAsJsonArray("home"));
+    workReturn = old != null && old.get("work_return") instanceof JsonArray saved
+        ? position(saved) : Navigator.standingCell();
+    ExplorationMemory.note(home, ExplorationGraph.Kind.ENTRY);
     survey = new MiningSurvey(spec, origin);
     survey.completed(broken);
     deadline = System.nanoTime() + spec.seconds() * 1_000_000_000L;
@@ -411,7 +414,8 @@ public final class MiningExpedition extends Actions.Job {
             survey.completed(batchBroken);
             survey.reject(batch.stream().filter(p -> !batchBroken.contains(p)).toList());
             failedBatches = batchBroken.isEmpty() ? failedBatches + 1 : 0;
-            workReturn = mc().player.blockPosition();
+            workReturn = Navigator.standingCell();
+            if (!batchBroken.isEmpty()) ExplorationMemory.minedAt(workReturn, batchBroken);
             checkpoint("batch_verified", false);
             if (failedBatches >= 3) {
               end(MINING_NO_PROGRESS, "连续三批没有确认挖除，" + lastChild);
@@ -427,17 +431,18 @@ public final class MiningExpedition extends Actions.Job {
     }
     if (phase.equals("return")) {
       var target = finishing ? home : workReturn;
-      var args = location(target);
-      dispatch(
-          "go_to",
-          args,
+      travelRemembered(
+          target,
           result -> {
             if (Rules.actionFailed(result)) {
               end(MINING_RETURN_FAILED, result);
               return;
             }
             if (finishing) end(NONE, finishReason);
-            else phase = "choose";
+            else {
+              campApproached = -1;
+              phase = "choose";
+            }
           });
     }
   }
@@ -671,6 +676,18 @@ public final class MiningExpedition extends Actions.Job {
     return args;
   }
 
+  private void travelRemembered(BlockPos target, Consumer<String> continuation) {
+    var graph = ExplorationMemory.graph();
+    var cell = ExplorationMemory.cell(target);
+    if (graph != null && graph.walked(cell) && graph.node(cell) != null) {
+      var args = new JsonObject();
+      args.addProperty("target", cell.id());
+      dispatch("explore_return", args, continuation);
+    } else {
+      dispatch("go_to", location(target), continuation);
+    }
+  }
+
   private void finishWork(String reason) {
     finishing = true;
     finishReason = reason;
@@ -687,15 +704,28 @@ public final class MiningExpedition extends Actions.Job {
       if (phase.equals("complete")) end(NONE, finishReason);
       return;
     }
-    if (++trips > 256) {
-      end(MINING_TRANSFER_LIMIT, "已到交付批次数预算");
-      return;
-    }
     var entry = cargo.entrySet().iterator().next();
     int amount = Math.min(64, entry.getValue());
     var destination = deliveryLocation(deliveryTargets.get(deliveryIndex));
     if (!destination.get("resolved").getAsBoolean()) {
       transferNotStarted(Agent.str(destination, "detail", "交付点无法解析"));
+      return;
+    }
+    BlockPos storage = Actions.target(destination);
+    var map = ExplorationMemory.graph();
+    var camp = ExplorationMemory.cell(home);
+    var stance = ExplorationMemory.current();
+    if (campApproached != deliveryIndex && home.distSqr(storage) <= 16
+        && map != null && map.node(camp) != null && !camp.equals(stance)) {
+      travelRemembered(home, result -> {
+        if (Rules.actionFailed(result)) end(MINING_RETURN_FAILED, result);
+        else campApproached = deliveryIndex;
+      });
+      return;
+    }
+    campApproached = deliveryIndex;
+    if (++trips > 256) {
+      end(MINING_TRANSFER_LIMIT, "已到交付批次数预算");
       return;
     }
     var args = destination.deepCopy();
@@ -797,6 +827,7 @@ public final class MiningExpedition extends Actions.Job {
     value.add("definition", definition);
     value.add("origin", coordinates(survey.origin));
     value.add("home", coordinates(home));
+    value.add("work_return", coordinates(workReturn));
     value.add("baseline", Store.GSON.toJsonTree(baseline));
     var positions = new JsonArray();
     broken.forEach(p -> positions.add(coordinates(p)));

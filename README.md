@@ -2,24 +2,24 @@
 
 **让 AI 在 Minecraft 里像另一位玩家一样，和你一起生存。**
 
-MineCompanion 是面向 **Minecraft Java 1.20.1 · Forge 47.4.x · Java 17** 的客户端模组。AI 操作安装模组的客户端账号，可以陪你探索，也能接手采矿、熔炼、补给和整理。双人陪玩时，让主号和伙伴账号进入同一个世界。
+MineCompanion 是面向 **Minecraft Java 1.20.1 · Forge 47.4.x · Java 17** 的客户端模组。AI 操作安装模组的客户端账号，可以陪你探索，也能接手采矿、熔炼、补给、基地驻守与挂机生产。双人陪玩时，让主号和伙伴账号进入同一个世界，并支持同目录双开零串台与伴侣状态/地图实时联动。
 
-[下载 0.8.5rc1](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [快速开始](#快速开始) · [Harness 接入](#接入外部-harness) · [版本与贡献](VERSION-HISTORY.md) · [发布档案](docs/releases/README.md) · [English](#english)
+[下载 0.8.6 正式版](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.6) · [快速开始](#快速开始) · [Harness 接入](#接入外部-harness) · [版本与贡献](VERSION-HISTORY.md) · [发布档案](docs/releases/README.md) · [English](#english)
 
 ## 它能帮你做什么
 
 | 玩法 | 示例 |
 | --- | --- |
-| **陪伴探索** | 授权后说 `@小勤 跟着我`。伙伴会跟住指定玩家，根据陪伴预设尝试过门，并在重新看见同一玩家时继续跟随。 |
-| **原版生存与后勤** | 采矿、熔炼、合成、农作、钓鱼和箱子取放，也可以把采铁、归仓、制火把和返矿照明串成一条流程。 |
-| **陌生模组与技能记忆** | 读取机器槽位、Tooltip 和进度，把跑通的操作整理成可分享的 `.mcskill.json`。换整合包后的界面适配保存在本机。 |
-| **边玩边协同** | 可在玩家、AI 接管和协同操作间切换。查看任务进度，设置授权成员和操作范围，必要时按 **F9** 急停。 |
+| **陪伴探索与三维记忆** | 授权后说 `@小勤 跟着我`，支持涉水、爬梯、可控助跑跑酷与活板门/按钮铁门通行；自动构建按世界/维度隔离的 3D 探索拓扑图与可缩放分层地图。 |
+| **女仆式值守与智能挂机** | `纯待命` / `驻守基地` / `跟随与守护` / `外出探索采集` 四档值守与自主切档；驻守模式持续清场拾取；内置 `auto_action` 支持刷石机连挖换镐、刷怪塔清怪、手摇曲柄长按自动进食与筛网/骨粉连点补料。 |
+| **原版与陌生模组联动** | 采矿、熔炼、合成、农作、钓鱼和箱子取放；剥离热力/机械动力/植物魔法等易变 NBT 并支持标准容器重同步，可共享 `.mcskill.json` 技能包与本机适配。 |
+| **边玩边协同与星灵立绘** | **F8** 工作台、**Home** 对话、**F4** 限帧静音节能与 **F9** 急停；支持 **DeepSeek 鲸娘 / ChatGPT 龙娘 / Gemini 星灵** 三角色 × `MOE / MC` 双画风实时 8 态立绘。 |
 
 ## 快速开始
 
-1. 从发布页下载 **`MineCompanion-0.8.5rc1.zip`**。关闭游戏，将其中的 `logistics-companion-0.8.5rc1.jar` 放进对应实例的 `mods` 目录。升级时先在其他目录备份旧 JAR 和配置。
+1. 从发布页下载 **`MineCompanion-0.8.6.zip`**。关闭游戏，将其中的 `logistics-companion-0.8.6.jar` 放进对应实例的 `mods` 目录。升级时先在其他目录备份旧 JAR 和配置。
 2. 进入世界，按 **F8** 打开工作台。配置模型 API，或启用本机 Harness。开启 AI 接管后，按 **Home** 打开本地对话。
-3. 先试一次小任务，例如从指定箱子取 3 个粗铁并熔炼。如果是双人陪玩，在伙伴工作台授权主号，再用主号在游戏聊天发 `@小勤 跟着我`。可用 `@小勤 停止跟随` 结束这次同行。
+3. 可直接在 F8 工作台「跟随与陪同」启用女仆值守或一键挂机（刷石机/刷怪塔/曲柄/筛网），双人陪玩时主号发 `@小勤 跟着我` 即可同行。
 4. 通过实际位置、菜单和库存变化确认结果。服务端权限与整合包变化会影响能够执行的操作。
 
 ## 接入外部 Harness
@@ -35,11 +35,11 @@ python -X utf8 harness-client.py --connection $connection capabilities
 
 根据当前 `capabilities` 和工具说明调用。网络超时后，先查询原请求回执。用 `list_library` 查可用技能，通过 `run_library_skill` 执行。共享包里的轨道 A 需要拿到生产成功回执，轨道 B 复用还会检查晋级状态及当前环境。
 
-## 0.8.5rc1 与贡献
+## 0.8.6 正式版与贡献
 
-**0.8.5rc1 沿用 0.8.5 G4Neon。** Gemini 完成 G4Neon 界面和开放技能记忆基础，OpenAI Codex 完成轨道校验、回归测试和本次发行。项目维护者确定玩法、验收方向和发布范围，DeepSeek Harness（DSH）参与前序实机验收与问题反馈。 [完整版本与贡献记录](VERSION-HISTORY.md) · [候选版用法与验收](docs/releases/RELEASE-0.8.5-RC1-G4NEON-20261121.md)
+**0.8.6 整合 `rc1`–`rc4` 并完成收口与最终审阅加固。** 项目维护者主导玩法规划、实机连续定位与提供「Gemini 星灵」双画风立绘；Gemini 完成 3D 地图优化、6 套主题与 `DeskEditBox`、通用模组重同步与 G9/G10 易变 NBT 修复、女仆值守与自主切档、移动涉水爬梯跑酷与 F4 节能、驻守清场拾取、双开伴侣联动、刷石机放行与 `auto_action` 内置挂机引擎；OpenAI Codex 完成 `0.8.6` 首轮三维探索底座与前序版本基线；DeepSeek Harness（DSH）参与实机复测与问题反馈。 [完整版本与贡献记录](VERSION-HISTORY.md) · [0.8.6 发布说明](docs/releases/RELEASE-0.8.6-20261122.md)
 
-本版通过离线构建和 **673 项自动化测试**。新界面、原版熔炉技能及跨整合包复用仍待实机验收。
+本版通过离线构建和 **136 个测试套件 / 705 项自动化测试**（0 失败 / 0 跳过）。
 
 ## 开发与反馈
 
@@ -58,4 +58,4 @@ Linux 或 macOS 可运行 `bash gradlew build`。产物在 `build/libs`。离线
 
 ## English
 
-MineCompanion is a client-side AI player companion for **Minecraft Java 1.20.1 on Forge**, running on Java 17. Use a model API or a local harness to automate survival chores, follow an authorized player, or reuse portable skills for modded interfaces. **0.8.5rc1** builds on the Gemini G4Neon redesign and skill memory system, with runtime checks for skill verification and reuse added by OpenAI Codex. [Download the candidate](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.5rc1) · [Version history and credits](VERSION-HISTORY.md)
+MineCompanion is a client-side AI player companion for **Minecraft Java 1.20.1 on Forge**, running on Java 17. **0.8.6** is the official release combining 3D exploration memory, universal modded GUI resync with volatile NBT stripping, maid-style autonomous duty presets, dual-client owner companion sync, cobblestone generator safety and built-in background auto-clicker/hold automation, F4 power-saving watch mode, and dual-style (HD MOE & MC Pixel) 8-state **Gemini** star-spirit avatars. [Download 0.8.6](https://github.com/zhangyunfei0415/MineCompanion/releases/tag/v0.8.6) · [Version history and credits](VERSION-HISTORY.md)

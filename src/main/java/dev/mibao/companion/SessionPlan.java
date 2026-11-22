@@ -7,6 +7,10 @@ import java.util.*;
 public final class SessionPlan {
   public static final Set<String> TOOLS =
       Set.of(
+          "explore_mark",
+          "explore_query",
+          "explore_branch",
+          "explore_return",
           "fish",
           "mine_expedition",
           "excavate_mine_route",

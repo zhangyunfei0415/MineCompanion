@@ -108,9 +108,9 @@ public final class GuiProfileActions {
 
     RelativePointJob(JsonObject a, Consumer<String> done) {
       super(done);
-      long view = a.get("gui_view").getAsLong();
-      this.dx = a.get("dx").getAsInt();
-      this.dy = a.get("dy").getAsInt();
+      long view = Rules.requiredLong(a, "gui_view");
+      this.dx = Rules.requiredInt(a, "dx");
+      this.dy = Rules.requiredInt(a, "dy");
       this.button = SkillCatalog.bounded(a, "button", 0, 0, 1);
       this.shift = a.has("shift") && a.get("shift").getAsBoolean();
       int[] pos = GuiContext.validateRelativePoint(view, dx, dy);
@@ -238,6 +238,9 @@ public final class GuiProfileActions {
 
         int bestIdx = -1;
         int bestCount = -1;
+        int matchedInInventory = 0;
+        int rejectedBySlot = 0;
+        int blockedByExisting = 0;
         for (int i = 0; i < m.slots.size(); i++) {
           var s = m.getSlot(i);
           if (s.container != player.getInventory()
@@ -246,9 +249,16 @@ public final class GuiProfileActions {
               || !s.mayPickup(player)) continue;
           ItemStack stack = s.getItem();
           if (!matchesItemFilter(stack, item)) continue;
-          if (!targetSlot.mayPlace(stack)) continue;
+          matchedInInventory += stack.getCount();
+          if (!targetSlot.mayPlace(stack)) {
+            rejectedBySlot++;
+            continue;
+          }
           ItemStack existing = targetSlot.getItem();
-          if (!existing.isEmpty() && !ItemStack.isSameItemSameTags(existing, stack)) continue;
+          if (!existing.isEmpty() && !ItemStack.isSameItemSameTags(existing, stack)) {
+            blockedByExisting++;
+            continue;
+          }
           if (bestIdx < 0
               || (bestCount < wantCount && stack.getCount() > bestCount)
               || (bestCount >= wantCount && stack.getCount() >= wantCount && stack.getCount() < bestCount)) {
@@ -257,7 +267,29 @@ public final class GuiProfileActions {
           }
         }
         if (bestIdx < 0) {
-          finish("失败：[ITEM_NOT_FOUND] 背包没有可放入 " + role + " 槽的匹配物品：" + item);
+          if (rejectedBySlot > 0) {
+            finish(
+                "失败：[SLOT_REJECTED_ITEM] 背包存在 "
+                    + item
+                    + " ×"
+                    + matchedInInventory
+                    + "，但目标角色槽位 "
+                    + role
+                    + "（槽"
+                    + targetMenuSlot
+                    + "）拒绝放入（mayPlace=false，请用 inspect_tooltip 核对槽位用途）。");
+          } else if (blockedByExisting > 0) {
+            finish(
+                "失败：[SLOT_OCCUPIED] 目标角色槽位 "
+                    + role
+                    + "（槽"
+                    + targetMenuSlot
+                    + "）已有其他物品，无法放入 "
+                    + item
+                    + "。");
+          } else {
+            finish("失败：[ITEM_NOT_FOUND] 背包没有可放入 " + role + " 槽的匹配物品：" + item);
+          }
           return;
         }
         ItemStack picked = m.getSlot(bestIdx).getItem();
@@ -292,6 +324,10 @@ public final class GuiProfileActions {
           Actions.click(targetMenuSlot, 0, ClickType.PICKUP);
           placed = carried.getCount();
           GuiContext.invalidate();
+          if (!ExecutionStyle.fluent(style)) {
+            refreshRequested = true;
+            MenuRefresh.request();
+          }
           phase = Phase.VERIFY;
           return;
         }

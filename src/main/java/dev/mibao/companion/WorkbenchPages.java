@@ -1062,12 +1062,22 @@ final class WorkbenchPages {
   private void sidebar() {
     if (page == -2) {
       button(
-          "形象：" + (Store.config.avatar.equals("CHATGPT") ? "ChatGPT龙娘" : "DeepSeek鲸娘"),
+          "形象："
+              + switch (Store.config.avatar) {
+                case "CHATGPT" -> "ChatGPT龙娘";
+                case "GEMINI" -> "Gemini星灵";
+                default -> "DeepSeek鲸娘";
+              },
           x,
           47,
           180,
           () -> {
-            Store.config.avatar = Store.config.avatar.equals("DEEPSEEK") ? "CHATGPT" : "DEEPSEEK";
+            Store.config.avatar =
+                switch (Store.config.avatar) {
+                  case "DEEPSEEK" -> "CHATGPT";
+                  case "CHATGPT" -> "GEMINI";
+                  default -> "DEEPSEEK";
+                };
             Store.save();
             rebuild();
           });

@@ -41,12 +41,23 @@ public final class PlayerControls {
   }
 
   public static void motionState(boolean forward, boolean jump) {
+    motionState(forward, jump, false, false);
+  }
+
+  public static void motionState(boolean forward, boolean jump, boolean sprint, boolean sneak) {
     var o = mc().options;
-    for (var k : List.of(o.keyUp, o.keyJump, o.keySprint)) {
-      boolean down = k == o.keyUp ? forward : k == o.keyJump && jump;
+    for (var k : List.of(o.keyUp, o.keyJump, o.keySprint, o.keyShift)) {
+      boolean down =
+          (k == o.keyUp && forward)
+              || (k == o.keyJump && jump)
+              || (k == o.keySprint && sprint && forward)
+              || (k == o.keyShift && sneak);
       k.setDown(down);
       if (down) held.add(k);
       else held.remove(k);
+    }
+    if (mc().player != null) {
+      mc().player.setSprinting(sprint && forward && !sneak);
     }
     var codes = new HashSet<Integer>();
     for (var k : held)

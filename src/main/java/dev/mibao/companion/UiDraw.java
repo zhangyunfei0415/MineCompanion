@@ -25,10 +25,30 @@ public final class UiDraw {
   }
 
   public static void fillCard(GuiGraphics g, int x, int y, int w, int h, UiTheme t) {
+    if (w > 6 && h > 4) {
+      g.fill(x + 2, y + h, x + w - 2, y + h + 1, t.light() ? 0x1a0b1528 : 0x38000000);
+    }
     fillRounded(g, x, y, w, h, t.cardBg(), t.border());
     if (w > 6 && h > 4) {
-      int specular = t.light() ? 0x70ffffff : 0x12ffffff;
+      int specular = t.light() ? 0x90ffffff : 0x16ffffff;
       g.fill(x + 2, y + 1, x + w - 2, y + 2, specular);
+    }
+  }
+
+  /** Draws a 3-stop accent header bar plus a subtle soft glow strip underneath. */
+  public static void fillAuroraBar(GuiGraphics g, int x, int y, int w, int h, UiTheme t) {
+    if (w <= 0 || h <= 0) return;
+    int midX = w / 2;
+    int mid = t.auroraMid();
+    fillHGradient(g, x, y, midX, h, t.accent(), mid);
+    fillHGradient(g, x + midX, y, w - midX, h, mid, t.accentAlt());
+    int glowAlpha = t.isAurora() ? (t.light() ? 38 : 52) : (t.light() ? 22 : 30);
+    for (int row = 0; row < 3; row++) {
+      int a = Math.max(6, glowAlpha >> row);
+      int gy = y + h + row;
+      fillHGradient(g, x, gy, midX, 1, UiTheme.withAlpha(t.accent(), a), UiTheme.withAlpha(mid, a));
+      fillHGradient(
+          g, x + midX, gy, w - midX, 1, UiTheme.withAlpha(mid, a), UiTheme.withAlpha(t.accentAlt(), a));
     }
   }
 

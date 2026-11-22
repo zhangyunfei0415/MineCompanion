@@ -47,6 +47,30 @@ final class FollowControl {
   static boolean active() { return current != null; }
   static boolean ready() { return active() && mc().player != null && mc().level != null; }
 
+  static UUID currentTargetUuid() {
+    if (current != null) return current.target.id();
+    var saved = savedTarget();
+    return saved == null ? null : saved.id();
+  }
+
+  static String currentTargetName() {
+    if (current != null) return current.target.name();
+    var saved = savedTarget();
+    return saved == null ? "" : saved.name();
+  }
+
+  static boolean ensureFollowingSaved() {
+    if (active()) return true;
+    var saved = savedTarget();
+    if (saved == null || mc().level == null || mc().player == null) return false;
+    try {
+      start(new JsonObject(), true);
+      return active();
+    } catch (IllegalArgumentException e) {
+      return false;
+    }
+  }
+
   static List<Target> candidates() {
     var mc = mc();
     var targets = new LinkedHashMap<UUID, Target>();
@@ -399,7 +423,8 @@ final class FollowControl {
       while (waypoints.size() > 12) waypoints.removeFirst();
     }
     double distance = mc.player.distanceTo(player);
-    if (!FollowPolicy.chase(distance, chasing)) {
+    String rangeMode = Store.data != null && Store.data.duty != null ? Store.data.duty.followRange : "NORMAL";
+    if (!FollowPolicy.chase(distance, chasing, rangeMode)) {
       release();
       chasing = false;
       phase = "near_target";

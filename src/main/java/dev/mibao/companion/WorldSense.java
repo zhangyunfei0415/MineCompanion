@@ -473,8 +473,14 @@ public final class WorldSense {
     snapshot.serverState = MenuContext.serverState();
     snapshot.syncRevision = MenuContext.revision();
     snapshot.syncedAt = MenuContext.receivedAt();
+    boolean lootrAllowed =
+        Store.data != null
+            && Store.data.duty != null
+            && Store.data.duty.preferLootrContainers
+            && VolatileTagPolicy.isLootrContainer(point.block);
     snapshot.contentsConfirmed =
-        MenuContext.kind().equals("storage") && Rules.standardStorage(point.block);
+        MenuContext.kind().equals("storage")
+            && (Rules.standardStorage(point.block) || lootrAllowed);
     snapshot.semantics =
         snapshot.contentsConfirmed
             ? "standard_storage_slots"

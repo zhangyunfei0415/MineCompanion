@@ -16,6 +16,7 @@ import net.minecraft.world.phys.*;
 public final class RangedHuntJob extends Actions.Job {
   private final String type;
   private final int wanted, radius, oldSlot;
+  private final boolean allowCreeper;
   private final BlockPos center;
   private final Navigator nav = new Navigator();
   private final Set<UUID> complete = new HashSet<>(),
@@ -34,14 +35,23 @@ public final class RangedHuntJob extends Actions.Job {
   }
 
   public RangedHuntJob(String type, int count, int radius, Consumer<String> done) {
+    this(type, count, radius, false, done);
+  }
+
+  RangedHuntJob(
+      String type, int count, int radius, boolean allowCreeper, Consumer<String> done) {
     super(done);
     this.type = type;
     wanted = count;
     this.radius = radius;
+    this.allowCreeper = allowCreeper;
     center = mc().player.blockPosition();
     oldSlot = mc().player.getInventory().selected;
     TaskReadiness.requireWorld(true);
-    if (!CombatPolicy.accepted(type, Store.config.huntResources, Store.config.attackPlayers))
+    boolean accepted =
+        allowCreeper && "minecraft:creeper".equals(type)
+            || CombatPolicy.accepted(type, Store.config.huntResources, Store.config.attackPlayers);
+    if (!accepted)
       throw new IllegalArgumentException("[UNSUPPORTED_TARGET] 未授权或未适配的远程目标");
   }
 
@@ -154,7 +164,7 @@ public final class RangedHuntJob extends Actions.Job {
       return;
     }
     if (target != null
-        && (!MeleeOps.eligible(target, type)
+        && (!MeleeOps.eligible(target, type, allowCreeper)
             || target.blockPosition().distSqr(center) > radius * radius)) {
       release();
       if (++wait < 25) return;
@@ -171,7 +181,7 @@ public final class RangedHuntJob extends Actions.Job {
                   LivingEntity.class,
                   new AABB(center).inflate(radius),
                   e ->
-                      MeleeOps.eligible(e, type)
+                      MeleeOps.eligible(e, type, allowCreeper)
                           && !complete.contains(e.getUUID())
                           && !skipped.contains(e.getUUID())
                           && mc().player.hasLineOfSight(e));

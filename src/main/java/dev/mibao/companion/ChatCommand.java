@@ -9,6 +9,10 @@ public final class ChatCommand {
 
   record Follow(FollowAction action, String argument) {}
 
+  enum DutyAction { STANDBY, BASE_STEWARD, ESCORT_GUARD, EXPEDITION_GATHER, PAUSE, RESUME, STATUS }
+
+  record Duty(DutyAction action) {}
+
   private static final Pattern NAMED_FOLLOW =
       Pattern.compile("跟随(?:玩家)?\\s+([A-Za-z0-9_]{1,16})", Pattern.UNICODE_CHARACTER_CLASS);
 
@@ -65,6 +69,23 @@ public final class ChatCommand {
       case "继续", "resume" -> "继续";
       case "进度", "任务列表", "进度怎么样" -> "进度";
       default -> text;
+    };
+  }
+
+  static Duty duty(String text) {
+    if (text == null || text.isBlank()) return null;
+    String command = normalize(text);
+    return switch (command) {
+      case "纯待命", "切换待命", "切回待命", "待命模式" -> new Duty(DutyAction.STANDBY);
+      case "驻守基地", "基地值守", "看家", "驻守模式" -> new Duty(DutyAction.BASE_STEWARD);
+      case "跟随守护", "跟着并保护我", "守护跟随", "守护我", "护卫模式" ->
+          new Duty(DutyAction.ESCORT_GUARD);
+      case "外出探索", "外出采集", "外出探索采集", "探索搜刮" ->
+          new Duty(DutyAction.EXPEDITION_GATHER);
+      case "暂停值守", "停止值守" -> new Duty(DutyAction.PAUSE);
+      case "恢复值守", "启动值守", "开始值守" -> new Duty(DutyAction.RESUME);
+      case "值守状态", "陪同状态" -> new Duty(DutyAction.STATUS);
+      default -> null;
     };
   }
 

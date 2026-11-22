@@ -82,13 +82,14 @@ public final class LocalDialogue {
     if (box == null || width != w || height != h) {
       if (box != null) draft = box.getValue();
       box =
-          new EditBox(
-              mc().font,
-              r.x() + 6,
-              r.bottom() - 28,
-              Math.max(20, r.width() - 12),
-              18,
-              Component.literal("本地伙伴对话"));
+          new DeskEditBox(
+                  mc().font,
+                  r.x() + 6,
+                  r.bottom() - 28,
+                  Math.max(20, r.width() - 12),
+                  18,
+                  Component.literal("本地伙伴对话"))
+              .placeholder("输入指令或聊天，Enter 发送...");
       box.setMaxLength(2000);
       box.setValue(draft);
     }

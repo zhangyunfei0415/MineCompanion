@@ -18,6 +18,18 @@ public final class PickupGeometry {
         && y + height + .5 > item.minY;
   }
 
+  /** Inner-ring stance reach (0.65m beyond hitbox) so ground drops enter server pickup range cleanly. */
+  public static boolean preferredCloseTouches(
+      double x, double y, double z, double width, double height, Box item) {
+    double reach = width / 2 + 0.65;
+    return x - reach < item.maxX
+        && x + reach > item.minX
+        && z - reach < item.maxZ
+        && z + reach > item.minZ
+        && y - .35 < item.maxY
+        && y + height + .35 > item.minY;
+  }
+
   public static Set<GridSearch.Cell> stances(
       Box item, double width, double height, Predicate<GridSearch.Cell> safe) {
     return stances(item, width, height, c -> c.y(), safe);

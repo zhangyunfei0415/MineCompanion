@@ -15,8 +15,9 @@ public final class MenuContext {
   private static AbstractContainerMenu bound;
   private static long remembered = -1;
   private static final MenuSyncEvidence<ItemStack> sync =
-      new MenuSyncEvidence<>(ItemStack::matches);
-  private static final MenuEvidence<ItemStack> evidence = new MenuEvidence<>(ItemStack::matches);
+      new MenuSyncEvidence<>(StackSyncMatcher::syncStable);
+  private static final MenuEvidence<ItemStack> evidence =
+      new MenuEvidence<>(StackSyncMatcher::syncStable);
   private static final MenuDataState serverData = new MenuDataState();
   private static Set<Integer> observedSlots = Set.of();
   private static long observedView, observedAt;
@@ -185,6 +186,21 @@ public final class MenuContext {
             : "waiting_for_server_full_content";
   }
 
+  public static boolean receivedFullContent() {
+    tick();
+    return bound != null && sync.received() && sync.size() == bound.slots.size();
+  }
+
+  public static String diagnoseSync() {
+    tick();
+    if (bound == null) return "no_bound_menu";
+    var values = bound.slots.stream().map(Slot::getItem).toList();
+    if (AeTerminalBridge.available() && sync.received() && sync.size() <= values.size())
+      values = values.subList(0, sync.size());
+    return sync.diagnoseMismatch(
+        bound, bound.containerId, values, bound.getCarried(), StackSyncMatcher::describeDiff);
+  }
+
   public static boolean targetConfirmed(int slot) {
     tick();
     return bound != null
@@ -237,7 +253,15 @@ public final class MenuContext {
     var m = Minecraft.getInstance().player.containerMenu;
     if (m == Minecraft.getInstance().player.inventoryMenu) return "player_inventory";
     Class<?> type = m.getClass();
-    return type == ChestMenu.class
+    boolean lootr =
+        Store.data != null
+            && Store.data.duty != null
+            && Store.data.duty.preferLootrContainers
+            && (type.getName().toLowerCase(Locale.ROOT).contains("lootr")
+                || ChestMenu.class.isAssignableFrom(type)
+                || ShulkerBoxMenu.class.isAssignableFrom(type));
+    return lootr
+            || type == ChestMenu.class
             || type == HopperMenu.class
             || type == DispenserMenu.class
             || type == ShulkerBoxMenu.class

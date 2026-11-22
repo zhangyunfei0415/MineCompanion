@@ -101,4 +101,34 @@ public final class MenuSyncEvidence<T> {
   public long receivedAt() {
     return received;
   }
+
+  /** Concise mismatch diagnostic for unknown/modded menu troubleshooting. */
+  public String diagnoseMismatch(Object owner, int id, List<T> current, T cursor) {
+    return diagnoseMismatch(owner, id, current, cursor, null);
+  }
+
+  public String diagnoseMismatch(
+      Object owner,
+      int id,
+      List<T> current,
+      T cursor,
+      java.util.function.BiFunction<T, T, String> describe) {
+    if (this.owner != owner || this.id != id) return "owner_or_menu_id_changed";
+    if (slots == null) return "no_server_content_packet_received";
+    if (slots.size() != current.size())
+      return "slot_count_mismatch(sync=" + slots.size() + ",client=" + current.size() + ")";
+    List<String> diffs = new ArrayList<>();
+    if (!same.test(this.cursor, cursor))
+      diffs.add(describe == null ? "cursor" : "cursor(" + describe.apply(this.cursor, cursor) + ")");
+    for (int i = 0; i < slots.size(); i++) {
+      if (!same.test(slots.get(i), current.get(i))) {
+        diffs.add(
+            describe == null
+                ? "slot:" + i
+                : "slot:" + i + "(" + describe.apply(slots.get(i), current.get(i)) + ")");
+        if (diffs.size() >= 6) break;
+      }
+    }
+    return diffs.isEmpty() ? "matched" : String.join(",", diffs);
+  }
 }

@@ -113,4 +113,29 @@ class GuiProfilePolicyTest {
     assertTrue(farmingMenu.size() <= 36, "farming menu exceeded 36: " + farmingMenu.size());
     assertEquals("production", ToolMenu.profile("帮我看下富集仓记忆包并做本地化适配"));
   }
+
+  @Test
+  void requiredNumericArgumentsRejectMissingOrInvalidWithoutNpe() {
+    var empty = new JsonObject();
+    var missingLong = assertThrows(IllegalArgumentException.class, () -> Rules.requiredLong(empty, "screen_view"));
+    assertTrue(missingLong.getMessage().contains("[ARGUMENT_REQUIRED]"));
+
+    var nullProp = new JsonObject();
+    nullProp.add("dx", JsonNull.INSTANCE);
+    var nullInt = assertThrows(IllegalArgumentException.class, () -> Rules.requiredInt(nullProp, "dx"));
+    assertTrue(nullInt.getMessage().contains("[ARGUMENT_REQUIRED]"));
+
+    var badType = new JsonObject();
+    badType.addProperty("x", "not-a-number");
+    var invalidDouble = assertThrows(IllegalArgumentException.class, () -> Rules.requiredDouble(badType, "x"));
+    assertTrue(invalidDouble.getMessage().contains("[INVALID_ARGUMENT]"));
+
+    var valid = new JsonObject();
+    valid.addProperty("gui_view", 42L);
+    valid.addProperty("dx", -12);
+    valid.addProperty("x", 15.5);
+    assertEquals(42L, Rules.requiredLong(valid, "gui_view"));
+    assertEquals(-12, Rules.requiredInt(valid, "dx"));
+    assertEquals(15.5, Rules.requiredDouble(valid, "x"));
+  }
 }

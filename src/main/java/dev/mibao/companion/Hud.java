@@ -29,7 +29,9 @@ public final class Hud {
             ? Actions.status
             : Agent.production != null && RestockTask.latest != null
                 ? RestockTask.latest.phase
-                : FollowControl.active() ? FollowControl.shortStatus() : Agent.state;
+                : DutyScheduler.isArmed()
+                    ? DutyScheduler.shortStatus()
+                    : FollowControl.active() ? FollowControl.shortStatus() : Agent.state;
     v.detail = ActionSummary.describe(v.detail);
     if (Cooperation.active())
       v.detail = (Cooperation.yielding() ? "协同 · 人工操作中，连接保留 · " : "协同 · AI执行 · ") + v.detail;
@@ -96,6 +98,10 @@ public final class Hud {
             : v.kind == StatusFeed.Kind.WAITING ? t.warning() : t.accent();
     int bg = t.hudBg(Store.config.hudOpacity);
     var lines = new ArrayList<Text>();
+    if (ClientRolePolicy.isOwnerCompanionWindow(Agent.enabled, Store.hasControl(), linked)) {
+      String partner = v.player == null || v.player.isBlank() ? v.name : v.player;
+      lines.add(new Text("伴侣同步 · 联动 " + partner, accent));
+    }
     // Live control mode and the real planner connection come first.
     if (!linked) lines.add(new Text(controlLine(), fg));
     if (Store.config.hudAlerts && v.attention != null && v.attention.text != null)
@@ -254,8 +260,11 @@ public final class Hud {
         harnessLinked = false;
       }
     }
-    return StatusFeed.controlLine(
-        Agent.enabled, Agent.paused, Cooperation.active(), Store.config.driver, harnessLinked);
+    String line =
+        StatusFeed.controlLine(
+            Agent.enabled, Agent.paused, Cooperation.active(), Store.config.driver, harnessLinked);
+    String eco = WatchPowerSaver.badgeText();
+    return eco.isBlank() ? line : line + " · " + eco;
   }
 
   public static OverlayLayout.Layout layout(int width, int height) {

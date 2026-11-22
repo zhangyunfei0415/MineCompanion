@@ -28,9 +28,9 @@ final class GuiTooltipProbeJob extends Actions.Job {
       throw new IllegalArgumentException("[WRONG_CONTEXT] 需要非管理类已打开界面");
     }
     if (args.has("gui_view")) {
-      GuiContext.validate(args.get("gui_view").getAsLong());
+      GuiContext.validate(Rules.requiredLong(args, "gui_view"));
     } else if (args.has("screen_view")) {
-      ScreenInput.validate(args.get("screen_view").getAsLong());
+      ScreenInput.validate(Rules.requiredLong(args, "screen_view"));
     } else {
       throw new IllegalArgumentException("[ARGUMENT_REQUIRED] 需要 gui_view 或 screen_view");
     }

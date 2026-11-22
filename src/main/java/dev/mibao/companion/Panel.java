@@ -5,6 +5,7 @@ public final class Panel {
   public static boolean managing(Object screen) {
     return screen instanceof WorkbenchScreen
         || screen instanceof FollowTargetScreen
+        || screen instanceof ExplorationMapScreen
         || screen instanceof HudLayoutEditor
         || screen instanceof NoticeScreen
         || screen instanceof RecipeBrowserScreen

@@ -63,6 +63,10 @@ public final class Store {
     public boolean autoOpenDoors = true;
     public boolean navigationBreak = false, navigationPlace = false;
     public boolean navigationDetourOnly = false, harnessResumeHumanPause = false;
+    public boolean followSprint = true, allowClimb = true, wadeWater = true;
+    public String parkourMode = "SAFE";
+    public boolean watchLimitFps = false, watchMuteAudio = false;
+    public int watchFpsCap = 20;
     public String decisionMode = "OFF", decisionCloudProvider = "GOOGLE";
     public String decisionCloudEndpoint =
         "https://generativelanguage.googleapis.com/v1beta/decisions";
@@ -154,6 +158,7 @@ public final class Store {
     public String resourceDelivery = "", productionSource = "";
     public String followUuid = "", followName = "", followProfile = "follow";
     public boolean followEndPortal;
+    public CompanionDuty duty = new CompanionDuty();
     public List<WorkLedger.Entry> workLedger = new ArrayList<>();
     public Map<String, Place> places = new LinkedHashMap<>();
     public List<Fact> facts = new ArrayList<>();
@@ -536,6 +541,8 @@ public final class Store {
     d.usageStats.entrySet().removeIf(e -> e.getValue() == null);
     d.resourceDelivery = Rules.clean(d.resourceDelivery, 128);
     d.productionSource = Rules.clean(d.productionSource, 128);
+    if (d.duty == null) d.duty = new CompanionDuty();
+    d.duty.normalize();
     if (d.world == null) d.world = new WorldMemory();
     d.world.normalize();
     if (d.inventoryMemories == null) d.inventoryMemories = new LinkedHashMap<>();

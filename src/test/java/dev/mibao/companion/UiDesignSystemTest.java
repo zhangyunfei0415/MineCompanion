@@ -7,17 +7,27 @@ import org.junit.jupiter.api.Test;
 
 class UiDesignSystemTest {
   @Test
-  void allFiveThemesExistWithValidContrastAndFallbacks() {
-    assertEquals(List.of("霓虹", "深海", "纸白", "终端", "原版"), UiTheme.ALL);
+  void allSixThemesExistWithValidContrastAndFallbacks() {
+    assertEquals(List.of("霓虹", "霓虹亮", "深海", "纸白", "终端", "原版"), UiTheme.ALL);
     for (String id : UiTheme.ALL) {
       UiTheme t = UiTheme.of(id);
       assertEquals(id, t.id());
-      assertEquals("纸白".equals(id), t.light());
+      assertEquals("纸白".equals(id) || "霓虹亮".equals(id), t.light());
       assertNotEquals(t.windowBg(), t.text());
       assertNotEquals(t.cardBg(), t.accent());
+      assertFalse(t.shortBadge().isBlank());
+      assertTrue(UiTheme.contrastRatio(t.text(), t.windowBg()) >= 7.0, id + " text/windowBg");
+      assertTrue(UiTheme.contrastRatio(t.text(), t.cardBg()) >= 7.0, id + " text/cardBg");
+      assertTrue(UiTheme.contrastRatio(t.textSecondary(), t.cardBg()) >= 4.5, id + " sec/cardBg");
+      assertTrue(UiTheme.contrastRatio(t.textMuted(), t.cardBg()) >= 4.5, id + " muted/cardBg");
+      assertTrue(UiTheme.contrastRatio(t.textOnAccent(), t.accent()) >= 4.5, id + " onAccent/accent");
+      assertTrue(UiTheme.contrastRatio(t.accent(), t.cardBg()) >= 4.5, id + " accent/cardBg");
       int bg85 = t.hudBg(85);
       assertTrue(((bg85 >>> 24) & 0xff) >= 200);
     }
+    assertTrue(UiTheme.of("霓虹").isAurora());
+    assertTrue(UiTheme.of("霓虹亮").isAurora());
+    assertFalse(UiTheme.of("深海").isAurora());
     assertEquals("霓虹", UiTheme.of(null).id());
     assertEquals("霓虹", UiTheme.of("nonexistent").id());
     assertEquals(0x80ffffff, UiTheme.withAlpha(0xffffffff, 128));
@@ -35,6 +45,9 @@ class UiDesignSystemTest {
     assertFalse(SettingsCatalog.search("导航").isEmpty());
     assertFalse(SettingsCatalog.search("租约").isEmpty());
     assertFalse(SettingsCatalog.search("主题").isEmpty());
+    assertTrue(SettingsCatalog.search("gemini").stream().anyMatch(e -> e.id().equals("visual_themes")));
+    assertTrue(SettingsCatalog.search("deepseek").stream().anyMatch(e -> e.id().equals("visual_themes")));
+    assertTrue(SettingsCatalog.search("亮色").stream().anyMatch(e -> e.id().equals("visual_themes")));
     assertFalse(SettingsCatalog.search("harness").isEmpty());
     assertFalse(SettingsCatalog.search("api").isEmpty());
     assertFalse(SettingsCatalog.search("hud").isEmpty());

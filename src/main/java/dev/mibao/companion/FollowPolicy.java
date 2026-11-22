@@ -14,6 +14,12 @@ final class FollowPolicy {
     return alreadyChasing ? distance > 4 : distance >= 7;
   }
 
+  static boolean chase(double distance, boolean alreadyChasing, String rangeMode) {
+    if ("CLOSE".equalsIgnoreCase(rangeMode)) return alreadyChasing ? distance > 3 : distance >= 5;
+    if ("WIDE".equalsIgnoreCase(rangeMode)) return alreadyChasing ? distance > 8 : distance >= 12;
+    return chase(distance, alreadyChasing);
+  }
+
   static boolean allowPortal(String profile, String kind, boolean allowEnd) {
     return kind.equals("nether") && profile.equals("nether")
         || kind.equals("end") && profile.equals("end") && allowEnd;

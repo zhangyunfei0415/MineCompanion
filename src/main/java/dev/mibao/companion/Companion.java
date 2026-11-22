@@ -195,6 +195,8 @@ public final class Companion {
     }
     if (!now && connected) {
       Agent.stop("游戏断开，休息");
+      WatchPowerSaver.resetOnDisconnect();
+      ExplorationMemory.leave();
       Store.disconnect();
       Perception.reset();
       WorldSense.reset();
@@ -218,6 +220,7 @@ public final class Companion {
       RegionQueries.tick();
       MenuContext.tick();
       WorldSense.tick();
+      ExplorationMemory.tick();
       MenuContext.refreshMemory();
       StreamProgress.tick();
       LocalExecutor.tick();
@@ -226,8 +229,14 @@ public final class Companion {
       Messages.tick();
       StatusLink.tick();
       QuestBookBridge.tick();
-      if (++ticks % 600 == 0) Store.save();
+      if (++ticks % 20 == 0 && WatchPowerSaver.active()) WatchPowerSaver.tick();
+      if (ticks % 600 == 0) Store.save();
     }
+  }
+
+  @SubscribeEvent
+  public void leaveWorld(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut e) {
+    ExplorationMemory.leave();
   }
 
   @SubscribeEvent
@@ -357,6 +366,11 @@ public final class Companion {
   public void chat(ClientChatReceivedEvent e) {
     if (Minecraft.getInstance().player == null) return;
     if (e instanceof ClientChatReceivedEvent.System) CommandJob.feedback(e.getMessage());
+    if (!ClientRolePolicy.shouldProcessPublicChat(
+        Minecraft.getInstance().player.getGameProfile().getName(),
+        Store.config.owner,
+        Agent.enabled,
+        Store.hasControl())) return;
     String text = e.getMessage().getString();
     String name = Store.config.name;
     String playerOrder = e instanceof ClientChatReceivedEvent.Player player

@@ -25,7 +25,8 @@ public final class PlayerEvidence {
 
   public static boolean cursorConfirmed() {
     return cursor != null
-        && ItemStack.matches(cursor, Minecraft.getInstance().player.containerMenu.getCarried());
+        && StackSyncMatcher.syncStable(
+            cursor, Minecraft.getInstance().player.containerMenu.getCarried());
   }
 
   public static void cursor(ItemStack value) {

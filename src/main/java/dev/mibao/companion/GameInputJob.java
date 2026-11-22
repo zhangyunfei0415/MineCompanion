@@ -54,8 +54,7 @@ public final class GameInputJob extends Actions.Job {
   }
 
   private double coord(String name, int bound) {
-    if (!args.has(name)) throw new IllegalArgumentException("[ARGUMENT_REQUIRED] GUI操作需要" + name);
-    double v = args.has(name) ? args.get(name).getAsDouble() : 0;
+    double v = Rules.requiredDouble(args, name);
     if (!Double.isFinite(v) || v < 0 || v >= bound)
       throw new IllegalArgumentException("[INPUT_BOUNDS] 坐标超出当前GUI");
     return v;
@@ -73,7 +72,7 @@ public final class GameInputJob extends Actions.Job {
       return;
     }
     if (!started) {
-      ScreenInput.validate(args.get("screen_view").getAsLong());
+      ScreenInput.validate(Rules.requiredLong(args, "screen_view"));
       screen = mc.screen;
       if (Panel.managing(screen)) {
         finish("失败：不允许Agent修改自己的设置/授权");

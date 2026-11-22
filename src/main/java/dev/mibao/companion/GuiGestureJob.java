@@ -65,9 +65,9 @@ public final class GuiGestureJob extends Actions.Job {
       return;
     }
     if (MenuContext.revision() > revision && MenuContext.synchronizedNow()) {
-      boolean same = ItemStack.matches(cursor, m.getCarried());
+      boolean same = StackSyncMatcher.syncStable(cursor, m.getCarried());
       for (int i = 0; same && i < expected.size(); i++)
-        same = ItemStack.matches(expected.get(i), m.getSlot(i).getItem());
+        same = StackSyncMatcher.syncStable(expected.get(i), m.getSlot(i).getItem());
       finish(
           same ? "成功：逐格分配事务经服务器槽位核对；分配格数 " + targets.size() + "，生产结果须另核验" : "部分完成：手势结果与预测不同，未重放");
       return;

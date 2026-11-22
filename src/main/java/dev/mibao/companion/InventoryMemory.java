@@ -74,6 +74,8 @@ public final class InventoryMemory {
     boolean full = matchesFull();
     o.addProperty("last_full_server_snapshot_at", InventoryEvidence.receivedAt);
     o.addProperty("full_server_snapshot_matches_current", full);
+    var vol = InventorySession.volatileSlots();
+    if (vol.size() > 0) o.add("volatile_nbt_slots", vol);
     o.add("cursor", Actions.item(mc().player.containerMenu.getCarried()));
     var old = Store.data.inventoryMemories.get(player());
     boolean changed =
@@ -105,8 +107,9 @@ public final class InventoryMemory {
     if (InventoryEvidence.receivedAt == 0 || actual.size() != InventoryEvidence.slots.size())
       return false;
     for (int i = 0; i < actual.size(); i++)
-      if (!ItemStack.matches(actual.get(i).getItem(), InventoryEvidence.slots.get(i))) return false;
-    return ItemStack.matches(p.inventoryMenu.getCarried(), InventoryEvidence.cursor);
+      if (!StackSyncMatcher.syncStable(actual.get(i).getItem(), InventoryEvidence.slots.get(i)))
+        return false;
+    return StackSyncMatcher.syncStable(p.inventoryMenu.getCarried(), InventoryEvidence.cursor);
   }
 
   public static void tick() {

@@ -508,14 +508,20 @@ final class WorkbenchSettingsViews {
           ui.toggleRow(
               "导航仅绕行（禁止破坏和搭路）",
               () -> Store.config.navigationDetourOnly,
-              v -> Store.config.navigationDetourOnly = v,
+              v -> {
+                Store.config.navigationDetourOnly = v;
+                if (v) Store.config.navigationBreak = false;
+              },
               false,
               Store.config.navigationDetourOnly ? "优先生效" : "",
               t.success());
           ui.toggle(
               "有限权限：允许导航破坏地形",
               () -> Store.config.navigationBreak,
-              v -> Store.config.navigationBreak = v);
+              v -> {
+                Store.config.navigationBreak = v;
+                if (v) Store.config.navigationDetourOnly = false;
+              });
           ui.toggle(
               "有限权限：允许垫脚与搭路",
               () -> Store.config.navigationPlace,
@@ -578,18 +584,27 @@ final class WorkbenchSettingsViews {
                 ui.clearDrafts("cmd/");
                 ui.rebuild();
               });
-          ui.toggle(
+          ui.worldToggleRow(
               "允许自定义单行指令（仍须 Agent 授权）",
               () -> commands.customCommands,
-              v -> commands.customCommands = v);
-          ui.toggle(
+              v -> commands.customCommands = v,
+              false,
+              "",
+              0);
+          ui.worldToggleRow(
               "允许 clone / summon 测试指令",
               () -> commands.advancedCommands,
-              v -> commands.advancedCommands = v);
-          ui.toggle(
+              v -> commands.advancedCommands = v,
+              false,
+              "",
+              0);
+          ui.worldToggleRow(
               "允许广泛对象选择器（@a / @e 等）",
               () -> commands.broadSelectors,
-              v -> commands.broadSelectors = v);
+              v -> commands.broadSelectors = v,
+              false,
+              "",
+              0);
           ui.button(
               "查看已检测模组与接口能力",
               () -> ui.openNotice(Store.GSON.toJson(IntegrationStatus.view())));
@@ -679,11 +694,12 @@ final class WorkbenchSettingsViews {
   private void appearance() {
     UiTheme t = ui.theme();
     ui.card(
-        "G4Neon 视觉主题工坊",
-        Store.config.theme,
+        "视觉主题工坊",
+        t.shortBadge(),
         t.accent(),
         () -> {
-          ui.mutedText("即时切换工作台、侧栏、对话浮层与所有辅助界面的配色方案；不影响任务与权限。");
+          ui.mutedText(
+              "含 Gemini 暗夜极光 / 晨曦亮色、DeepSeek 深海蓝、纸白、终端与原版橡木 6 套主题，点选即时换肤。");
           ui.swatchRow(UiTheme.ALL);
         });
 
@@ -719,7 +735,13 @@ final class WorkbenchSettingsViews {
 
     ui.card(
         "布局、角色形象与人设",
-        Store.config.avatarStyle.equals("OFF") ? "立绘关闭" : Store.config.avatar,
+        Store.config.avatarStyle.equals("OFF")
+            ? "立绘关闭"
+            : switch (Store.config.avatar) {
+              case "CHATGPT" -> "ChatGPT龙娘";
+              case "GEMINI" -> "Gemini星灵";
+              default -> "DeepSeek鲸娘";
+            },
         t.accent(),
         () -> {
           ui.row(
@@ -740,6 +762,69 @@ final class WorkbenchSettingsViews {
               () -> ui.section(7, true),
               "伙伴人设与跨世界偏好",
               () -> ui.section(16, true));
+        });
+
+    ui.card(
+        "F4 观看节能降占（一键限帧 · 静音）",
+        WatchPowerSaver.active() ? WatchPowerSaver.badgeText() : "未激活",
+        WatchPowerSaver.active() ? t.success() : t.textMuted(),
+        () -> {
+          ui.toggleRow(
+              "F4 脱手观看时自动限制窗口帧率（不改 options.txt）",
+              () -> Store.config.watchLimitFps,
+              v -> {
+                Store.config.watchLimitFps = v;
+                WatchPowerSaver.sync();
+              },
+              false,
+              Store.config.watchLimitFps ? Store.config.watchFpsCap + " FPS" : "",
+              t.accent());
+          ui.segmentRow(
+              List.of(
+                  new WorkbenchScreen.SegmentOption(
+                      "限帧 15 FPS",
+                      Store.config.watchFpsCap == 15,
+                      () -> {
+                        Store.config.watchFpsCap = 15;
+                        Store.saveSettingsOnly();
+                        WatchPowerSaver.sync();
+                        ui.rebuild();
+                      }),
+                  new WorkbenchScreen.SegmentOption(
+                      "推荐 20 FPS",
+                      Store.config.watchFpsCap == 20,
+                      () -> {
+                        Store.config.watchFpsCap = 20;
+                        Store.saveSettingsOnly();
+                        WatchPowerSaver.sync();
+                        ui.rebuild();
+                      }),
+                  new WorkbenchScreen.SegmentOption(
+                      "流畅 30 FPS",
+                      Store.config.watchFpsCap == 30,
+                      () -> {
+                        Store.config.watchFpsCap = 30;
+                        Store.saveSettingsOnly();
+                        WatchPowerSaver.sync();
+                        ui.rebuild();
+                      })));
+          ui.toggleRow(
+              "F4 脱手观看时自动静音主音量（退出 F4 无损还原）",
+              () -> Store.config.watchMuteAudio,
+              v -> {
+                Store.config.watchMuteAudio = v;
+                WatchPowerSaver.sync();
+              },
+              false,
+              Store.config.watchMuteAudio ? "静音待命" : "",
+              t.accentAlt());
+          ui.button(
+              WatchPowerSaver.manualActive() ? "关闭当前手动省电模式" : "立即开启手动省电降占",
+              () -> {
+                WatchPowerSaver.toggleManual();
+                ui.rebuild();
+              });
+          ui.mutedText("建议至少保持 20 FPS 以稳住客户端寻路、画面观察与点击同步；退出观看/急停/断开会自动还原原设置。");
         });
   }
 

@@ -89,4 +89,20 @@ class MenuSyncEvidenceTest {
     sync.clear();
     assertFalse(sync.ready(owner, 3, List.of(), "empty", 500, 150));
   }
+
+  @Test
+  void diagnoseMismatchReportsMissingPacketCountAndChangedSlots() {
+    sync.bind(owner, 5);
+    assertEquals(
+        "no_server_content_packet_received",
+        sync.diagnoseMismatch(owner, 5, List.of("a"), "empty"));
+    sync.content(owner, 5, 1, List.of("a", "b"), "empty", 100);
+    assertEquals("matched", sync.diagnoseMismatch(owner, 5, List.of("a", "b"), "empty"));
+    assertEquals(
+        "cursor,slot:1",
+        sync.diagnoseMismatch(owner, 5, List.of("a", "c"), "iron1"));
+    assertEquals(
+        "slot_count_mismatch(sync=2,client=1)",
+        sync.diagnoseMismatch(owner, 5, List.of("a"), "empty"));
+  }
 }

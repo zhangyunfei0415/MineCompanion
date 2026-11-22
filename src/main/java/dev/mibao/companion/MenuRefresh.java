@@ -19,8 +19,10 @@ public final class MenuRefresh {
         || c.equals("mekanism.common.inventory.container.tile.MekanismTileContainer");
   }
 
-  public static boolean supported() {
-    Class<?> c = Minecraft.getInstance().player.containerMenu.getClass();
+  public static boolean vanillaWhitelisted() {
+    var mc = Minecraft.getInstance();
+    if (mc.player == null || mc.player.containerMenu == null) return false;
+    Class<?> c = mc.player.containerMenu.getClass();
     return reviewedMachine()
         || ModMenuReceipts.supported()
         || AeTerminalBridge.available()
@@ -50,9 +52,29 @@ public final class MenuRefresh {
             .equals("vectorwing.farmersdelight.common.block.entity.container.CookingPotMenu");
   }
 
-  public static boolean request() {
-    if (!supported()) return false;
+  public static boolean supported() {
     var mc = Minecraft.getInstance();
+    if (mc.player == null || mc.player.containerMenu == null) return false;
+    if (vanillaWhitelisted()) return true;
+    // Standard Forge/Minecraft AbstractContainerMenu containers that already received an initial
+    // ClientboundContainerSetContentPacket handle stateId=-1, slot=-1 as a harmless no-op that
+    // triggers sendAllDataToRemote(). Exclude client-only Creative item picker tabs.
+    if (mc.screen instanceof net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen)
+      return false;
+    return MenuContext.receivedFullContent();
+  }
+
+  public static String mode() {
+    return vanillaWhitelisted()
+        ? "whitelist"
+        : supported() ? "container_packet_sync" : "unsupported";
+  }
+
+  public static boolean request() {
+    var mc = Minecraft.getInstance();
+    if (mc.player == null || mc.getConnection() == null || mc.player.containerMenu == null)
+      return false;
+    if (!supported()) return false;
     mc.getConnection()
         .send(
             new ServerboundContainerClickPacket(

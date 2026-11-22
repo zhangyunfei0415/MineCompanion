@@ -100,7 +100,7 @@ final class FollowTargetScreen extends Screen {
     int cardY = Math.max(12, top - 34);
     int cardH = Math.min(height - 24, 240);
     UiDraw.fillCard(g, cardX, cardY, 252, cardH, t);
-    UiDraw.fillHGradient(g, cardX + 1, cardY, 250, 2, t.accent(), t.accentAlt());
+    UiDraw.fillAuroraBar(g, cardX + 1, cardY, 250, 2, t);
     g.drawCenteredString(font, title, width / 2, cardY + 10, t.accent());
     if (!message.isEmpty())
       g.drawCenteredString(font, message, width / 2, cardY + 23, t.warning());

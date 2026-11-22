@@ -9,6 +9,10 @@ public final class ToolSchemas {
   public static JsonArray all() {
     JsonArray out = new JsonArray();
     schema(out, "follow_targets", "观察其他玩家。仅已追踪玩家有位置", "");
+    schema(out, "explore_mark", "登记当前位置、指定可见XYZ或重命名当前维度已有node_id。kind=entry/safe_point/junction/stairs/work_face/hazard；坐标必须成组", "node_id:s,x:i,y:i,z:i,kind:s,name:s");
+    schema(out, "explore_query", "只读探索图；查入口、安全点、可见未探岔口及待复查边。query按名称/地标/类型搜索，target可填nearest_entry/nearest_safe/last_work_face/节点ID或名称。旧路线走前仍需复查", "query:s,target:s,limit:i");
+    schema(out, "explore_branch", "沿frontier_id或相对/罗盘方向有限探路。默认40格、45秒、在下一岔口停下；return_after沿可逆路线回起点。默认只走不拆", "frontier_id:s,direction:s,max_distance:i,max_seconds:i,stop_on_junction:b,return_after:b");
+    schema(out, "explore_return", "沿当前维度已走通双向路径回最近可达入口、安全点、最后工作面、节点ID或名称。逐格复查，封路有界绕行；不跨传送或单向落差", "target:s,max_distance:i,max_seconds:i");
     schema(out, "follow_start", "按UUID或精确用户名开启跟随，可使用已选目标；profile=follow/nether/end，末地门须明确允许", "target_uuid:s,player_name:s,profile:s,allow_end_portal:b");
     schema(out, "follow_status", "查询跟随、最近站位、目标及停止所需follow_id", "");
     schema(out, "follow_stop", "按follow_status给出的当前follow_id停止跟随", "follow_id:s!");
@@ -271,13 +275,13 @@ public final class ToolSchemas {
     schema(
         out,
         "break_block",
-        "24格内定点正常玩家挖除；自动精确站位到支撑面并回执落点偏差与候选诊断；告示牌等装饰可拆，容器需confirm=true且30秒内真实打开核实为空，未知机器禁止。落块（沙/沙砾）允许拆但需暴露，回执注明落块与延迟读数。生存自动有界拾取本次位置新掉落并单独核验；创造只核实方块拆除，不要求掉落。max_radius=站位搜索半径1..5，默认3",
-        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i,drop_policy:s");
+        "24格内定点正常玩家挖除；自动精确站位到支撑面并回执落点偏差与候选诊断；告示牌等装饰可拆，容器需confirm=true且30秒内真实打开核实为空，未知机器禁止。刷石机/刷玄武岩机在安全干地时自动放行水平流体邻格，亦可传allow_fluid_neighbor=true",
+        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i,drop_policy:s,allow_fluid_neighbor:b");
     schema(
         out,
         "attack_block",
         "break_block的同义入口，仍按拆除策略和权限核验；drop_policy=allow_ground默认允许满包拆除后留地，require_capacity要求容量；未知掉落不猜数量",
-        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i,drop_policy:s");
+        "object:s,place:s,x:i,y:i,z:i,confirm:b,max_radius:i,drop_policy:s,allow_fluid_neighbor:b");
     schema(out, "task_timeline", "只读当前世界任务过程摘要，分页；模型说明与工具事实分开", "offset:i,limit:i");
     schema(out, "report_progress", "公开工作说明或方案调整，一两句；不代替执行结果", "message:s!");
     schema(out, "resume_order", "明确请求续做历史统一委托；先复核剩余目标，不重放旧点击", "record_id:s!");
@@ -894,6 +898,55 @@ public final class ToolSchemas {
         "demo_summarize",
         "分析当前世界最近人工示范记录(demonstrations/)的槽位前后变动，提炼生成UiProfile草稿骨架供核对",
         "");
+    schema(
+        out,
+        "resync_inventory",
+        "生存模式可用的无破坏背包/当前容器重同步工具：刷新服务器完整槽位快照，并汇报自动豁免假失配的易变NBT槽位",
+        "");
+    schema(
+        out,
+        "duty_status",
+        "只读查询女仆式值守预设（纯待命/驻守基地/跟随与守护/外出探索采集）、基地围栏、守护防爆开关、Lootr搜刮开关及缺权降级原因",
+        "");
+    var dutySet =
+        schema(
+            out,
+            "duty_set",
+            "自主切换女仆式值守主行动预设与相关保护/探索/Lootr/调档权限；mode=STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER",
+            "mode:s,armed:b,autonomy_level:s,base_radius:i,follow_range:s,guard_owner:b,avoid_terrain_destroying_mobs:b,scavenge_wild_containers:b,prefer_lootr_containers:b,navigation_detour_only:b,navigation_break:b,set_home_here:b");
+    dutySet
+        .getAsJsonObject("properties")
+        .getAsJsonObject("mode")
+        .add(
+            "enum",
+            new Gson()
+                .toJsonTree(
+                    java.util.List.of(
+                        "STANDBY", "BASE_STEWARD", "ESCORT_GUARD", "EXPEDITION_GATHER")));
+    schema(
+        out,
+        "observe_owner_focus",
+        "只读感知主人/跟随目标的位置、血食、手持物品及6格视线正盯着的方块/实体，用于无需坐标指令的协同互动",
+        "");
+    schema(
+        out,
+        "handoff_to_owner",
+        "安全走到已授权主人/跟随成员旁（避开岩浆/火焰边），面向胸口投递指定物品并核验库存减少与落地/拾取结果；stack=true整组递交",
+        "item:s!,stack:b,player_name:s");
+    var autoAction =
+        schema(
+            out,
+            "auto_action",
+            "内置后台智能连点与长按挂机：MINE_HOLD=刷石机定点连挖（自动静候刷出绝不挖穿后墙、爆镐自动换下把镐，until_tools_spent=true可挖到可用镐耗尽）；ATTACK_CLICK=刷怪塔满蓄力自动连点；USE_HOLD=机械动力手摇曲柄持续右键（低饱食自动进食）；USE_CLICK=筛网/骨粉定时连点右键（自动主背包补料）",
+            "mode:s!,x:i,y:i,z:i,count:i,interval_ticks:i,max_seconds:i,until_tools_spent:b,min_durability:i,item:s");
+    autoAction
+        .getAsJsonObject("properties")
+        .getAsJsonObject("mode")
+        .add(
+            "enum",
+            new Gson()
+                .toJsonTree(
+                    java.util.List.of("MINE_HOLD", "ATTACK_CLICK", "USE_HOLD", "USE_CLICK")));
     return out;
   }
 

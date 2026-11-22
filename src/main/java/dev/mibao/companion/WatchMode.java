@@ -35,12 +35,14 @@ public final class WatchMode {
       mc.mouseHandler.grabMouse();
       PlayerControls.reapply();
     }
+    WatchPowerSaver.sync();
     Companion.notifyUser(watching ? "脱手观看：手动鼠标/游戏按键已隔离；本地对话与急停仍可用" : "已退出脱手观看");
   }
 
   public static void clear() {
     AgentPointer.clear();
     watching = false;
+    WatchPowerSaver.sync();
   }
 
   public static boolean blocksWorldMouse() {

@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.*;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.AxeItem;
@@ -27,6 +28,7 @@ public final class MiningJob extends Actions.Job {
   private final List<BlockPos> broken = new ArrayList<>();
   private boolean requireAxe, naturalTree;
   private boolean groundDrops;
+  private boolean allowFluidNeighbor;
   private java.util.function.Predicate<BlockPos> routeGuard;
   private java.util.function.Predicate<BlockPos> targetGuard;
   private String collectionFilter = "*";
@@ -48,6 +50,11 @@ public final class MiningJob extends Actions.Job {
 
   public MiningJob groundDrops(boolean value) {
     groundDrops = value;
+    return this;
+  }
+
+  public MiningJob allowFluidNeighbor(boolean value) {
+    allowFluidNeighbor = value;
     return this;
   }
 
@@ -278,6 +285,8 @@ public final class MiningJob extends Actions.Job {
     }
     boolean exposed = false;
     neighborFalling = false;
+    boolean fluidOrFireAbove = false;
+    boolean hasHorizontalFluidOrFire = false;
     for (var d : Direction.values()) {
       BlockPos n = pos.relative(d);
       if (!mc().level.hasChunkAt(n)) {
@@ -286,11 +295,34 @@ public final class MiningJob extends Actions.Job {
       }
       var s = mc().level.getBlockState(n);
       if (!s.getFluidState().isEmpty() || s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE)) {
-        lastDenial = "[NEIGHBOR_HAZARD] 邻格有流体或火";
-        return false;
+        if (d == Direction.UP) {
+          fluidOrFireAbove = true;
+        } else if (d == Direction.DOWN) {
+          if (s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE) || !s.getFluidState().is(FluidTags.WATER)) {
+            fluidOrFireAbove = true;
+          }
+        } else {
+          hasHorizontalFluidOrFire = true;
+        }
       }
       if (s.getBlock() instanceof FallingBlock) neighborFalling = true;
-      if (s.isAir()) exposed = true;
+      if (s.isAir() || !s.getFluidState().isEmpty()) exposed = true;
+    }
+    String targetBlockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+    boolean playerDryAndSafe =
+        !mc().player.isInLava()
+            && !mc().player.isOnFire()
+            && mc().level.hasChunkAt(feet)
+            && mc().level.getBlockState(feet).getFluidState().isEmpty();
+    if (!GeneratorPolicy.allowFluidNeighbor(
+        targetBlockId,
+        exactTarget != null,
+        allowFluidNeighbor,
+        fluidOrFireAbove,
+        hasHorizontalFluidOrFire,
+        playerDryAndSafe)) {
+      lastDenial = "[NEIGHBOR_HAZARD] 邻格有流体或火";
+      return false;
     }
     fallingTarget = state.getBlock() instanceof FallingBlock;
     if (!exposed) {

@@ -107,6 +107,22 @@ public final class SettingsCatalog {
               -1,
               "权限与安全"),
           new Entry(
+              "movement_parkour",
+              "跟随疾跑、涉水过坑、爬梯与助跑跑酷",
+              "在账本「跟随与陪同」控制自动疾跑、1格浅水涉水、爬梯子藤蔓及安全/完整助跑跑酷模式",
+              "疾跑 跑步 跑酷 梯子 藤蔓 涉水 水坑 跳跃 跟随 parkour sprint climb water",
+              1,
+              -1,
+              "权限与安全"),
+          new Entry(
+              "duty_companion",
+              "女仆式值守、防爆苦力怕与 Lootr 容器搜刮",
+              "配置驻守基地围栏、跟随守护防爆服开关、自主切档权限、野生容器与刷石机/后台连点挂机",
+              "女仆 值守 驻守 守护 陪同 自主切档 苦力怕 防爆 lootr 搜刮 探索 重同步 刷石机 连点 挂机",
+              1,
+              -1,
+              "权限与安全"),
+          new Entry(
               "world_commands",
               "当前世界指令策略",
               "玩家常用指令白名单、自定义单行指令、clone/summon 及坐标范围上限",
@@ -168,9 +184,9 @@ public final class SettingsCatalog {
           // Page 3: 显示与陪伴
           new Entry(
               "visual_themes",
-              "G4Neon 视觉主题切换",
-              "在霓虹、深海、纸白、终端、原版 5 套实时调色板间切换",
-              "主题 霓虹 深海 纸白 终端 原版 颜色 皮肤 theme",
+              "视觉主题工坊（6 套明暗主题）",
+              "在 Gemini 暗/亮、DeepSeek 深海蓝、纸白、终端、原版 6 套实时调色板间切换",
+              "主题 gemini deepseek 霓虹 霓虹亮 深海 纸白 终端 原版 明暗 亮色 暗色 颜色 皮肤 theme",
               3,
               -1,
               "显示与陪伴"),
@@ -193,10 +209,18 @@ public final class SettingsCatalog {
           new Entry(
               "sidebar_avatar_channels",
               "侧栏参数、角色形象与消息通道",
-              "调整侧栏宽度/透明度/消息数、切换角色立绘风格(龙娘/鲸娘)与公屏通知通道",
-              "侧栏 宽度 透明度 头像 龙娘 鲸娘 双窗口 公屏",
+              "调整侧栏宽度/透明度/消息数、切换角色立绘(龙娘/鲸娘/Gemini星灵)与公屏/伴侣联动通道",
+              "侧栏 宽度 透明度 头像 龙娘 鲸娘 gemini 星灵 双窗口 伴侣 公屏",
               3,
               7,
+              "显示与陪伴"),
+          new Entry(
+              "watch_power_saver",
+              "F4 观看节能降占（一键限帧与静音）",
+              "开启 F4 脱手观看或手动省电时自动限制 FPS（15/20/30）并关闭主音量，退出无损还原",
+              "f4 帧率 fps 音量 静音 省电 挂机 占用 watch power eco",
+              3,
+              -1,
               "显示与陪伴"),
           new Entry(
               "identity_persona",

@@ -9,6 +9,7 @@ import net.minecraft.world.entity.monster.Monster;
 /** Main-thread server damage/death receipts, scoped to the currently loaded dimension. */
 public final class CombatEvidence {
   private static final Map<UUID, Long> attackers = new LinkedHashMap<>(),
+      ownerAttackers = new LinkedHashMap<>(),
       deaths = new LinkedHashMap<>(),
       hurts = new LinkedHashMap<>();
   private static String dimension = "";
@@ -23,6 +24,7 @@ public final class CombatEvidence {
 
   public static void reset() {
     attackers.clear();
+    ownerAttackers.clear();
     deaths.clear();
     hurts.clear();
     dimension = "";
@@ -55,8 +57,15 @@ public final class CombatEvidence {
     var mc = Minecraft.getInstance();
     var injured = mc.level.getEntity(packet.entityId());
     if (injured != null) put(hurts, injured.getUUID());
-    if (packet.entityId() != mc.player.getId()) return;
     Entity source = packet.getSource(mc.level).getEntity();
+    UUID followTarget = FollowControl.currentTargetUuid();
+    if (injured != null
+        && followTarget != null
+        && followTarget.equals(injured.getUUID())
+        && source instanceof Monster) {
+      put(ownerAttackers, source.getUUID());
+    }
+    if (packet.entityId() != mc.player.getId()) return;
     if (source instanceof Monster) put(attackers, source.getUUID());
   }
 
@@ -80,6 +89,11 @@ public final class CombatEvidence {
   public static long attacker(UUID id) {
     scope();
     return attackers.getOrDefault(id, 0L);
+  }
+
+  public static long ownerAttacker(UUID id) {
+    scope();
+    return ownerAttackers.getOrDefault(id, 0L);
   }
 
   public static void cancelDefense() {
@@ -179,7 +193,12 @@ public final class CombatEvidence {
         net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
             .getKey(mob.getType())
             .toString();
-    if (!CombatPolicy.HUNTABLE.contains(id)) {
+    boolean allowDutyCreeper =
+        Store.data != null
+            && Store.data.duty != null
+            && !Store.data.duty.avoidTerrainDestroyingMobs
+            && "minecraft:creeper".equals(id);
+    if (!CombatPolicy.HUNTABLE.contains(id) && !allowDutyCreeper) {
       cancelDefense();
       restUntil = now + 2_000_000_000L;
       WorkLedger.add("combat", "未适配威胁 " + id + "，等待高层安排撤离/对应技能");

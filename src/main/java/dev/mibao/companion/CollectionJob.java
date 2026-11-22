@@ -40,8 +40,14 @@ public final class CollectionJob extends Actions.Job {
   private net.minecraft.world.phys.Vec3 targetPos;
   private int wait, empty, progress, previous, movingReplans, settle;
   private double bestDistance = Double.MAX_VALUE;
-  private boolean ending, scopeClear, inventoryVerified;
+  private boolean ending, scopeClear, inventoryVerified, arrived;
   private String reason = "";
+  private Consumer<UUID> skipListener;
+
+  CollectionJob withSkipListener(Consumer<UUID> listener) {
+    skipListener = listener;
+    return this;
+  }
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -96,6 +102,7 @@ public final class CollectionJob extends Actions.Job {
   private boolean eligible(ItemEntity e) {
     return scope.test(e)
         && e.isAlive()
+        && !e.hasPickUpDelay()
         && (e.getOwner() == null || e.getOwner().equals(mc().player.getUUID()))
         && Actions.match(e.getItem(), filter)
         && PickupGeometry.inArea(
@@ -106,6 +113,13 @@ public final class CollectionJob extends Actions.Job {
             e.getY(),
             e.getZ(),
             radius);
+  }
+
+  private static boolean inCollisionBlock(ItemEntity e) {
+    var level = mc().level;
+    if (level == null) return false;
+    BlockPos pos = e.blockPosition();
+    return level.hasChunkAt(pos) && !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
   }
 
   @Override
@@ -153,7 +167,7 @@ public final class CollectionJob extends Actions.Job {
       return;
     }
     if (target == null) {
-      if (ticks % 10 != 1) return;
+      if (empty > 0 && ticks % 10 != 1) return;
       // Loaded item entities are structured client observations, even when terrain occludes them.
       var items =
           new ArrayList<>(sensor.observe(new AABB(center).inflate(radius), this::eligible, ticks));
@@ -176,10 +190,15 @@ public final class CollectionJob extends Actions.Job {
               PickupCapacity.sweepClear(recovery.size(), sensor.truncated, capacityBlocked));
         return;
       }
+      // Prefer open-floor drops over items wedged inside collision blocks (e.g. cages/machines).
+      items.sort(
+          Comparator.comparing(CollectionJob::inCollisionBlock)
+              .thenComparingDouble(e -> mc().player.distanceToSqr(e)));
       empty = 0;
       target = items.get(0);
       targetPos = target.position();
       wait = movingReplans = 0;
+      arrived = false;
       bestDistance = Double.MAX_VALUE;
       if (target.isInWater()) {
         skip("水中掉落尚无安全拾取适配，不涉水追逐");
@@ -196,6 +215,7 @@ public final class CollectionJob extends Actions.Job {
     if (!eligible(target)) {
       nav.stop();
       target = null;
+      arrived = false;
       return;
     }
     if (target.isInWater()) {
@@ -214,6 +234,7 @@ public final class CollectionJob extends Actions.Job {
       }
       targetPos = target.position();
       wait = 0;
+      arrived = false;
       if (!nav.startForPickup(target.getBoundingBox())) {
         skip(nav.error());
         return;
@@ -224,20 +245,30 @@ public final class CollectionJob extends Actions.Job {
       skip("背包空间已变化，无法容纳该变体");
       return;
     }
-    int r = nav.tick();
-    if (r < 0) {
-      skip(nav.error());
+    if (!arrived) {
+      int r = nav.tick();
+      if (r < 0) {
+        skip(nav.error());
+        return;
+      }
+      if (r > 0) {
+        arrived = true;
+        wait = 0;
+      }
       return;
     }
-    if (r > 0 && ++wait > 40) skip("已接近但2秒没有入包，可能背包无法容纳或存在拾取延迟");
+    if (++wait > 18) skip("已接近但未入包，可能被方块遮挡或拾取受阻");
   }
 
   private void skip(String why) {
     obstacle = Rules.clean(why, 220);
     nav.stop();
-    if (target != null && target.isAlive())
+    if (target != null && target.isAlive()) {
       recovery.reject(target.getUUID(), ticks, 40, Rules.clean(why, 220));
+      if (skipListener != null) skipListener.accept(target.getUUID());
+    }
     target = null;
+    arrived = false;
     if (recovery.full()) end("12个目标恢复预算已满。" + recovery.lastReason(), false);
   }
 

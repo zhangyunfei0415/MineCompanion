@@ -37,9 +37,17 @@ public final class ToolMenu {
       Map.of(
           "follow",
               Set.of("follow_targets", "follow_start", "follow_status", "follow_stop",
-                  "follow_enter_portal", "inspect_client"),
+                  "follow_enter_portal", "duty_status", "duty_set", "observe_owner_focus",
+                  "handoff_to_owner", "inspect_client"),
           "logistics",
               Set.of(
+                  "explore_mark",
+                  "explore_query",
+                  "explore_branch",
+                  "explore_return",
+                  "duty_status",
+                  "duty_set",
+                  "resync_inventory",
                   "inventory_memory",
                   "organize_inventory",
                   "restock",
@@ -101,7 +109,9 @@ public final class ToolMenu {
                   "ae_workflow_state",
                   "ae_pattern_action",
                   "ae_craft_plan",
-                  "ae_craft_confirm"),
+                  "ae_craft_confirm",
+                  "auto_action",
+                  "resync_inventory"),
           "construction",
               Set.of(
                   "light_survey",
@@ -118,9 +128,14 @@ public final class ToolMenu {
                   "move_inventory",
                   "select_slot",
                   "inspect_scene",
+                  "resync_inventory",
                   "unstick"),
           "gathering",
               Set.of(
+                  "explore_mark",
+                  "explore_query",
+                  "explore_branch",
+                  "explore_return",
                   "fish",
                   "find_blocks",
                   "light_survey",
@@ -134,9 +149,11 @@ public final class ToolMenu {
                   "chop_wood",
                   "collect_items",
                   "break_block",
+                  "auto_action",
                   "inspect_scene",
                   "inventory_memory",
                   "move_inventory",
+                  "resync_inventory",
                   "restock"),
           "combat",
               Set.of(
@@ -183,6 +200,7 @@ public final class ToolMenu {
                   "quest_book_act",
                   "quest_scroll",
                   "move_inventory",
+                  "resync_inventory",
                   "open_inventory"),
           "commands",
               Set.of(
@@ -194,6 +212,7 @@ public final class ToolMenu {
                   "chat_input",
                   "creative_take",
                   "creative_clear_slot",
+                  "resync_inventory",
                   "inventory_memory",
                   "inspect_client"));
   private static String override = "", overrideTask = "";
@@ -201,7 +220,9 @@ public final class ToolMenu {
   public static String profile(String task) {
     String text = (task == null ? "" : task).toLowerCase(Locale.ROOT);
     if (!override.isBlank() && overrideTask.equals(text)) return override;
-    if (text.matches("(?s).*(跟随|陪伴|跟着|一起去下界|一起去末地).*")) return "follow";
+    if (text.matches("(?s).*(跟随|陪伴|跟着|守护|值守|驻守|护卫|陪同|一起去下界|一起去末地).*")) return "follow";
+    if (text.matches("(?s).*(探路|回程|岔口|迷宫|后室|工作面|探索地图|记住.{0,8}入口|explor).*"))
+      return "gathering";
     if (text.startsWith("采矿委托：")
         || text.matches("(?s).*(采矿|矿道|矿井|矿脉|开矿|挖矿|挖.{0,12}(钻石|铁矿|煤矿|铜矿|红石)|下挖).*"))
       return "gathering";

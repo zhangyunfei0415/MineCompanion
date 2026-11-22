@@ -112,6 +112,7 @@ public final class GuiContext {
     out.addProperty("gui_width", screen.width);
     out.addProperty("gui_height", screen.height);
     out.addProperty("vanilla_resync_supported", MenuRefresh.supported());
+    out.addProperty("menu_resync_mode", MenuRefresh.mode());
     out.add("vanilla_options", VanillaMenuModel.observe());
     var semanticControls = new JsonArray();
     var options = out.getAsJsonObject("vanilla_options");
@@ -253,9 +254,8 @@ public final class GuiContext {
     if (slot < 0
         || slot >= observed.size()
         || slot >= m.slots.size()
-        || !net.minecraft.world.item.ItemStack.matches(
-            observed.get(slot), m.getSlot(slot).getItem())
-        || !net.minecraft.world.item.ItemStack.matches(observedCursor, m.getCarried()))
+        || !StackSyncMatcher.syncStable(observed.get(slot), m.getSlot(slot).getItem())
+        || !StackSyncMatcher.syncStable(observedCursor, m.getCarried()))
       throw new IllegalArgumentException(
           ViewReject.stale("目标槽位或鼠标物品已改变，请重新inspect_gui", expected, view));
   }
@@ -310,8 +310,8 @@ public final class GuiContext {
   }
 
   public static String point(JsonObject a) {
-    validate(a.get("gui_view").getAsLong());
-    double x = a.get("x").getAsDouble(), y = a.get("y").getAsDouble();
+    validate(Rules.requiredLong(a, "gui_view"));
+    double x = Rules.requiredDouble(a, "x"), y = Rules.requiredDouble(a, "y");
     String space = Agent.str(a, "space", "gui");
     if (space.equals("framebuffer")) {
       var p =

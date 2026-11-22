@@ -8,6 +8,7 @@ import java.util.*;
  */
 public final class CapabilityCatalog {
   public static String family(String tool) {
+    if (tool.startsWith("explore_")) return "exploration";
     if (tool.equals("fish")) return "gathering";
     if (tool.equals("illuminate_area")) return "construction";
     if (tool.equals("vehicle_control")) return "movement";

@@ -9,6 +9,7 @@ public final class LocalExecutor {
 
   private static void interruptInput(String message) {
     FollowControl.suspend(message);
+    DutyScheduler.suspend(message);
     if (Actions.job instanceof MiningRouteJob route) route.suspendInput(message);
     if (Actions.job instanceof BaritoneMiningJob mining) mining.interruptedBy(message);
     if (Actions.job instanceof UseHandJob use) use.suspend();
@@ -82,10 +83,19 @@ public final class LocalExecutor {
     if (!defending) Actions.tick();
     Perception.tick();
     if (!defending) Agent.tick();
-    if (!defending && FollowControl.active()) {
-      if (mc.screen != null || HarnessController.busy() || !Agent.task.isBlank())
-        FollowControl.suspend("等待当前任务或界面结束");
-      else FollowControl.tick();
+    if (!defending) {
+      if (DutyScheduler.isArmed()) {
+        if (mc.screen != null || HarnessController.busy() || !Agent.task.isBlank()) {
+          DutyScheduler.suspend("等待当前任务或界面结束");
+          if (FollowControl.active()) FollowControl.suspend("等待当前任务或界面结束");
+        } else {
+          DutyScheduler.tick();
+        }
+      } else if (FollowControl.active()) {
+        if (mc.screen != null || HarnessController.busy() || !Agent.task.isBlank())
+          FollowControl.suspend("等待当前任务或界面结束");
+        else FollowControl.tick();
+      }
     }
   }
 
@@ -102,6 +112,7 @@ public final class LocalExecutor {
     if (Agent.session != null) o.add("work_session", Agent.session.observe());
     o.add("recovery", HealthRecovery.observe());
     o.add("follow", FollowControl.status());
+    o.add("duty", DutyScheduler.status());
     o.add("pickup", CollectionJob.diagnostic());
     return o;
   }

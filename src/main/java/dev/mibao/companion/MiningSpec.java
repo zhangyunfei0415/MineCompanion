@@ -27,13 +27,12 @@ record MiningSpec(
     String block = SkillCatalog.required(args, "block");
     String goal = choice(args, "goal", "items", Set.of("blocks", "items", "deliver"));
     String policy = choice(args, "tool_policy", "auto", Set.of("auto", "fortune", "silk"));
-    String item =
-        text(
-            args,
-            "item",
-            policy.equals("silk") && !block.startsWith("#")
-                ? block
-                : GatheringCargo.commonDrop(block));
+    String fallbackDrop = GatheringCargo.commonDrop(block);
+    String defaultItem =
+        policy.equals("silk") && !block.startsWith("#")
+            ? block
+            : !fallbackDrop.isBlank() ? fallbackDrop : (!block.startsWith("#") ? block : "");
+    String item = text(args, "item", defaultItem);
     String delivery = text(args, "delivery", "");
     if (!block.matches("#?[a-z0-9_.-]+:[a-z0-9_./-]+"))
       throw new IllegalArgumentException("[INVALID_ARGUMENT] block须为完整ID或#标签");
