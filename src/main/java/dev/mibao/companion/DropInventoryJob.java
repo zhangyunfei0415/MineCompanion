@@ -10,6 +10,7 @@ public final class DropInventoryJob extends Actions.Job {
   private final InventoryMove prepare;
   private final InventorySession proof = new InventorySession(false);
   private int stage;
+  private boolean slotSelected;
   private int settle;
   private net.minecraft.world.item.ItemStack expected;
   private String fingerprint;
@@ -37,7 +38,28 @@ public final class DropInventoryJob extends Actions.Job {
     super(done);
     this.item = item;
     this.stack = stack;
+    rejectAmbiguousName(item);
     prepare = InventoryMove.ensure(s -> Actions.match(s, item));
+  }
+
+  /** A display-name filter must not silently pick one of several different or NBT/damageable stacks. */
+  private static void rejectAmbiguousName(String item) {
+    var player = Minecraft.getInstance().player;
+    if (player == null || item == null || item.isBlank() || item.equals("*")) return;
+    String base = item.split("#", 2)[0];
+    var fingerprints = new java.util.HashSet<String>();
+    boolean byName = false, special = false;
+    for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+      var s = player.getInventory().getItem(i);
+      if (!Actions.match(s, item)) continue;
+      fingerprints.add(WorldSense.fingerprint(s));
+      if (!net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(s.getItem()).toString().equals(base))
+        byName = true;
+      if (s.hasTag() || s.isDamageableItem()) special = true;
+    }
+    if (byName && (fingerprints.size() > 1 || special))
+      throw new IllegalArgumentException(
+          "[AMBIGUOUS_ITEM] 名称命中多个不同指纹或带NBT/耐久的物品，未执行丢弃；请改用注册ID或fingerprint");
   }
 
   @Override
@@ -58,7 +80,7 @@ public final class DropInventoryJob extends Actions.Job {
       }
       stage = 1;
     }
-    if (stage == 1) {
+    if (stage == 1 && !slotSelected) {
       int r = prepare.tick();
       if (r < 0) {
         finish("失败：" + prepare.error);
@@ -66,6 +88,16 @@ public final class DropInventoryJob extends Actions.Job {
       }
       if (r == 0) return;
       mc.player.getInventory().selected = prepare.readySlot;
+      // Let the game mode send the carried-slot packet before the drop action is sent.
+      slotSelected = true;
+      return;
+    }
+    if (stage == 1) {
+      if (mc.player.getInventory().selected != prepare.readySlot
+          || !Actions.match(mc.player.getMainHandItem(), item)) {
+        finish("失败：切换快捷栏后手中物品已变化，未发送丢弃");
+        return;
+      }
       expected = mc.player.getMainHandItem().copy();
       fingerprint = WorldSense.fingerprint(expected);
       requested = stack ? expected.getCount() : 1;

@@ -39,6 +39,7 @@ public final class CompanionDuty {
     if (slotIndex < 9 || slotIndex >= 36 || itemId == null || itemId.isBlank()) return false;
     if (damageable || edible || equipment || protectedOrMandatory) return false;
     if (ESSENTIAL_UTILITY_ITEMS.contains(itemId)) return false;
+    if (itemId.endsWith("shulker_box")) return false;
     return count > Math.max(0, reserve);
   }
 
@@ -141,6 +142,7 @@ public final class CompanionDuty {
 
   // Escort & guard behavior
   public String followRange = FollowRange.NORMAL.name();
+  public String escortTargetUuid = "", escortTargetName = "";
   public boolean guardOwner = true;
   /** Default true: avoid melee rush on creepers/ghasts; toggle off when server enables explosion protection. */
   public boolean avoidTerrainDestroyingMobs = true;
@@ -159,6 +161,9 @@ public final class CompanionDuty {
   // General safety & cost control
   public String autonomyLevel = DutyAutonomyPolicy.Level.AUTO_FULL.name();
   public boolean autoEat = true;
+  public boolean standbyAutoEat = false;
+  public int autoEatThreshold = 10;
+  public int autoEatTarget = 20;
   public boolean allowAiEscalation = false;
 
   public void normalize() {
@@ -168,12 +173,28 @@ public final class CompanionDuty {
     autonomyLevel = autonomyLevelEnum().name();
     if (homeDimension == null) homeDimension = "";
     if (homePlaceName == null) homePlaceName = "";
+    if (escortTargetUuid == null) escortTargetUuid = "";
+    if (escortTargetName == null) escortTargetName = "";
     baseRadius = Rules.bounded(baseRadius, 8, 96);
     guardRadius = Rules.bounded(guardRadius, 4, 16);
     guardLeash = Rules.bounded(guardLeash, 8, 32);
     expeditionMinutes = Rules.bounded(expeditionMinutes, 2, 60);
     minFreeSlots = Rules.bounded(minFreeSlots, 1, 12);
     minToolDurability = Rules.bounded(minToolDurability, 4, 256);
+    autoEatThreshold = Rules.bounded(autoEatThreshold, 2, 19);
+    autoEatTarget = Rules.bounded(autoEatTarget, autoEatThreshold + 1, 20);
+  }
+
+  public boolean shouldTriggerAutoEat(
+      Mode activeMode, boolean isArmed, boolean refilling, int foodLevel) {
+    boolean inStandby = !isArmed || activeMode == null || activeMode == Mode.STANDBY;
+    if (inStandby) {
+      if (!standbyAutoEat) return false;
+      return refilling ? foodLevel < autoEatTarget : foodLevel <= autoEatThreshold;
+    }
+    if (!autoEat) return false;
+    int trigger = Math.max(autoEatThreshold, 14);
+    return refilling ? foodLevel < autoEatTarget : foodLevel <= trigger;
   }
 
   public Mode modeEnum() {
@@ -260,6 +281,13 @@ public final class CompanionDuty {
     if (kind == null || kind == ContainerClass.NONE || kind == ContainerClass.BASE_PROTECTED)
       return false;
     return scavengeWildContainers;
+  }
+
+  public static boolean isWaystoneBlock(String blockId) {
+    if (blockId == null || blockId.isBlank()) return false;
+    String lower = blockId.strip().toLowerCase(Locale.ROOT);
+    return lower.startsWith("waystones:")
+        && (lower.contains("waystone") || lower.contains("sharestone"));
   }
 
   public List<String> missingPermissions(

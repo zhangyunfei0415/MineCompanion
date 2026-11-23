@@ -11,8 +11,9 @@ public final class ToolSchemas {
     schema(out, "follow_targets", "观察其他玩家。仅已追踪玩家有位置", "");
     schema(out, "explore_mark", "登记当前位置、指定可见XYZ或重命名当前维度已有node_id。kind=entry/safe_point/junction/stairs/work_face/hazard；坐标必须成组", "node_id:s,x:i,y:i,z:i,kind:s,name:s");
     schema(out, "explore_query", "只读探索图；查入口、安全点、可见未探岔口及待复查边。query按名称/地标/类型搜索，target可填nearest_entry/nearest_safe/last_work_face/节点ID或名称。旧路线走前仍需复查", "query:s,target:s,limit:i");
-    schema(out, "explore_branch", "沿frontier_id或相对/罗盘方向有限探路。默认40格、45秒、在下一岔口停下；return_after沿可逆路线回起点。默认只走不拆", "frontier_id:s,direction:s,max_distance:i,max_seconds:i,stop_on_junction:b,return_after:b");
-    schema(out, "explore_return", "沿当前维度已走通双向路径回最近可达入口、安全点、最后工作面、节点ID或名称。逐格复查，封路有界绕行；不跨传送或单向落差", "target:s,max_distance:i,max_seconds:i");
+    schema(out, "explore_branch", "沿frontier_id或相对/罗盘方向有限探路。默认40格、45秒、走出至少1步后在下一岔口停下；return_after沿可逆路线回起点。0步无进展会显式报EXPLORE_NO_PROGRESS，旷野开图优先explore_roam", "frontier_id:s,direction:s,max_distance:i,max_seconds:i,stop_on_junction:b,return_after:b");
+    schema(out, "explore_roam", "主动向未知区块/方向开图推进（不要求出程预证图路线）：带低血/敌对/落差/岩浆窄格护栏、室内脱困BFS、5秒卡住升级阶梯与5分钟负缓存，边走边写实3D回程图，返还真实区块推进速度", "prefer_heading:s,max_distance:i,max_seconds:i,return_after:b,guard_hostiles:b");
+    schema(out, "explore_return", "沿当前维度已走通双向路径回最近可达入口(nearest_entry)、安全点(nearest_safe)、基地(home)、最后工作面、节点ID或名称。guide_player=true时会在拐角与过远处回头等待并带领玩家一起走回家", "target:s,max_distance:i,max_seconds:i,guide_player:b,player_name:s");
     schema(out, "follow_start", "按UUID或精确用户名开启跟随，可使用已选目标；profile=follow/nether/end，末地门须明确允许", "target_uuid:s,player_name:s,profile:s,allow_end_portal:b");
     schema(out, "follow_status", "查询跟随、最近站位、目标及停止所需follow_id", "");
     schema(out, "follow_stop", "按follow_status给出的当前follow_id停止跟随", "follow_id:s!");
@@ -375,8 +376,8 @@ public final class ToolSchemas {
     schema(
         out,
         "ae_deposit",
-        "将指定玩家背包inventory_slot(0..35)中的整组存入AE网络，count必须等于该组实际数量1..64，不自动拆分；核对网络增加和背包减少，需生存",
-        "item:s!,count:i!,inventory_slot:i!");
+        "将玩家背包整组物品存入AE网络：可只传item（及可选count）自动匹配背包槽位（优先主背包9..35），或显式指定inventory_slot(0..35)；AE整组移入不自动拆分，需生存且共同核验",
+        "item:s!,count:i,inventory_slot:i");
     schema(
         out,
         "ae_request_craft",
@@ -630,8 +631,8 @@ public final class ToolSchemas {
     schema(
         out,
         "move_inventory",
-        "从随身背包准备物品：destination=hotbar/offhand/head/chest/legs/feet，destination=main把指定物品从快捷栏一键移回主背包空槽；slot=-1自动找空位或保留首格终端完整交换末格；也可指定0..8完整交换；保留ID+NBT，服务器完整快照验收",
-        "item:s!,destination:s!,slot:i");
+        "从随身背包准备物品：destination=hotbar/offhand/head/chest/legs/feet，destination=main把指定物品从快捷栏一键移回主背包空槽；slot=-1自动找空位或保留首格终端完整交换末格；也可指定0..8完整交换；destination=hotbar时返回具体hotbar_slot，传select=true可在确认后直接主手选中；保留ID+NBT，服务器完整快照验收",
+        "item:s!,destination:s!,slot:i,select:b");
     schema(out, "stow_cursor", "把鼠标持有的整组物品放回一个空背包槽位，服务器核对；无空间即保留现场，不丢弃", "");
     schema(out, "eat_food", "从主背包准备并正常吃一件原版普通食物，核对服务器消耗及饱食度；不吃特殊/效果食物。可指定item", "item:s");
     schema(out, "list_controls", "读取游戏已注册的按键名/分类/实际绑定及白名单；最多256条，query可按注册名/分类过滤", "query:s");
@@ -655,7 +656,7 @@ public final class ToolSchemas {
     schema(
         out,
         "query_world",
-        "查询持久化对象/仓库及历史物品线索；注意loaded_now、age_ms，未知不等于没有。类别storage/wood/ore/crop/crafting/furnace/entrance/hazard/block_entity",
+        "查询持久化对象/仓库及历史物品线索；注意loaded_now、age_ms，未知不等于没有；limit=1..256(默认16)。类别storage/wood/ore/crop/crafting/furnace/entrance/hazard/block_entity",
         "query:s,category:s,radius:i,offset:i,limit:i");
     schema(
         out,
@@ -912,8 +913,8 @@ public final class ToolSchemas {
         schema(
             out,
             "duty_set",
-            "自主切换女仆式值守主行动预设与相关保护/探索/Lootr/调档权限；mode=STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER",
-            "mode:s,armed:b,autonomy_level:s,base_radius:i,follow_range:s,guard_owner:b,avoid_terrain_destroying_mobs:b,scavenge_wild_containers:b,prefer_lootr_containers:b,navigation_detour_only:b,navigation_break:b,set_home_here:b");
+            "自主切换女仆式值守主行动预设与相关保护/探索/Lootr/自理进食/调档权限；mode=STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER；ESCORT_GUARD可传follow_player/follow_uuid锁定队友目标；可配standby_auto_eat、auto_eat_threshold(2..19)、auto_eat_target(<=20)",
+            "mode:s,armed:b,autonomy_level:s,base_radius:i,follow_range:s,follow_player:s,follow_uuid:s,guard_owner:b,avoid_terrain_destroying_mobs:b,scavenge_wild_containers:b,prefer_lootr_containers:b,auto_eat:b,standby_auto_eat:b,auto_eat_threshold:i,auto_eat_target:i,navigation_detour_only:b,navigation_break:b,set_home_here:b");
     dutySet
         .getAsJsonObject("properties")
         .getAsJsonObject("mode")
@@ -937,8 +938,8 @@ public final class ToolSchemas {
         schema(
             out,
             "auto_action",
-            "内置后台智能连点与长按挂机：MINE_HOLD=刷石机定点连挖（自动静候刷出绝不挖穿后墙、爆镐自动换下把镐，until_tools_spent=true可挖到可用镐耗尽）；ATTACK_CLICK=刷怪塔满蓄力自动连点；USE_HOLD=机械动力手摇曲柄持续右键（低饱食自动进食）；USE_CLICK=筛网/骨粉定时连点右键（自动主背包补料）",
-            "mode:s!,x:i,y:i,z:i,count:i,interval_ticks:i,max_seconds:i,until_tools_spent:b,min_durability:i,item:s");
+            "内置后台智能连点与长按挂机：MINE_HOLD=刷石机定点连挖（自动静候刷出绝不挖穿后墙、爆镐自动换下把镐，支持ticks=1..200短时持续连挖或until_tools_spent=true直到耗尽镐）；ATTACK_CLICK=刷怪塔满蓄力自动连点；USE_HOLD=机械动力手摇曲柄持续右键（低饱食自动进食）；USE_CLICK=筛网/骨粉定时连点右键（自动主背包补料）",
+            "mode:s!,x:i,y:i,z:i,count:i,interval_ticks:i,max_seconds:i,ticks:i,until_tools_spent:b,min_durability:i,item:s");
     autoAction
         .getAsJsonObject("properties")
         .getAsJsonObject("mode")

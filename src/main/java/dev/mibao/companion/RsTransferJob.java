@@ -16,7 +16,7 @@ public final class RsTransferJob extends Actions.Job {
   private String fingerprint;
   private long stored;
   private int inventory, completed, delay;
-  private boolean sent, stowing;
+  private boolean sent, stowing, networkDrift;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -102,8 +102,7 @@ public final class RsTransferJob extends Actions.Job {
           && !stowing
           && PlayerEvidence.cursorConfirmed()
           && Actions.match(mc().player.containerMenu.getCarried(), fingerprint)
-          && mc().player.containerMenu.getCarried().getCount() == 1
-          && RsTerminalBridge.amount(fingerprint) == stored - 1) {
+          && mc().player.containerMenu.getCarried().getCount() == 1) {
         stowing = true;
         delay = 0;
         Actions.job =
@@ -115,39 +114,73 @@ public final class RsTransferJob extends Actions.Job {
         return;
       }
       if (++delay > 100) {
-        finish(
+        String report =
             "部分完成：RS已确认 "
                 + completed
                 + " / "
                 + requested
-                + "；当前动作已发送但双方数量未共同确认，停止且不重放，请ae_inventory和observe核对。");
+                + "；当前动作已发送但双方数量未共同确认，停止且不重放，请ae_inventory和observe核对。";
+        var carried = mc().player.containerMenu.getCarried();
+        if (!deposit && !stowing && !carried.isEmpty() && Actions.match(carried, fingerprint)) {
+          // The cursor holds what this job fetched; stow it before ending instead of leaving it.
+          stowing = true;
+          Actions.job =
+              new CursorStowJob(
+                  result -> {
+                    Actions.job = this;
+                    finish(report + "已尝试收回本次取到鼠标的物品：" + result);
+                  });
+          return;
+        }
+        finish(report);
         return;
       }
       if (delay % 4 != 0) return;
       int step = deposit ? requested : 1;
       int expected = inventory + (deposit ? -step : step);
       long expectedNetwork = stored + (deposit ? step : -step);
-      if (AeTransferProof.confirmed(
-          PlayerEvidence.revision > 0,
-          deposit,
-          step,
-          inventory,
-          actual(),
-          PlayerEvidence.total(PlayerEvidence.confirmed(fingerprint)),
-          stored,
-          RsTerminalBridge.amount(fingerprint))) {
+      int actualNow = actual();
+      int serverNow = PlayerEvidence.total(PlayerEvidence.confirmed(fingerprint));
+      long networkNow = RsTerminalBridge.amount(fingerprint);
+      boolean exact =
+          AeTransferProof.confirmed(
+              PlayerEvidence.revision > 0,
+              deposit,
+              step,
+              inventory,
+              actualNow,
+              serverNow,
+              stored,
+              networkNow);
+      // Other automation may move the same item meanwhile: after the stow settles, a server-confirmed
+      // +1 in the player inventory proves the fetch; the network count is only a note then.
+      boolean playerOnly =
+          !exact
+              && !deposit
+              && stowing
+              && delay >= 20
+              && mc().player.containerMenu.getCarried().isEmpty()
+              && PlayerEvidence.revision > 0
+              && actualNow - inventory == step
+              && serverNow == actualNow;
+      if (exact || playerOnly) {
         completed += step;
+        if (playerOnly) networkDrift = true;
         if (completed == requested) {
           finish(
               "成功：RS"
                   + (deposit ? "存入" : "取出")
                   + " "
                   + completed
-                  + "；客户端网络数量与服务器背包变化共同核对。未使用创造复制。");
+                  + (networkDrift
+                      ? "；期间该物品网络数量另有变动（当前 "
+                          + networkNow
+                          + "），取出以服务器背包回执核对，网络数量仅作附注。未使用创造复制。"
+                      : "；客户端网络数量与服务器背包变化共同核对。未使用创造复制。"));
           return;
         }
         inventory = expected;
-        stored = expectedNetwork;
+        stored = playerOnly ? networkNow : expectedNetwork;
         PlayerEvidence.begin();
         sent = false;
         stowing = false;

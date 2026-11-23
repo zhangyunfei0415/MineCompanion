@@ -14,6 +14,7 @@ public final class Rules {
           "explore_mark",
           "explore_query",
           "explore_branch",
+          "explore_roam",
           "explore_return",
           "decision_select",
           "decision_status",
@@ -224,6 +225,7 @@ public final class Rules {
       Set.of(
           "explore_mark",
           "explore_branch",
+          "explore_roam",
           "explore_return",
           "follow_start",
           "follow_enter_portal",

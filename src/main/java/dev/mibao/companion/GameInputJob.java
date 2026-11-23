@@ -53,6 +53,15 @@ public final class GameInputJob extends Actions.Job {
     } else mc.keyboardHandler.keyPress(mc.getWindow().getWindow(), k, 0, action, mods);
   }
 
+  private static net.minecraft.client.gui.components.EditBox chatInput(
+      net.minecraft.client.gui.screens.ChatScreen chat) {
+    if (chat.getFocused() instanceof net.minecraft.client.gui.components.EditBox focused)
+      return focused;
+    for (var child : chat.children())
+      if (child instanceof net.minecraft.client.gui.components.EditBox box) return box;
+    return null;
+  }
+
   private double coord(String name, int bound) {
     double v = Rules.requiredDouble(args, name);
     if (!Double.isFinite(v) || v < 0 || v >= bound)
@@ -95,6 +104,34 @@ public final class GameInputJob extends Actions.Job {
           && !Store.config.allowChatSubmit) {
         finish("失败：[CHAT_SUBMIT_DENIED] 允许打字但未允许提交，文字保留供玩家检查");
         return;
+      }
+      // Commands must go through game_command (GameCommandPolicy); the chat box is not a bypass.
+      if (screen == null
+          && kind.equals("key")
+          && (key == 47 || mc.options.keyCommand.matches(key, 0))) {
+        finish("失败：[COMMAND_VIA_GAME_COMMAND] 不通过按键打开指令框；指令请使用 game_command");
+        return;
+      }
+      if (screen instanceof net.minecraft.client.gui.screens.ChatScreen chat) {
+        var box = chatInput(chat);
+        if (box == null) {
+          finish("失败：[CHAT_INPUT_UNKNOWN] 无法读取聊天输入框内容，未发送输入");
+          return;
+        }
+        String value = box.getValue();
+        boolean command = value.stripLeading().startsWith("/");
+        if (kind.equals("key") && (key == 257 || key == 335) && command) {
+          finish("失败：[COMMAND_VIA_GAME_COMMAND] 聊天框内容是指令，未提交；指令请使用 game_command 校验执行");
+          return;
+        }
+        if (kind.equals("text")) {
+          String typed = Agent.str(args, "text", "");
+          boolean atStart = value.isBlank() || box.getCursorPosition() == 0;
+          if (command || (atStart && typed.stripLeading().startsWith("/"))) {
+            finish("失败：[COMMAND_VIA_GAME_COMMAND] 不在聊天框输入指令；指令请使用 game_command");
+            return;
+          }
+        }
       }
       if (!kind.equals("key") && !kind.equals("click") && screen == null) {
         finish("失败：拖动/滚动/文本操作需要当前GUI");
@@ -159,6 +196,10 @@ public final class GameInputJob extends Actions.Job {
           return;
         }
         held = true;
+        // Screen.hasShiftDown()/hasControlDown() read live key state, so hold the modifiers as
+        // virtual keys for the whole click/drag; stop() clears them in its finally block.
+        var clickMods = GameInputPolicy.modifierKeys(mods);
+        if (!clickMods.isEmpty()) VirtualInput.begin(clickMods);
         AgentPointer.button(button, true);
         event(() -> screen.mouseClicked(x, y, button));
       }

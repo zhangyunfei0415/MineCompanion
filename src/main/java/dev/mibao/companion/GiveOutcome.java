@@ -12,6 +12,10 @@ import java.util.Locale;
 final class GiveOutcome {
   private GiveOutcome() {}
 
+  private static final java.util.regex.Pattern GIVE =
+      java.util.regex.Pattern.compile(
+          "^give\\s+(\\S+)\\s+([A-Za-z0-9_.:/-]+)(\\{.*\\}|\\[.*\\])?(?:\\s+(\\S+))?$");
+
   /** The item and count a verifiable self-targeted /give expects to add. */
   record Expected(String itemId, int count) {}
 
@@ -23,17 +27,16 @@ final class GiveOutcome {
     if (command == null) return null;
     String s = command.strip();
     if (s.startsWith("/")) s = s.substring(1);
-    String[] p = s.split("\\s+");
-    if (p.length < 3 || !p[0].equals("give")) return null;
-    if (!targetsSelf(p[1], playerName)) return null;
-    String item = p[2];
-    int bracket = item.indexOf('[');
-    if (bracket >= 0) item = item.substring(0, bracket);
+    // 1.20.1 item NBT is {..} and may contain spaces; [..] components only exist from 1.20.5.
+    var m = GIVE.matcher(s);
+    if (!m.matches()) return null;
+    if (!targetsSelf(m.group(1), playerName)) return null;
+    String item = m.group(2);
     if (item.isBlank()) return null;
     int count = 1;
-    if (p.length > 3) {
+    if (m.group(4) != null) {
       try {
-        count = Integer.parseInt(p[3]);
+        count = Integer.parseInt(m.group(4));
       } catch (NumberFormatException e) {
         return null;
       }

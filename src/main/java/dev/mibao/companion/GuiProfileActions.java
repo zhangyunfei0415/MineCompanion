@@ -371,9 +371,22 @@ public final class GuiProfileActions {
       if (!virtualSlot && MenuContext.revision() > revBefore && MenuContext.synchronizedNow()) {
         int after = m.getSlot(targetMenuSlot).getItem().getCount();
         int delta = after - targetBeforeCount;
-        if (delta >= 1 && m.getCarried().isEmpty()) {
+        if (delta >= wantCount && m.getCarried().isEmpty()) {
           finish(
               "成功：已向 " + role + " 槽位（槽" + targetMenuSlot + "）投入 " + item + " ×" + delta + "（服务端核验通过）。");
+        } else if (delta >= 1 && m.getCarried().isEmpty()) {
+          finish(
+              "部分完成：已向 "
+                  + role
+                  + " 槽位（槽"
+                  + targetMenuSlot
+                  + "）投入 "
+                  + item
+                  + " "
+                  + delta
+                  + "/"
+                  + wantCount
+                  + "（服务端核验；单组数量或槽位剩余空间不足，未凑足请求数量，未重放）。");
         } else {
           finish("部分完成：投料已发送但目标槽位增量或鼠标状态未达到预期（added=" + delta + "），未重放。");
         }
@@ -554,7 +567,29 @@ public final class GuiProfileActions {
         this.dataRevBefore = MenuContext.dataRevision();
 
         if (ctrl.kind().equals("widget_label")) {
-          AbstractWidget w = GuiContext.findActiveWidgetByLabel(ctrl.label());
+          List<AbstractWidget> matches = GuiContext.findActiveWidgetsByLabel(ctrl.label());
+          AbstractWidget w = matches.size() == 1 ? matches.get(0) : null;
+          if (matches.size() > 1 && (ctrl.dx() != 0 || ctrl.dy() != 0)) {
+            // Same-label buttons: dx/dy from the profile pick the one under that GUI-relative point.
+            int px = ac.getGuiLeft() + ctrl.dx();
+            int py = ac.getGuiTop() + ctrl.dy();
+            List<AbstractWidget> hit = new ArrayList<>();
+            for (AbstractWidget cand : matches)
+              if (GuiGeometry.inside(px, py, cand.getX(), cand.getY(), cand.getWidth(), cand.getHeight()))
+                hit.add(cand);
+            if (hit.size() == 1) w = hit.get(0);
+          }
+          if (w == null && matches.size() > 1) {
+            finish(
+                "失败：["
+                    + GuiChoice.AMBIGUOUS
+                    + "] 当前界面有 "
+                    + matches.size()
+                    + " 个同名可用控件「"
+                    + ctrl.label()
+                    + "」，未点击；请在 UiProfile 控件中提供指向目标按钮的 dx/dy，或改用 relative_point。");
+            return;
+          }
           if (w == null) {
             finish("失败：[GUI_TARGET_INVALID] 未找到可用控件：" + ctrl.label());
             return;
@@ -647,10 +682,8 @@ public final class GuiProfileActions {
       boolean screenChanged = mc.screen != expectedScreen;
       boolean menuUpdated = MenuContext.revision() > menuRevBefore;
       boolean dataChanged = MenuContext.dataRevision() > dataRevBefore;
-      finish(
-          "成功：已触发控件 "
-              + controlName
-              + "（handled="
+      String evidence =
+          "（handled="
               + handled
               + ", screen_changed="
               + screenChanged
@@ -658,7 +691,26 @@ public final class GuiProfileActions {
               + menuUpdated
               + ", data_changed="
               + dataChanged
-              + "）；最终生产结果仍须观察核验。");
+              + ", business_success="
+              + (screenChanged || menuUpdated || dataChanged)
+              + "）";
+      if (!screenChanged && !menuUpdated && !dataChanged) {
+        // No observable effect: never report success, and do not replay the click.
+        finish(
+            handled
+                ? "部分完成：[CONTROL_NO_EFFECT] 控件 "
+                    + controlName
+                    + " 已接收点击，但未观察到界面/菜单/数据变化"
+                    + evidence
+                    + "；未重放，请 inspect_gui 核对控件坐标与机器状态。"
+                : "失败：[CONTROL_NOT_HANDLED] 控件 "
+                    + controlName
+                    + " 未处理点击且无任何变化"
+                    + evidence
+                    + "；可能坐标偏移或界面改版，请重新 inspect_gui 校准 UiProfile。");
+        return;
+      }
+      finish("成功：已触发控件 " + controlName + evidence + "；最终生产结果仍须观察核验。");
     }
 
     @Override

@@ -36,7 +36,7 @@ public final class TestPreparation {
   public static String prepareCommand(String value, boolean confirm) {
     if (mc().player == null || mc().getConnection() == null)
       throw new IllegalArgumentException("[NOT_CONNECTED] 未进入世界");
-    var at = mc().player.blockPosition();
+    var at = mc().player;
     var plan =
         GameCommandPolicy.parse(value, CommandSettings.profile(), at.getX(), at.getY(), at.getZ());
     if (mc().screen != null)

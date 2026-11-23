@@ -53,8 +53,12 @@ public final class HarnessController {
   }
 
   public static boolean busy() {
+    return foregroundBusy();
+  }
+
+  public static boolean foregroundBusy() {
     return Agent.routine != null
-        || Actions.job != null
+        || (Actions.job != null && !DutyScheduler.ownsCurrentJob())
         || Agent.production != null
         || Agent.transport != null
         || Agent.restock != null
@@ -126,6 +130,23 @@ public final class HarnessController {
     if (!text.startsWith("{") && !text.startsWith("[")) event("assistant", Rules.clean(text, 1200));
   }
 
+  public static void chatEvent(String kind, String sender, String text) {
+    String cleanText = Rules.clean(text, 300);
+    if (cleanText.isBlank()) return;
+    String line =
+        sender != null && !sender.isBlank()
+            ? "[" + kind + "] <" + Rules.clean(sender, 48) + "> " + cleanText
+            : "[" + kind + "] " + cleanText;
+    var last = events.peekLast();
+    if (last != null
+        && "chat".equals(last.get("kind").getAsString())
+        && line.equals(last.get("text").getAsString())
+        && System.currentTimeMillis() - last.get("at_ms").getAsLong() < 500) {
+      return;
+    }
+    event("chat", line);
+  }
+
   public static void task(String text) {
     event("task", Rules.clean(text, 4000));
     LocalDialogue.add("系统", "指令已交给本地Harness，等待控制器处理");
@@ -193,6 +214,11 @@ public final class HarnessController {
     nextFrame = 0;
   }
 
+  /** Lightweight lease probe for HUD/render paths; never builds an observation. */
+  public static boolean leaseActive() {
+    return session.active(System.currentTimeMillis());
+  }
+
   public static JsonObject status() {
     var o = Actions.observe();
     o.addProperty("contract_version", 1);
@@ -205,7 +231,9 @@ public final class HarnessController {
     o.addProperty("paused", Agent.paused);
     for (var e : PauseControl.observe().entrySet()) o.add(e.getKey(), e.getValue());
     o.add("decision", DecisionService.status());
-    o.addProperty("busy", busy());
+    o.addProperty("busy", foregroundBusy());
+    o.addProperty("background_duty_active", DutyScheduler.ownsCurrentJob());
+    o.addProperty("any_job_active", Actions.job != null);
     o.addProperty("pending_tool", Agent.pendingTool);
     o.addProperty("driver", Store.config.driver);
     o.addProperty("lease_active", session.active(System.currentTimeMillis()));
@@ -322,13 +350,7 @@ public final class HarnessController {
         if (!Rules.TOOLS.contains(tool)
             || Set.of("finish", "run_skill", "save_skill", "read_web", "search_web").contains(tool))
           throw new IllegalArgumentException("外部action仅允许已有游戏工具；不直接执行模型、网页或技能定义");
-        if (!Agent.paused && !Cooperation.yielding() && DutyScheduler.ownsCurrentJob()
-            && Agent.routine == null && Agent.production == null && Agent.transport == null
-            && Agent.restock == null && Agent.resource == null && Agent.session == null
-            && !Agent.busy && Agent.pendingTool.isBlank()) {
-          DutyScheduler.yieldCurrentJob("明确指令抢占：" + tool);
-        }
-        if ((Agent.paused || Cooperation.yielding() || busy())
+        if ((Agent.paused || Cooperation.yielding() || foregroundBusy())
             && !Set.of(
                     "capability_probe",
                     "machine_adapters",
@@ -368,6 +390,13 @@ public final class HarnessController {
                 .contains(tool))
           return publicReceipt(session.blocked(id, signature, Agent.epoch, tool,
               "失败：[BUSY] 当前暂停/忙碌/待审批；先查状态或回执，不叠加写动作"));
+        if (!Agent.paused && !Cooperation.yielding() && DutyScheduler.ownsCurrentJob()
+            && !foregroundBusy()
+            && (Rules.WRITE.contains(tool)
+                || Set.of("go_to", "duty_set", "follow_start", "explore_branch", "explore_roam", "explore_return")
+                    .contains(tool))) {
+          DutyScheduler.yieldCurrentJob("明确指令抢占：" + tool);
+        }
         var r = session.begin(id, signature, Agent.epoch, tool);
         Agent.localConversation = true;
         Hud.FEED.acknowledge();
@@ -432,13 +461,35 @@ public final class HarnessController {
     Path folder = Store.ROOT.resolve("harness-recordings/images");
     Files.createDirectories(folder);
     Path file = folder.resolve("frame-" + System.currentTimeMillis() + ".png");
-    try (var image = net.minecraft.client.Screenshot.takeScreenshot(mc().getMainRenderTarget())) {
-      image.writeToFile(file);
+    var image = net.minecraft.client.Screenshot.takeScreenshot(mc().getMainRenderTarget());
+    try {
+      net.minecraft.Util.ioPool()
+          .execute(
+              () -> {
+                try {
+                  image.writeToFile(file);
+                  mc().execute(
+                      () -> {
+                        RuntimeStats.add("harness_screenshots_saved");
+                        event("screenshot_saved", "截图已写入本地：" + file);
+                      });
+                } catch (Exception failure) {
+                  mc().execute(
+                      () ->
+                          event(
+                              "screenshot_failed",
+                              "截图写入失败：" + Rules.clean(String.valueOf(failure.getMessage()), 120)));
+                } finally {
+                  image.close();
+                }
+              });
+    } catch (RuntimeException rejected) {
+      image.close();
+      throw rejected;
     }
     lastScreenshot = System.currentTimeMillis();
     screenshots++;
-    RuntimeStats.add("harness_screenshots_saved");
-    var o = ok("截图仅保存本地，尚未上传");
+    var o = ok("截图已排队写入本地（未上传），完成后追加 screenshot_saved 事件");
     o.addProperty("path", file.toString());
     return o;
   }

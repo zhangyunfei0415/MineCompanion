@@ -55,13 +55,17 @@ public final class SwimRecovery {
           for (int dy = -1; dy <= 4; dy++) {
             if (dx * dx + dz * dz > 36) continue;
             var at = c.offset(dx, dy, dz);
-            if (!mc().level.hasChunkAt(at) || !Navigator.stand(at)) continue;
+            if (!mc().level.hasChunkAt(at)
+                || !Navigator.stand(at)
+                || Navigator.isNarrowHazardAdjacent(at)) continue;
             var target = Navigator.foot(at);
             boolean safe = true;
             for (int i = 1; i <= 8; i++) {
               var sample = BlockPos.containing(p.position().lerp(target, i / 8.0));
               if (!mc().level.hasChunkAt(sample)
-                  || mc().level.getFluidState(sample).is(FluidTags.LAVA)) {
+                  || Navigator.lethalHazard(sample)
+                  || Navigator.lethalHazard(sample.below())
+                  || Navigator.lethalHazard(sample.above())) {
                 safe = false;
                 break;
               }
@@ -80,11 +84,14 @@ public final class SwimRecovery {
           MovementSteering.toward(
               p.getYRot(), (float) Math.toDegrees(Math.atan2(-delta.x, delta.z)));
       p.setYRot(steering.yaw());
-      p.setXRot(-15);
+      p.setXRot(p.isInWater() ? -15 : 0);
       forward = steering.forward() && delta.horizontalDistanceSqr() > .08;
     }
-    // Holding jump while immersed is normal ascent. On dry terrain use short bounded jump pulses.
-    PlayerControls.motionState(forward, p.isInWater() || ticks % 16 < 6);
+    boolean needStepUp =
+        shore != null && shore.getY() > p.getBlockY() && forward;
+    // Holding jump while immersed is normal ascent. On dry terrain step horizontally unless climbing out.
+    PlayerControls.motionState(
+        forward, p.isInWater() || (needStepUp && ticks % 16 < 6));
     return 0;
   }
 

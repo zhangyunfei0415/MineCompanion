@@ -62,6 +62,27 @@ public final class Companion {
           "key.categories.logistics_companion");
   private int ticks;
   private final ManualUseLatch manualUseLatch = new ManualUseLatch();
+  private final Map<String, Long> tickFailures = new HashMap<>();
+
+  /** Isolates one subsystem tick so a single failure cannot crash the client tick event. */
+  private void guarded(String name, Runnable tick) {
+    try {
+      tick.run();
+    } catch (RuntimeException failure) {
+      long now = System.currentTimeMillis();
+      String key = name + ":" + failure.getClass().getName();
+      Long last = tickFailures.get(key);
+      if (last != null && now - last < 60000) return;
+      if (tickFailures.size() > 64) tickFailures.clear();
+      tickFailures.put(key, now);
+      log(
+          name
+              + " 刷新异常，已隔离本次调用："
+              + failure.getClass().getSimpleName()
+              + " "
+              + Rules.clean(String.valueOf(failure.getMessage()), 160));
+    }
+  }
 
   @SubscribeEvent
   public void miningBoundary(
@@ -143,8 +164,9 @@ public final class Companion {
   @SubscribeEvent
   public void tick(TickEvent.ClientTickEvent e) {
     if (e.phase == TickEvent.Phase.START) {
-      if (Actions.job instanceof PlatformJob building) building.guardEdge();
-      AgentPointer.tick();
+      if (Actions.job instanceof PlatformJob building)
+        guarded("PlatformJob", building::guardEdge);
+      guarded("AgentPointer", AgentPointer::tick);
       var mc = Minecraft.getInstance();
       var use = mc.options.keyUse.getKey();
       if (use.getType() == InputConstants.Type.KEYSYM) {
@@ -152,7 +174,7 @@ public final class Companion {
           manualUseLatch.press();
         else manualUseLatch.release();
       }
-      PlayerControls.guard();
+      guarded("PlayerControls", PlayerControls::guard);
       return;
     }
     if (e.phase != TickEvent.Phase.END) return;
@@ -186,6 +208,9 @@ public final class Companion {
       LocalDialogue.reset();
       CompanionIdentity.restoreDialogue();
       Messages.reset();
+      ChatBuffer.clear();
+      QuestBookBridge.reset();
+      RecentWrites.clear();
       RestockTask.latest = null;
       Agent.stop("已连接。请在 " + PANEL.getTranslatedKeyMessage().getString() + " 面板明确开启 AI。");
       if (Store.data.checkpoints != null
@@ -207,36 +232,42 @@ public final class Companion {
       AgentPointer.endProbe();
       StatusLink.reset();
       Messages.reset();
+      ChatBuffer.clear();
+      QuestBookBridge.reset();
+      RecentWrites.clear();
       RestockTask.latest = null;
     }
     connected = now;
     if (now) {
-      DeathRecovery.tick();
+      guarded("DeathRecovery", DeathRecovery::tick);
       if ((WatchMode.active() || LocalDialogue.editing) && mc.mouseHandler.isMouseGrabbed())
         mc.mouseHandler.releaseMouse();
-      Cooperation.poll();
-      HarnessController.tick();
-      ClientEvidence.tick();
-      RegionQueries.tick();
-      MenuContext.tick();
-      WorldSense.tick();
-      ExplorationMemory.tick();
-      MenuContext.refreshMemory();
-      StreamProgress.tick();
-      LocalExecutor.tick();
-      InventoryMemory.tick();
-      VisualAssist.tick();
-      Messages.tick();
-      StatusLink.tick();
-      QuestBookBridge.tick();
-      if (++ticks % 20 == 0 && WatchPowerSaver.active()) WatchPowerSaver.tick();
-      if (ticks % 600 == 0) Store.save();
+      guarded("Cooperation", Cooperation::poll);
+      guarded("HarnessController", HarnessController::tick);
+      guarded("ClientEvidence", ClientEvidence::tick);
+      guarded("RegionQueries", RegionQueries::tick);
+      guarded("MenuContext", MenuContext::tick);
+      guarded("WorldSense", WorldSense::tick);
+      guarded("ExplorationMemory", ExplorationMemory::tick);
+      guarded("MenuContextMemory", MenuContext::refreshMemory);
+      guarded("StreamProgress", StreamProgress::tick);
+      guarded("LocalExecutor", LocalExecutor::tick);
+      guarded("InventoryMemory", InventoryMemory::tick);
+      guarded("VisualAssist", VisualAssist::tick);
+      guarded("Messages", Messages::tick);
+      guarded("StatusLink", StatusLink::tick);
+      guarded("QuestBookBridge", QuestBookBridge::tick);
+      if (++ticks % 20 == 0 && WatchPowerSaver.active())
+        guarded("WatchPowerSaver", WatchPowerSaver::tick);
+      if (ticks % 600 == 0) Store.saveSoon();
+      if (ticks % 100 == 0) guarded("Store", Store::flushPending);
     }
   }
 
   @SubscribeEvent
   public void leaveWorld(net.minecraftforge.client.event.ClientPlayerNetworkEvent.LoggingOut e) {
     ExplorationMemory.leave();
+    Store.flushPending();
   }
 
   @SubscribeEvent
@@ -364,24 +395,35 @@ public final class Companion {
 
   @SubscribeEvent
   public void chat(ClientChatReceivedEvent e) {
-    if (Minecraft.getInstance().player == null) return;
+    var mc = Minecraft.getInstance();
+    if (mc.player == null) return;
+    String text = e.getMessage().getString();
+    String senderName = "";
+    String senderUuidStr = e.getSender() != null ? e.getSender().toString() : "";
+    if (e.getSender() != null && mc.getConnection() != null) {
+      var senderInfo = mc.getConnection().getPlayerInfo(e.getSender());
+      if (senderInfo != null) senderName = senderInfo.getProfile().getName();
+    }
+    String chatKind = e instanceof ClientChatReceivedEvent.System ? "system" : "player";
+    ChatBuffer.record(
+        Store.scope(), chatKind, senderName, senderUuidStr, text, System.currentTimeMillis());
+    HarnessController.chatEvent(chatKind, senderName, text);
     if (e instanceof ClientChatReceivedEvent.System) CommandJob.feedback(e.getMessage());
     if (!ClientRolePolicy.shouldProcessPublicChat(
-        Minecraft.getInstance().player.getGameProfile().getName(),
+        mc.player.getGameProfile().getName(),
         Store.config.owner,
         Agent.enabled,
         Store.hasControl())) return;
-    String text = e.getMessage().getString();
     String name = Store.config.name;
     String playerOrder = e instanceof ClientChatReceivedEvent.Player player
         ? ChatCommand.followMention(player.getPlayerChatMessage().signedContent(), name) : "";
     String msg = playerOrder.isBlank() ? ChatCommand.extract(text, name) : playerOrder;
     if (msg.isBlank() || (playerOrder.isBlank() && ChatCommand.follow(msg) != null)) return;
-    if (e.getSender() == null || Minecraft.getInstance().getConnection() == null) return;
-    var info = Minecraft.getInstance().getConnection().getPlayerInfo(e.getSender());
+    if (e.getSender() == null || mc.getConnection() == null) return;
+    var info = mc.getConnection().getPlayerInfo(e.getSender());
     if (info == null) return;
     String sender = info.getProfile().getName();
-    if (sender.equalsIgnoreCase(Minecraft.getInstance().player.getGameProfile().getName())
+    if (sender.equalsIgnoreCase(mc.player.getGameProfile().getName())
         && Messages.isOwnReply(text)) return;
     try {
       CommunityTasks.receive(e.getSender().toString(), sender, msg);

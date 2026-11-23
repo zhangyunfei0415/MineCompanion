@@ -532,6 +532,19 @@ public final class ProductionTask {
         fail("当前菜单不支持合成");
         return;
       }
+      // Re-check the remaining batches against the current inventory and pin this batch's material
+      // variants, so a flexible ingredient cannot consume what a later batch specifically needs.
+      List<String> remainingIds = new ArrayList<>();
+      for (var queued : queue) remainingIds.add(queued.getId().toString());
+      var picks = planner().firstBatchPicks(remainingIds, stock());
+      if (picks != null && picks.isEmpty()) {
+        fail(
+            "[CRAFT_MATERIALS] 剩余 "
+                + queue.size()
+                + " 批在当前普通背包下已无法全部完成（材料变体不足），本批未摆料；请补充材料后重新下令");
+        return;
+      }
+      CraftBatchJob.prefer(r.getId().toString(), picks);
       JsonObject a = new JsonObject();
       a.addProperty("recipe", r.getId().toString());
       child(

@@ -193,8 +193,12 @@ final class ContainerJob extends Actions.Job {
               && Store.data.duty != null
               && Store.data.duty.preferLootrContainers
               && VolatileTagPolicy.isLootrContainer(block);
-      if ((!MenuContext.kind().equals("storage") || !(Rules.standardStorage(block) || lootrAllowed))
-          && !ModMenuReceipts.supported()) {
+      boolean genericStorage =
+          MenuContext.kind().equals("storage")
+              && (Rules.standardStorage(block)
+                  || lootrAllowed
+                  || MenuContext.isSafeGenericStorageMenu());
+      if (!genericStorage && !ModMenuReceipts.supported()) {
         finish("失败：界面已观察并记忆，但该方块/菜单尚未适配自动取放；请使用 observe 检查槽位，或反馈该机器/仓储界面。");
         return;
       }
@@ -248,6 +252,12 @@ final class ContainerJob extends Actions.Job {
               return;
             }
           }
+          if (next.returning && !sourceAccepts(menu, cursor)) {
+            // The emptied source was refilled (hopper/pickup): never swap the cursor with it.
+            cursorAnomaly = true;
+            beginVerify();
+            return;
+          }
           Actions.click(next.slot, next.button, ClickType.PICKUP);
         }
       }
@@ -259,6 +269,11 @@ final class ContainerJob extends Actions.Job {
     }
     if (stage == Stage.AFTER_CLICK) {
       if (++delay < 5) return;
+      if (!menu.getCarried().isEmpty()) {
+        cursorAnomaly = true;
+        beginVerify();
+        return;
+      }
       int delta = counts(true).values().stream().mapToInt(Integer::intValue).sum() - batchBefore;
       if (delta != (deposit ? -batchAmount : batchAmount)) {
         beginVerify();
@@ -343,6 +358,7 @@ final class ContainerJob extends Actions.Job {
   }
 
   private int sourceSlot = -1;
+  private boolean cursorAnomaly;
   private String shortage = "源物品不足或目标空间不足";
 
   private Map<String, Integer> counts(boolean player) {
@@ -364,13 +380,36 @@ final class ContainerJob extends Actions.Job {
         || sourceSlot >= menu.slots.size()
         || menu.getCarried().isEmpty()) return;
     var cursor = menu.getCarried();
+    if (sourceAccepts(menu, cursor)) {
+      Actions.click(sourceSlot, 0, ClickType.PICKUP);
+      return;
+    }
+    // The source holds a foreign stack: return to another empty slot on the same side instead.
+    cursorAnomaly = true;
+    if (!WorldSense.fingerprint(cursor).equals(batchVariant)) return;
+    boolean sourcePlayer = menu.slots.get(sourceSlot).container == mc().player.getInventory();
+    for (int i = 0; i < menu.slots.size(); i++) {
+      var s = menu.slots.get(i);
+      boolean player = s.container == mc().player.getInventory();
+      if (player != sourcePlayer
+          || player && s.getContainerSlot() >= 36
+          || s.hasItem()
+          || !s.mayPlace(cursor)
+          || Math.min(s.getMaxStackSize(cursor), cursor.getMaxStackSize()) < cursor.getCount())
+        continue;
+      Actions.click(i, 0, ClickType.PICKUP);
+      return;
+    }
+  }
+
+  private boolean sourceAccepts(AbstractContainerMenu menu, ItemStack cursor) {
     var source = menu.slots.get(sourceSlot);
     var in = source.getItem();
-    if (WorldSense.fingerprint(cursor).equals(batchVariant)
+    return WorldSense.fingerprint(cursor).equals(batchVariant)
         && source.mayPlace(cursor)
         && (in.isEmpty() || ItemStack.isSameItemSameTags(in, cursor))
         && Math.min(source.getMaxStackSize(cursor), cursor.getMaxStackSize()) - in.getCount()
-            >= cursor.getCount()) Actions.click(sourceSlot, 0, ClickType.PICKUP);
+            >= cursor.getCount();
   }
 
   private void beginVerify() {
@@ -386,7 +425,8 @@ final class ContainerJob extends Actions.Job {
   }
 
   private void complete(TransferProof.Result proof, boolean reopened) {
-    if (proof.verified())
+    boolean verified = proof.verified() && !cursorAnomaly;
+    if (verified)
       Actions.lastTransfer =
           new TransferReceipt(
               WorldMemory.key(dimension, pos.getX(), pos.getY(), pos.getZ()),
@@ -395,11 +435,11 @@ final class ContainerJob extends Actions.Job {
               proof.moved(),
               counts(false).values().stream().mapToInt(Integer::intValue).sum(),
               epoch);
-    if (proof.verified()) WorldSense.rememberInventory(pos);
+    if (verified) WorldSense.rememberInventory(pos);
     mc().player.closeContainer();
     Store.save();
     finish(
-        proof.verified()
+        verified
             ? (proof.moved() >= wanted ? "成功" : "部分完成")
                 + "："
                 + (reopened ? "已重新打开目标并取得服务器同步" : "流畅模式已用服务器槽位更新核对双方库存，无需重复开箱")
@@ -411,7 +451,9 @@ final class ContainerJob extends Actions.Job {
                 + " 个 "
                 + filter
                 + (proof.moved() < wanted ? "；" + shortage : "")
-            : "失败：重新打开后的双方库存与计划不符；可能有部分转移或其他玩家同时操作，请核对。不会继续重试点击。");
+            : cursorAnomaly
+                ? "失败：[CURSOR_ANOMALY] 批次归还时源槽位已被其他物品占用，鼠标物品未按计划归位；双方库存不确定，请核对。不会继续重试点击。"
+                : "失败：重新打开后的双方库存与计划不符；可能有部分转移或其他玩家同时操作，请核对。不会继续重试点击。");
   }
 
   @Override

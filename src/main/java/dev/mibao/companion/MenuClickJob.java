@@ -70,10 +70,11 @@ public final class MenuClickJob extends Actions.Job {
     this.stow = stow;
     this.menuView = menuView;
     this.autoStow = autoStow;
-    if (!Set.of("PICKUP", "QUICK_MOVE", "SWAP").contains(type))
+    String normalizedType = type == null ? "PICKUP" : type.strip().toUpperCase(Locale.ROOT);
+    if (!Set.of("PICKUP", "QUICK_MOVE", "SWAP").contains(normalizedType))
       throw new IllegalArgumentException("仅支持PICKUP/QUICK_MOVE/SWAP");
-    this.type = ClickType.valueOf(type);
-    if (button < 0 || button > (type.equals("SWAP") ? 8 : 1))
+    this.type = ClickType.valueOf(normalizedType);
+    if (button < 0 || button > (normalizedType.equals("SWAP") ? 8 : 1))
       throw new IllegalArgumentException("PICKUP/QUICK_MOVE按钮0..1；SWAP为快捷栏0..8");
   }
 
@@ -170,7 +171,9 @@ public final class MenuClickJob extends Actions.Job {
           same && changed
               ? "成功：槽位与鼠标物品变化已由服务器同步核对；生产完成需再检查产物。"
               : same
-                  ? "部分完成：服务器确认槽位没有变化，请检查物品、槽位条件或机器适配。"
+                  ? (type == ClickType.QUICK_MOVE
+                      ? "部分完成：[QUICK_MOVE_NO_EFFECT] 服务器确认快捷转移未生效（目标模组容器可能未实现 Shift 转移），建议改用 deposit/fetch 或普通 PICKUP 点击。"
+                      : "部分完成：服务器确认槽位没有变化，请检查物品、槽位条件或机器适配。")
                   : observed
                       ? "成功：已取得服务器同步，目标槽或鼠标确有变化；异步结果不同于预测，须重新观察实际数量，不代表生产已完成。"
                       : "部分完成：服务器结果与点击预测不同，请重新观察；没有重复点击。");
@@ -203,15 +206,16 @@ public final class MenuClickJob extends Actions.Job {
   private void autoStowStep() {
     var m = mc().player.containerMenu;
     var carried = m.getCarried();
-    if (carried.isEmpty()) {
-      stowDone = true;
-      return;
-    }
-    if (!MenuContext.synchronizedNow()) {
-      finish("失败：[MENU_UNCONFIRMED] 菜单尚无稳定服务器快照，请等候再观察。");
-      return;
-    }
     if (!stowIssued) {
+      // Only before the stow click: afterwards an empty cursor is just the client prediction.
+      if (carried.isEmpty()) {
+        stowDone = true;
+        return;
+      }
+      if (!MenuContext.synchronizedNow()) {
+        finish("失败：[MENU_UNCONFIRMED] 菜单尚无稳定服务器快照，请等候再观察。");
+        return;
+      }
       stowTarget = stowTargetSlot(m, carried);
       if (stowTarget < 0) {
         finish("失败：[INVENTORY_FULL] 鼠标持有物品且没有可完整接收的玩家槽；未丢弃，请先腾出背包空位或手动 stow_cursor。");
@@ -221,9 +225,13 @@ public final class MenuClickJob extends Actions.Job {
       Actions.status = "GUI槽位操作 · 自动收回鼠标物品";
       Actions.click(stowTarget, 0, ClickType.PICKUP);
       stowIssued = true;
+      // A correctly predicted click may get no slot packet back; ask once for the server snapshot.
+      MenuRefresh.request();
       return;
     }
-    if (MenuContext.revision() > stowBefore && MenuContext.synchronizedNow() && carried.isEmpty()) {
+    if (MenuContext.revision() > stowBefore
+        && MenuContext.synchronizedNow()
+        && m.getCarried().isEmpty()) {
       stowNote = "已自动收回鼠标物品到玩家槽位 " + stowTarget + "；";
       view = GuiContext.observe().get("gui_view").getAsLong();
       stowDone = true;

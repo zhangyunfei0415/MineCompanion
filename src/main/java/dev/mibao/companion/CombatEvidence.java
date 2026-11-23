@@ -170,6 +170,7 @@ public final class CombatEvidence {
     }
     if (defenseStarted == 0) {
       defenseStarted = now;
+      BaritoneNavigation.cancelActive("自卫介入");
       Navigator.release();
     }
     if (SurvivalPolicy.blocked(
@@ -222,7 +223,8 @@ public final class CombatEvidence {
       releaseShield();
       if (defenseDestination == null || ++defenseTicks % 10 == 0) {
         defenseDestination = MeleeOps.stance(mob);
-        if (defenseDestination != null) defenseNav.startExact(defenseDestination);
+        if (defenseDestination != null && !defenseNav.startExact(defenseDestination))
+          defenseDestination = null;
       }
       if (defenseDestination != null && defenseNav.tick() != 0) defenseDestination = null;
       Actions.status = "自卫接近 · " + MeleeOps.reason(mob);

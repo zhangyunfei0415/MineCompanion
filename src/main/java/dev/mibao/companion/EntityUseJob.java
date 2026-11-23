@@ -59,13 +59,23 @@ public final class EntityUseJob extends Actions.Job {
                 && (current.isEmpty()
                     || net.minecraft.world.item.ItemStack.isSameItemSameTags(current, heldBefore))
                 && current.getCount() < heldBefore.getCount();
+        boolean transformed =
+            PlayerEvidence.slotConfirmed(heldSlot)
+                && net.minecraft.world.item.ItemStack.matches(
+                    current, PlayerEvidence.inventorySlot(heldSlot))
+                && !heldBefore.isEmpty()
+                && !current.isEmpty()
+                && !net.minecraft.world.item.ItemStack.isSameItemSameTags(current, heldBefore);
         finish(
-            (evidence.confirmed() || consumed || targetChanged
+            (evidence.confirmed() || consumed || transformed || targetChanged
                     ? "成功："
                     : "部分完成：[ENTITY_USE_UNCONFIRMED] ")
                 + "实体交互仅派发一次；"
                 + evidence.detail()
                 + (consumed ? "；指定手物品消耗已由服务器确认，繁殖/驯服等最终效果继续观察" : "")
+                + (transformed ? "；指定手物品已由服务器确认变为 "
+                    + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(current.getItem())
+                : "")
                 + (targetChanged ? "；目标可见同步状态已改变：" + clientState(target) : ""));
       }
       return;
@@ -116,7 +126,7 @@ public final class EntityUseJob extends Actions.Job {
       return;
     }
     if (!aim.ready(point)) return;
-    evidence = InteractionOutcome.begin();
+    evidence = InteractionOutcome.beginNear(e.getBoundingBox());
     heldBefore = mc.player.getItemInHand(hand).copy();
     targetUuid = e.getUUID();
     targetBefore = clientState(e);

@@ -16,23 +16,39 @@ class InteractionReceiptTest {
     row.addProperty("delta", 2);
     inventory.add(row);
     evidence.add("inventory", inventory);
-    assertTrue(InteractionReceipt.confirmed(evidence));
-    assertEquals("已确认：拾取 exdeorum:stone_pebble×2", InteractionReceipt.summarize(evidence));
+    // Inventory delta alone is non-causal (note only), preventing false confirmation near farms/drops.
+    assertFalse(InteractionReceipt.confirmed(evidence));
+    String summary = InteractionReceipt.summarize(evidence);
+    assertTrue(summary.contains("未观察到目标方块/机器变化或目标处新掉落"), summary);
+    assertTrue(summary.contains("附注（无因果归因，不作成功依据）：背包 exdeorum:stone_pebble+2"), summary);
   }
 
   @Test
   void reportsGroundDropsWithoutClaimingTheyWerePickedUp() {
-    var evidence = new JsonObject();
-    var dropped = new JsonArray();
-    var row = new JsonObject();
-    row.addProperty("id", "exdeorum:andesite_pebble");
-    row.addProperty("count", 1);
-    dropped.add(row);
-    evidence.add("dropped", dropped);
-    String text = InteractionReceipt.summarize(evidence);
-    assertTrue(text.contains("掉落 exdeorum:andesite_pebble×1 在地上"), text);
+    var linkedEvidence = new JsonObject();
+    var linkedDrops = new JsonArray();
+    var linkedRow = new JsonObject();
+    linkedRow.addProperty("id", "exdeorum:andesite_pebble");
+    linkedRow.addProperty("count", 1);
+    linkedRow.addProperty("linked", true);
+    linkedDrops.add(linkedRow);
+    linkedEvidence.add("dropped", linkedDrops);
+    assertTrue(InteractionReceipt.confirmed(linkedEvidence));
+    String text = InteractionReceipt.summarize(linkedEvidence);
+    assertTrue(text.contains("目标处掉落 exdeorum:andesite_pebble×1 在地上"), text);
     assertTrue(text.contains("尚未入包"), text);
     assertFalse(text.contains("已确认：拾取"), text);
+
+    // Unlinked drops further away remain unconfirmed notes only.
+    var unlinked = new JsonObject();
+    var unlinkedDrops = new JsonArray();
+    var unlinkedRow = new JsonObject();
+    unlinkedRow.addProperty("id", "exdeorum:andesite_pebble");
+    unlinkedRow.addProperty("count", 1);
+    unlinkedDrops.add(unlinkedRow);
+    unlinked.add("dropped", unlinkedDrops);
+    assertFalse(InteractionReceipt.confirmed(unlinked));
+    assertTrue(InteractionReceipt.summarize(unlinked).contains("附近掉落 exdeorum:andesite_pebble×1"));
   }
 
   @Test
@@ -49,7 +65,7 @@ class InteractionReceiptTest {
 
   @Test
   void emptyEvidenceIsExplicitlyUnconfirmed() {
-    assertEquals("未观察到背包/掉落物/方块/机器变化", InteractionReceipt.summarize(new JsonObject()));
+    assertEquals("未观察到目标方块/机器变化或目标处新掉落", InteractionReceipt.summarize(new JsonObject()));
     assertFalse(InteractionReceipt.confirmed(new JsonObject()));
     assertFalse(InteractionReceipt.confirmed(null));
   }

@@ -124,7 +124,7 @@ public final class InventoryMove {
         }
         int source = -1;
         for (int i = 0; i <= 40; i++)
-          if ((i < 36 || i == 40) && filter.test(p.getInventory().getItem(i))) {
+          if ((i < 36 || i == 40 && !emptyHand) && filter.test(p.getInventory().getItem(i))) {
             source = i;
             break;
           }
@@ -133,6 +133,10 @@ public final class InventoryMove {
         if (!destination.equals("hotbar") && source < 9) hotbar = source;
         if (destination.equals("hotbar") && hotbar < 0 && source < 9) {
           readySlot = source;
+          detail =
+              WorldSense.fingerprint(p.getInventory().getItem(source))
+                  + "；已在快捷栏 hotbar_slot="
+                  + source;
           return success();
         }
         if (hotbar < 0) {
@@ -178,7 +182,11 @@ public final class InventoryMove {
           } else swaps.add(new int[] {InventoryLayout.menuSlot(source), hotbar});
           swaps.add(new int[] {InventoryLayout.equipment(destination), hotbar});
         }
-        detail = WorldSense.fingerprint(p.getInventory().getItem(source));
+        detail =
+            WorldSense.fingerprint(p.getInventory().getItem(source))
+                + (destination.equals("hotbar")
+                    ? "；目标快捷栏 hotbar_slot=" + hotbar
+                    : "；经快捷栏 hotbar_slot=" + hotbar + " 穿戴至 " + destination);
       }
     }
     if (swaps.isEmpty()) return success();

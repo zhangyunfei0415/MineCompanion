@@ -48,6 +48,8 @@ public final class InventorySession {
         && mc().gameMode.getPlayerMode() != GameType.ADVENTURE
         && mc().gameMode.getPlayerMode() != GameType.CREATIVE)
       return fail("[MODE_UNSUPPORTED] 旁观模式不支持背包写操作");
+    if (showScreen && mc().gameMode.getPlayerMode() == GameType.CREATIVE)
+      return fail("[MODE_UNSUPPORTED] 创造模式下原版会把背包界面替换为创造物品栏，不支持托管背包界面的写操作");
     if (p.containerMenu != p.inventoryMenu) return fail("其他容器已打开，请先正常关闭");
     if (screen == null && showScreen) {
       if (mc().screen == null) {
@@ -170,6 +172,33 @@ public final class InventorySession {
             ? 4
             : m instanceof net.minecraft.world.inventory.CraftingMenu ? 9 : 0;
     for (int i = 1; i <= end; i++) if (!m.getSlot(i).getItem().isEmpty()) return false;
-    return true;
+    if (end > 0) return true;
+    // Menus whose removed() hands input items back and drops what does not fit. Plain storage
+    // block menus keep their contents and close safely.
+    boolean returnsOnClose =
+        m instanceof net.minecraft.world.inventory.ItemCombinerMenu
+            || m instanceof net.minecraft.world.inventory.GrindstoneMenu
+            || m instanceof net.minecraft.world.inventory.EnchantmentMenu
+            || m instanceof net.minecraft.world.inventory.StonecutterMenu
+            || m instanceof net.minecraft.world.inventory.LoomMenu
+            || m instanceof net.minecraft.world.inventory.CartographyTableMenu
+            || m instanceof net.minecraft.world.inventory.MerchantMenu
+            || m instanceof net.minecraft.world.inventory.BeaconMenu;
+    if (!returnsOnClose) return true;
+    var inventory = mc().player.getInventory();
+    int pending = 0;
+    for (var slot : m.slots) {
+      if (slot.container == inventory
+          || slot.container instanceof net.minecraft.world.inventory.ResultContainer
+          || slot instanceof net.minecraft.world.inventory.MerchantResultSlot
+          || slot.getItem().isEmpty()) continue;
+      pending++;
+    }
+    if (pending == 0) return true;
+    // The beacon payment is always dropped on close, never placed back into the inventory.
+    if (m instanceof net.minecraft.world.inventory.BeaconMenu) return false;
+    int free = 0;
+    for (int i = 0; i < 36; i++) if (inventory.getItem(i).isEmpty()) free++;
+    return free >= pending;
   }
 }

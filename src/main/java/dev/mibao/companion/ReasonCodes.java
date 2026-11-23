@@ -34,7 +34,10 @@ public final class ReasonCodes {
     else if (matcher.find()) code = matcher.group(1);
     else if (raw.startsWith("输入已执行并释放：已打开")) code = "NONE";
     else if (raw.contains("PROTECTED_KEY")) code = "PROTECTED_KEY";
-    else if (raw.contains("鼠标") && raw.contains("物品")) code = "CURSOR_OCCUPIED";
+    else if (raw.contains("鼠标持有")
+        || raw.contains("鼠标上有")
+        || raw.contains("鼠标仍有")
+        || raw.contains("收好鼠标")) code = "CURSOR_OCCUPIED";
     else if (raw.contains("权限") || raw.contains("授权") || raw.contains("审批")) code = "POLICY_DENIED";
     else if (raw.contains("区块") && raw.contains("未加载")) code = "UNLOADED_TARGET";
     else if (raw.contains("满") || raw.contains("空位") || raw.contains("容纳")) code = "INVENTORY_FULL";
@@ -84,6 +87,8 @@ public final class ReasonCodes {
           alternatives.add("observe current target before any new write");
       case "PROTECTED_KEY" ->
           alternatives.add("use dedicated break_block / hunt_mobs / use_hand tools");
+      case "FLUID_TARGET", "NEIGHBOR_HAZARD" ->
+          alternatives.add("auto_action(mode=MINE_HOLD) for cobblestone/basalt generators");
       default -> {}
     }
     o.add("suggested_alternatives", alternatives);

@@ -17,6 +17,7 @@ final class ElytraRouteJob extends Actions.Job {
   private final boolean boost;
   private boolean opened, boostRequested;
   private String boostReceipt = "";
+  private int boostSlot = -1, boostCount, boostWait;
 
   ElytraRouteJob(JsonObject args, Consumer<String> done) {
     super(done);
@@ -85,27 +86,45 @@ final class ElytraRouteJob extends Actions.Job {
     p.setYRot(p.getYRot() + Mth.clamp(Mth.wrapDegrees(yaw - p.getYRot()), -18, 18));
     p.setXRot(Mth.clamp(pitch * .65f, 0, 19));
     Actions.status = "滑翔 · 距着陆点 " + Math.round(horizontal(p.position())) + " 格";
+    if (boostSlot >= 0 && ++boostWait >= 10) {
+      var after = p.getInventory().getItem(boostSlot);
+      boostReceipt +=
+          !after.is(Items.FIREWORK_ROCKET) || after.getCount() < boostCount
+              ? "；已观察到烟花消耗"
+              : "；10刻内未观察到烟花消耗";
+      boostSlot = -1;
+    }
     if (boost && !boostRequested && horizontal(p.position()) > 28
         && p.getY() - landing.getY() > 8 && Math.abs(Mth.wrapDegrees(yaw - p.getYRot())) < 10) {
       boostRequested = true;
       String safeRocket = "";
-      for (int i = 0; i < 36; i++) {
+      int rocketSlot = -1;
+      for (int i = 0; i < 9; i++) {
         var stack = p.getInventory().getItem(i);
         if (!stack.is(Items.FIREWORK_ROCKET)) continue;
         var fireworks = stack.getTagElement("Fireworks");
         if (fireworks != null
             && !fireworks.getList("Explosions", net.minecraft.nbt.Tag.TAG_COMPOUND).isEmpty()) continue;
         safeRocket = WorldSense.fingerprint(stack);
+        rocketSlot = i;
         break;
       }
       if (safeRocket.isEmpty()) {
         boostReceipt = "背包没有已观察到的无爆炸烟花，继续滑翔";
         return;
       }
-      var rocket = new JsonObject();
-      rocket.addProperty("item", safeRocket);
-      rocket.addProperty("mode", "tap");
-      child("use_hand", rocket, reply -> boostReceipt = Rules.clean(reply, 250));
+      // Inline hotbar use keeps steering and clearAhead running during the boost.
+      int previous = p.getInventory().selected;
+      boostCount = p.getInventory().getItem(rocketSlot).getCount();
+      p.getInventory().selected = rocketSlot;
+      var used = mc.gameMode.useItem(p, net.minecraft.world.InteractionHand.MAIN_HAND);
+      p.getInventory().selected = previous;
+      boostSlot = rocketSlot;
+      boostWait = 0;
+      boostReceipt =
+          used.consumesAction()
+              ? "已在滑翔中直接使用快捷栏无爆炸烟花一次，等待背包同步核验"
+              : "烟花使用未被客户端接受（" + used + "），继续滑翔";
     }
   }
 

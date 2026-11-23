@@ -48,11 +48,17 @@ final class ItemReplaceCheck {
         || actual.getCount() != expected.count()) return false;
     try {
       return expected.tag() == null
-          ? !actual.hasTag()
+          ? !actual.hasTag() || onlyZeroDamage(actual.getTag())
           : net.minecraft.nbt.NbtUtils.compareNbt(
               net.minecraft.nbt.TagParser.parseTag(expected.tag()), actual.getTag(), true);
     } catch (com.mojang.brigadier.exceptions.CommandSyntaxException e) {
       return false;
     }
+  }
+
+  /** Damageable stacks always carry {Damage:0} once created; treat that alone as "no tag". */
+  private static boolean onlyZeroDamage(net.minecraft.nbt.CompoundTag tag) {
+    if (tag == null || tag.isEmpty()) return true;
+    return tag.size() == 1 && tag.contains("Damage", 99) && tag.getInt("Damage") == 0;
   }
 }

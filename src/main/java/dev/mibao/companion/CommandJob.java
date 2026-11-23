@@ -50,13 +50,18 @@ public final class CommandJob extends Actions.Job {
     if (Store.config.protectCriticalCommandBlocks
         && !confirm
         && plan.bounds() != null
-        && java.util.Set.of("fill", "setblock").contains(plan.root())) {
-      int[] b = plan.bounds();
+        && java.util.Set.of("fill", "setblock", "clone").contains(plan.root())) {
+      // clone overwrites its destination region, not the source bounds.
+      int[] b = plan.root().equals("clone") ? cloneDestination(plan) : plan.bounds();
       if (plan.volume() <= 65536) {
         for (var pos :
             BlockPos.betweenClosed(
                 new BlockPos(b[0], b[1], b[2]), new BlockPos(b[3], b[4], b[5]))) {
-          if (!mc().level.hasChunkAt(pos)) continue;
+          if (!mc().level.hasChunkAt(pos))
+            throw new IllegalArgumentException(
+                "[COMMAND_UNLOADED_AREA] 区域含客户端未加载区块 @ "
+                    + pos.toShortString()
+                    + "，无法确认其中是否有容器或关键方块；靠近加载后再试，或确认范围后显式confirm=true");
           var block = mc().level.getBlockState(pos).getBlock();
           if (block == net.minecraft.world.level.block.Blocks.END_PORTAL_FRAME
               || block == net.minecraft.world.level.block.Blocks.END_PORTAL
@@ -72,6 +77,26 @@ public final class CommandJob extends Actions.Job {
       }
     }
     return new CommandJob(plan, done);
+  }
+
+  /** Destination box of a resolved "clone x1 y1 z1 x2 y2 z2 dx dy dz ..." plan. */
+  private static int[] cloneDestination(GameCommandPolicy.Plan plan) {
+    int[] b = plan.bounds();
+    String[] parts =
+        CommandWords.parse(plan.command()).stream()
+            .map(CommandWords.Word::text)
+            .toArray(String[]::new);
+    int[] out = new int[6];
+    try {
+      for (int i = 0; i < 3; i++) {
+        int d = Integer.parseInt(parts[7 + i]);
+        out[i] = d;
+        out[3 + i] = Math.addExact(d, Math.abs(b[i] - b[3 + i]));
+      }
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("[COMMAND_BOUNDS] 无法解析clone目标坐标，未发送");
+    }
+    return out;
   }
 
   @Override

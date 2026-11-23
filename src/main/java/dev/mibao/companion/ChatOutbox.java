@@ -10,15 +10,28 @@ public final class ChatOutbox {
   private final Map<String, Long> recent = new LinkedHashMap<>();
   private long lastSent = -3000;
 
+  /** Same rule as vanilla SharedConstants.isAllowedChatCharacter; servers kick on others. */
+  static String chatSafe(String text) {
+    StringBuilder out = new StringBuilder(text.length());
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      if (c == '\n' || c == '\r' || c == '\t') out.append(' ');
+      else if (c != '\u00a7' && c >= ' ' && c != 127) out.append(c);
+    }
+    return out.toString();
+  }
+
   public void offer(String name, String owner, String text, String scope, long now) {
     String clean =
-        Rules.clean(text, 1200).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').trim();
+        chatSafe(
+                Rules.clean(text, 1200).replace('\n', ' ').replace('\r', ' ').replace('\t', ' '))
+            .trim();
     if (clean.isBlank()) return;
     String prefix =
         (owner == null || owner.isBlank()
                 ? ""
-                : "@" + Rules.clean(owner, 40).replaceAll("\\s+", " ") + " ")
-            + Rules.clean(name, 40).replaceAll("\\s+", " ")
+                : "@" + chatSafe(Rules.clean(owner, 40)).replaceAll("\\s+", " ") + " ")
+            + chatSafe(Rules.clean(name, 40)).replaceAll("\\s+", " ")
             + "：";
     String message = prefix + clean;
     if (message.length() > 250) {

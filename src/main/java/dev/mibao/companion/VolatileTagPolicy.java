@@ -153,8 +153,6 @@ public final class VolatileTagPolicy {
         || path.equals("barrel")
         || path.endsWith("_chest")
         || path.endsWith("_barrel")
-        || path.endsWith("_crate")
-        || path.equals("shulker_box")
-        || path.endsWith("_shulker_box");
+        || path.endsWith("_crate");
   }
 }

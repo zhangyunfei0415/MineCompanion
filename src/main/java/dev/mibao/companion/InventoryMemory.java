@@ -80,7 +80,7 @@ public final class InventoryMemory {
     var old = Store.data.inventoryMemories.get(player());
     boolean changed =
         old == null
-            || !slots.equals(old.get("slots"))
+            || !stableSlots(slots).equals(stableSlots(old.get("slots")))
             || !o.get("cursor").equals(old.get("cursor"));
     JsonArray changes = InventoryJournal.changes(old, o, session, now);
     if (full) {
@@ -112,6 +112,23 @@ public final class InventoryMemory {
     return StackSyncMatcher.syncStable(p.inventoryMenu.getCarried(), InventoryEvidence.cursor);
   }
 
+  /** Slot identity for the dirty check: durability/Damage ticks alone do not force a save. */
+  private static JsonArray stableSlots(JsonElement slots) {
+    var out = new JsonArray();
+    if (slots == null || !slots.isJsonArray()) return out;
+    for (var e : slots.getAsJsonArray()) {
+      if (!e.isJsonObject()) continue;
+      var row = e.getAsJsonObject();
+      var key = new JsonObject();
+      if (row.has("inventory_slot")) key.add("inventory_slot", row.get("inventory_slot"));
+      if (row.has("count")) key.add("count", row.get("count"));
+      String id = row.has("quantity_fingerprint") ? "quantity_fingerprint" : "fingerprint";
+      if (row.has(id)) key.add("identity", row.get(id));
+      out.add(key);
+    }
+    return out;
+  }
+
   public static void tick() {
     long now = System.currentTimeMillis();
     if (now < nextTick) return;
@@ -119,7 +136,7 @@ public final class InventoryMemory {
     capture();
     if (dirty && now - lastSave >= 5000) {
       lastSave = now;
-      Store.save();
+      Store.saveSoon();
       dirty = false;
     }
   }

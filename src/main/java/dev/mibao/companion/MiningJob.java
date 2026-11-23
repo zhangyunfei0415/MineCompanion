@@ -151,7 +151,7 @@ public final class MiningJob extends Actions.Job {
   private BlockPos target;
   private BlockState original;
   private int cursor, phase, delay, skipped, unknown, observed, rejectedTrees, rejectedSafety;
-  private int rescans, lastRescanObserved;
+  private int rescans, lastRescanObserved, genBlinkWait;
   private boolean capacityBlocked, toolBlocked;
   private boolean issued, scanned;
   private boolean fallingTarget;
@@ -221,12 +221,28 @@ public final class MiningJob extends Actions.Job {
   }
 
   private String breakDenial(BlockPos pos, BlockState state) {
+    boolean emptyStorage = state.hasBlockEntity() && exactTarget != null && freshEmpty(pos);
     return BreakPolicy.denial(
         BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
         state.hasBlockEntity(),
         exactTarget != null,
         confirm,
-        state.hasBlockEntity() && exactTarget != null && freshEmpty(pos));
+        emptyStorage,
+        emptyStorage && isObservedGenericStorage(pos));
+  }
+
+  private static boolean isObservedGenericStorage(BlockPos pos) {
+    var mc = Minecraft.getInstance();
+    var point =
+        Store.data.world.get(
+            WorldMemory.key(
+                mc.level.dimension().location().toString(), pos.getX(), pos.getY(), pos.getZ()));
+    return point != null
+        && point.inventory != null
+        && "storage".equals(point.category)
+        && point.inventory.menuType != null
+        && (point.inventory.menuType.contains("ChestMenu")
+            || point.inventory.menuType.contains("storage"));
   }
 
   public static boolean freshEmpty(BlockPos pos) {
@@ -501,6 +517,13 @@ public final class MiningJob extends Actions.Job {
             candidates.add(p);
             WorldSense.recordResource(p);
           }
+        } else if (exactTarget != null
+            && allowFluidNeighbor
+            && (state.isAir() || !state.getFluidState().isEmpty())
+            && genBlinkWait < 20) {
+          cursor = 0;
+          genBlinkWait++;
+          return;
         }
       }
       if (cursor < volume) return;

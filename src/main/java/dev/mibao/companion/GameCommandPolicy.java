@@ -59,6 +59,10 @@ public final class GameCommandPolicy {
     if (!words.isEmpty()) p = words.stream().map(CommandWords.Word::text).toArray(String[]::new);
     if (!profile.broadSelectors && CommandWords.broadSelector(s))
       throw new IllegalArgumentException("[COMMAND_SELECTOR_DENIED] 当前未允许广泛对象选择器；@s可用");
+    // NBT strings (e.g. a command block's Command) execute later with this player's permission, so
+    // quoted text inside NBT is not exempt from the selector rule.
+    if (!profile.broadSelectors && s.indexOf('{') >= 0 && CommandWords.selectorInNbt(s))
+      throw new IllegalArgumentException("[COMMAND_SELECTOR_DENIED] NBT内含广泛对象选择器；当前未允许");
     Set<String> players =
         new HashSet<>(
             Arrays.asList(
@@ -75,6 +79,11 @@ public final class GameCommandPolicy {
         && !profile.customCommands)
       throw new IllegalArgumentException(
           "[COMMAND_NOT_ALLOWED] 本服未允许该指令：" + root + "；可由玩家添加别名或开启自定义单行指令");
+    if ((name.equals("summon") || name.equals("give"))
+        && s.indexOf('{') >= 0
+        && !profile.customCommands)
+      throw new IllegalArgumentException(
+          "[COMMAND_NBT_DENIED] summon/give携带NBT需要本世界自定义指令开关");
     int[] bounds = null;
     String block = "", mode = "";
     long volume = 0;

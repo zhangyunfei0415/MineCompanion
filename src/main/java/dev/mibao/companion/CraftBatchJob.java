@@ -19,6 +19,11 @@ public final class CraftBatchJob extends Actions.Job {
   private final Set<String> involved = new HashSet<>();
   private final Deque<int[]> clicks = new ArrayDeque<>();
   private String supplyNote = "";
+  private static String hintRecipe;
+  private static List<String> hintIds;
+  private static long hintEpoch;
+  /** Planner-pinned item id per non-empty ingredient, or null for the free allocation. */
+  private final List<String> preferred;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -33,9 +38,25 @@ public final class CraftBatchJob extends Actions.Job {
             s.hasTag() ? s.getTag().getAllKeys() : Set.of());
   }
 
+  /**
+   * Pins the material variants (item id per non-empty ingredient, recipe order) for the next
+   * craft_batch of {@code recipeId}; null clears the hint.
+   */
+  static void prefer(String recipeId, List<String> itemIds) {
+    hintRecipe = itemIds == null ? null : recipeId;
+    hintIds = itemIds == null ? null : List.copyOf(itemIds);
+    hintEpoch = Agent.epoch;
+  }
+
   public CraftBatchJob(CraftingRecipe recipe, Consumer<String> done) {
     super(done);
     this.recipe = recipe;
+    preferred =
+        hintIds != null && hintEpoch == Agent.epoch && recipe.getId().toString().equals(hintRecipe)
+            ? hintIds
+            : null;
+    hintRecipe = null;
+    hintIds = null;
     if (!RecipeKnowledge.ordinary(recipe))
       throw new IllegalArgumentException("仅支持普通原版/模组合成配方（新工具仅允许默认Damage:0标签）；特殊机器需独立适配");
     for (var ing : recipe.getIngredients())
@@ -141,9 +162,14 @@ public final class CraftBatchJob extends Actions.Job {
       var counts = new HashMap<Integer, Integer>();
       var choices = new ArrayList<List<Integer>>();
       var ingredients = new ArrayList<Integer>();
+      int nonEmpty = 0;
+      for (var ingredient : recipe.getIngredients()) if (!ingredient.isEmpty()) nonEmpty++;
+      // Only honour the planner's variants when they line up with this recipe's ingredients.
+      List<String> pinned = preferred != null && preferred.size() == nonEmpty ? preferred : null;
       for (int i = 0; i < recipe.getIngredients().size(); i++) {
         var ingredient = recipe.getIngredients().get(i);
         if (ingredient.isEmpty()) continue;
+        String want = pinned == null ? null : pinned.get(ingredients.size());
         ingredients.add(i);
         var candidates = new ArrayList<Integer>();
         for (int n = 0; n < m.slots.size(); n++) {
@@ -151,7 +177,12 @@ public final class CraftBatchJob extends Actions.Job {
           var stack = slot.getItem();
           if (slot.container == mc().player.getInventory()
               && !stack.hasTag()
-              && ingredient.test(stack)) {
+              && ingredient.test(stack)
+              && (want == null
+                  || net.minecraft.core.registries.BuiltInRegistries.ITEM
+                      .getKey(stack.getItem())
+                      .toString()
+                      .equals(want))) {
             candidates.add(n);
             counts.put(n, stack.getCount());
           }

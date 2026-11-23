@@ -304,7 +304,13 @@ final class WorkbenchSettingsViews {
         () -> {
           if (local) Store.config.decisionLocalProtocol = protocol;
           else {
+            boolean switched = !protocol.equals(Store.config.decisionCloudProvider);
             Store.config.decisionCloudProvider = protocol;
+            // A key belongs to the provider it was issued for; never carry it to another host.
+            if (switched && !Store.config.decisionCloudKey.isBlank()) {
+              Store.config.decisionCloudKey = "";
+              ui.setStatus("已切换判断服务商并清除旧密钥，请填写 " + protocol + " 的密钥后保存");
+            }
             if ("GOOGLE".equals(protocol)) {
               Store.config.decisionCloudEndpoint =
                   "https://generativelanguage.googleapis.com/v1beta/decisions";

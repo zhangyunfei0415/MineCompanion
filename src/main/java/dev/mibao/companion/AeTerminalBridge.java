@@ -10,6 +10,9 @@ public final class AeTerminalBridge {
   public record Entry(
       long serial, ItemStack stack, long stored, long requestable, boolean craftable) {}
 
+  /** Entry with its fingerprint computed once, so sorting does not re-hash on every compare. */
+  private record Keyed(String fingerprint, Entry entry) {}
+
   private static final Map<Class<?>, Map<String, java.lang.reflect.Method>> accessors =
       new HashMap<>();
 
@@ -84,21 +87,23 @@ public final class AeTerminalBridge {
                     query.isBlank()
                         || Actions.match(e.stack, query)
                         || e.stack.getHoverName().getString().contains(query))
-            .sorted(Comparator.comparing(e -> WorldSense.fingerprint(e.stack)))
+            .map(e -> new Keyed(WorldSense.fingerprint(e.stack), e))
+            .sorted(Comparator.comparing(Keyed::fingerprint))
             .toList();
     offset = Math.max(0, offset);
     limit = Math.max(1, Math.min(40, limit));
     JsonObject out = new JsonObject();
     JsonArray items = new JsonArray();
     for (int i = offset; i < Math.min(list.size(), offset + limit); i++) {
-      var e = list.get(i);
+      var keyed = list.get(i);
+      var e = keyed.entry();
       JsonObject o = new JsonObject();
       o.addProperty(
           "item",
           net.minecraft.core.registries.BuiltInRegistries.ITEM
               .getKey(e.stack.getItem())
               .toString());
-      o.addProperty("fingerprint", WorldSense.fingerprint(e.stack));
+      o.addProperty("fingerprint", keyed.fingerprint());
       o.addProperty("name", e.stack.getHoverName().getString());
       o.addProperty("stored", e.stored);
       o.addProperty("requestable", e.requestable);

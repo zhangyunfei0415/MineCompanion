@@ -51,19 +51,14 @@ final class GuiExitJob extends Actions.Job {
             return;
           }
           if (++waitTicks <= 40) return;
-          if (back) {
-            stowNote =
-                "提示：鼠标槽位重同步超时（mismatch="
-                    + MenuContext.diagnoseSync()
-                    + "），已直接执行界面返回，请核对鼠标物品；";
-            stowed = true;
-          } else {
-            finish(
-                "失败：[MENU_UNCONFIRMED] 收回目标槽或鼠标物品尚无一致服务器快照（mismatch="
-                    + MenuContext.diagnoseSync()
-                    + "）；未关闭界面。");
-            return;
-          }
+          // Never call back() while the cursor still holds the stack: it rejects CURSOR_OCCUPIED.
+          finish(
+              "失败：[MENU_UNCONFIRMED] 收回目标槽或鼠标物品尚无一致服务器快照（mismatch="
+                  + MenuContext.diagnoseSync()
+                  + (back
+                      ? "）；鼠标仍持有物品，未执行界面返回；请先 stow_cursor 收好鼠标物品后再返回。"
+                      : "）；未关闭界面。"));
+          return;
         }
         if (!stowed) {
           stowBefore = MenuContext.revision();
@@ -96,7 +91,7 @@ final class GuiExitJob extends Actions.Job {
     if (screen == null) return "界面已经关闭。";
     if (screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>) {
       if (!InventorySession.canClose())
-        return "失败：[SCREEN_BLOCKING] 合成栏仍有物品；不会自动关闭，请先清理合成栏或手动返回世界。";
+        return "失败：[SCREEN_BLOCKING] 合成栏或输入槽仍有物品（关闭会退还物品而背包空位不足）；不会自动关闭，请先清理合成栏或手动返回世界。";
       mc.player.closeContainer();
       return "物品界面已关闭；服务器结果请重新observe核对。";
     }

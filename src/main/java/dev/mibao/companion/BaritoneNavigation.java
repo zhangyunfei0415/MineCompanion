@@ -57,7 +57,8 @@ public final class BaritoneNavigation {
   private static String diagnostic = "idle";
   private final Map<Object, Object> previous = new LinkedHashMap<>();
   private Object instance;
-  private boolean mining;
+  private boolean mining, cancelled;
+  private static java.util.List<Object> protectedBlocks;
 
   private static Api api() throws ReflectiveOperationException {
     Api a = cachedApi;
@@ -84,14 +85,18 @@ public final class BaritoneNavigation {
       return false;
     }
     try {
+      cancelled = false;
       Object settings = acquire();
       Api a = api();
+      boolean protectedBreak = protectBlockEntities(settings);
       boolean full = "FULL".equals(Store.config.permission) || Store.config.fullGameControl;
       setting(
           settings,
           "allowBreak",
           NavigationPermissions.canBreak()
               && (full || Store.config.allowMine)
+              && (MiningExpedition.active() != null || Store.config.navigationBreak)
+              && protectedBreak
               && MiningExpedition.navigationTerrain());
       setting(
           settings,
@@ -206,6 +211,51 @@ public final class BaritoneNavigation {
     instance = null;
     mining = false;
     if (owner == this) owner = null;
+  }
+
+  /** Navigation-only paths never break block-entity blocks (containers, machines, cables). */
+  private boolean protectBlockEntities(Object settings) {
+    try {
+      if (protectedBlocks == null) {
+        var blocks = new java.util.ArrayList<Object>();
+        for (var block : net.minecraft.core.registries.BuiltInRegistries.BLOCK)
+          if (block instanceof net.minecraft.world.level.block.EntityBlock) blocks.add(block);
+        protectedBlocks = java.util.List.copyOf(blocks);
+      }
+      Object setting = settings.getClass().getField("blocksToDisallowBreaking").get(settings);
+      Object current = setting.getClass().getField("value").get(setting);
+      var merged = new java.util.LinkedHashSet<Object>();
+      if (current instanceof java.util.Collection<?> existing) merged.addAll(existing);
+      merged.addAll(protectedBlocks);
+      setting(settings, "blocksToDisallowBreaking", new java.util.ArrayList<>(merged));
+      return true;
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      diagnostic = "protect: " + e.getClass().getSimpleName();
+      return false;
+    }
+  }
+
+  /** Cancels this mod's active Baritone path/mine process; the owning navigator re-plans on resume. */
+  public static void cancelActive(String reason) {
+    try {
+      BaritoneNavigation active = owner;
+      if (active == null) return;
+      active.cancelled = true;
+      active.stop();
+      diagnostic = "cancelled: " + String.valueOf(reason);
+    } catch (RuntimeException | LinkageError e) {
+      // An interruption must never fail because the optional pathfinder misbehaved.
+    }
+  }
+
+  boolean consumeCancelled() {
+    boolean value = cancelled;
+    cancelled = false;
+    return value;
+  }
+
+  static boolean externalActive() {
+    return owner != null;
   }
 
   public static JsonObject status() {

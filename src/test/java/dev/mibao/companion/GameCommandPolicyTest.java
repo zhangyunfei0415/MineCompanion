@@ -10,12 +10,22 @@ class GameCommandPolicyTest {
   @Test
   void boundedCoordinatesPreserveQuotedSnbtAndWhitespace() {
     profile.customCommands = true;
-    String input = "setblock  ~  ~-1 ~ minecraft:chest{CustomName:'\"one   two @a\"'}";
+    String safeInput = "setblock  ~  ~-1 ~ minecraft:chest{CustomName:'\"one   two\"'}";
+    assertEquals(
+        "setblock  10  63 20 minecraft:chest{CustomName:'\"one   two\"'}",
+        GameCommandPolicy.parse(safeInput, profile, 10, 64, 20).command());
+    assertEquals(
+        "minecraft:chest", GameCommandPolicy.parse(safeInput, profile, 10, 64, 20).expectedBlock());
+
+    // Broad selectors inside SNBT quotes are blocked unless broadSelectors is explicitly enabled.
+    String selectorInput = "setblock  ~  ~-1 ~ minecraft:chest{CustomName:'\"one   two @a\"'}";
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> GameCommandPolicy.parse(selectorInput, profile, 10, 64, 20));
+    profile.broadSelectors = true;
     assertEquals(
         "setblock  10  63 20 minecraft:chest{CustomName:'\"one   two @a\"'}",
-        GameCommandPolicy.parse(input, profile, 10, 64, 20).command());
-    assertEquals(
-        "minecraft:chest", GameCommandPolicy.parse(input, profile, 10, 64, 20).expectedBlock());
+        GameCommandPolicy.parse(selectorInput, profile, 10, 64, 20).command());
   }
 
   @Test

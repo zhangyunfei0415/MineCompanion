@@ -10,11 +10,18 @@ import net.minecraft.world.item.ItemStack;
 public final class MachineObservation {
   private record Receipt(long revision, String state) {}
 
+  private record Sample(long tick, long revision, String state) {}
+
   private static final Map<BlockPos, Receipt> receipts = new LinkedHashMap<>();
+  private static final Map<BlockPos, Sample> samples = new HashMap<>();
+  /** Block-entity classes whose client observation threw; skipped after repeated failures. */
+  private static final Map<String, Integer> failures = new HashMap<>();
   private static long revision;
 
   public static void reset() {
     receipts.clear();
+    samples.clear();
+    failures.clear();
     revision = 0;
   }
 
@@ -37,12 +44,22 @@ public final class MachineObservation {
 
   public static boolean changed(BlockPos pos, String before, long since) {
     var r = receipts.get(pos);
+    // Serialize only after a newer block-entity receipt that differs from the baseline.
+    if (before == null || r == null || r.revision <= since || before.equals(r.state)) return false;
+    var now = sampled(pos, r.revision);
+    return Objects.equals(r.state, now) && !before.equals(now);
+  }
+
+  /** {@link #state} cached per position, receipt revision and client game tick. */
+  private static String sampled(BlockPos pos, long rev) {
+    var mc = Minecraft.getInstance();
+    long tick = mc.level == null ? -1 : mc.level.getGameTime();
+    var cached = samples.get(pos);
+    if (cached != null && cached.tick == tick && cached.revision == rev) return cached.state;
     var now = state(pos);
-    return before != null
-        && r != null
-        && r.revision > since
-        && Objects.equals(r.state, now)
-        && !before.equals(now);
+    if (samples.size() >= 64) samples.clear();
+    samples.put(pos.immutable(), new Sample(tick, rev, now));
+    return now;
   }
 
   public static JsonObject observe(BlockPos pos) {
@@ -50,9 +67,10 @@ public final class MachineObservation {
     if (mc.level == null || !mc.level.hasChunkAt(pos)) return null;
     var be = mc.level.getBlockEntity(pos);
     if (be == null) return null;
+    String type = be.getClass().getName();
+    if (failures.getOrDefault(type, 0) >= 3) return null;
     try {
       var out = new JsonObject();
-      String type = be.getClass().getName();
       if (type.equals("vectorwing.farmersdelight.common.block.entity.CuttingBoardBlockEntity")) {
         var stack = ((ItemStack) be.getClass().getMethod("getStoredItem").invoke(be)).copy();
         var item = new JsonObject();
@@ -171,7 +189,10 @@ public final class MachineObservation {
       }
       out.addProperty("source", "loaded_client_block_entity");
       return out;
-    } catch (ReflectiveOperationException | LinkageError e) {
+    } catch (RuntimeException | ReflectiveOperationException | LinkageError e) {
+      // Modded client block entities may throw on save/cast; report unknown, never fail the job.
+      if (failures.size() >= 256) failures.clear();
+      failures.merge(type, 1, Integer::sum);
       return null;
     }
   }

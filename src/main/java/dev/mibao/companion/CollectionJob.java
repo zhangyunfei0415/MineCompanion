@@ -5,6 +5,7 @@ import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.AABB;
 
@@ -40,12 +41,17 @@ public final class CollectionJob extends Actions.Job {
   private net.minecraft.world.phys.Vec3 targetPos;
   private int wait, empty, progress, previous, movingReplans, settle;
   private double bestDistance = Double.MAX_VALUE;
-  private boolean ending, scopeClear, inventoryVerified, arrived;
+  private boolean ending, scopeClear, inventoryVerified, arrived, backgroundDuty;
   private String reason = "";
   private Consumer<UUID> skipListener;
 
   CollectionJob withSkipListener(Consumer<UUID> listener) {
     skipListener = listener;
+    return this;
+  }
+
+  CollectionJob backgroundDuty(boolean background) {
+    backgroundDuty = background;
     return this;
   }
 
@@ -125,12 +131,18 @@ public final class CollectionJob extends Actions.Job {
   @Override
   void tick() {
     if (ending) {
+      int n = gained();
+      if (backgroundDuty && n == 0) {
+        inventoryVerified = true;
+        finish("部分完成：后台顺手拾取本次未新增入包（已自动记录暂避不可达掉落，未闪开背包）。" + reason);
+        return;
+      }
       Actions.status = "收集掉落物 · 等待完整服务器背包核对";
       if (++settle < 8) return;
       int result = verify.tick();
       if (result == 0) return;
       inventoryVerified = result > 0;
-      int n = gained();
+      n = gained();
       if (inventoryVerified) verify.close();
       boolean success = inventoryVerified && (sweep ? scopeClear : n >= wanted);
       finish(
@@ -163,6 +175,7 @@ public final class CollectionJob extends Actions.Job {
       previous = n;
       progress = 0;
     } else if (++progress > 300) {
+      if (target != null && skipListener != null) skipListener.accept(target.getUUID());
       end("15秒没有拾取或接近进展，请检查背包空间和通道。", false);
       return;
     }
@@ -263,9 +276,11 @@ public final class CollectionJob extends Actions.Job {
   private void skip(String why) {
     obstacle = Rules.clean(why, 220);
     nav.stop();
+    if (target != null && skipListener != null) {
+      skipListener.accept(target.getUUID());
+    }
     if (target != null && target.isAlive()) {
       recovery.reject(target.getUUID(), ticks, 40, Rules.clean(why, 220));
-      if (skipListener != null) skipListener.accept(target.getUUID());
     }
     target = null;
     arrived = false;
@@ -273,15 +288,16 @@ public final class CollectionJob extends Actions.Job {
   }
 
   private boolean capacity(ItemEntity item) {
+    // Direct item+NBT comparison (same rule vanilla pickup merging uses) instead of per-tick SHA-256 fingerprints.
+    var stack = item.getItem();
     List<PickupCapacity.Slot> slots = new ArrayList<>();
     for (int i = 0; i < 36; i++) {
       var v = mc().player.getInventory().getItem(i);
       slots.add(
-          new PickupCapacity.Slot(WorldSense.fingerprint(v), v.getCount(), v.getMaxStackSize()));
+          new PickupCapacity.Slot(
+              ItemStack.isSameItemSameTags(v, stack) ? "same" : "", v.getCount(), v.getMaxStackSize()));
     }
-    return PickupCapacity.room(
-            slots, WorldSense.fingerprint(item.getItem()), item.getItem().getMaxStackSize())
-        > 0;
+    return PickupCapacity.room(slots, "same", stack.getMaxStackSize()) > 0;
   }
 
   public static com.google.gson.JsonObject diagnostic() {

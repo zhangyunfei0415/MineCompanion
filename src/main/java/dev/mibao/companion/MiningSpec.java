@@ -47,6 +47,15 @@ record MiningSpec(
         SkillCatalog.bounded(args, "max_blocks", Math.min(4096, Math.max(64, count * 4)), 1, 4096);
     if (goal.equals("blocks") && count > limit)
       throw new IllegalArgumentException("[INVALID_ARGUMENT] 方块目标超过max_blocks预算");
+    int radius = SkillCatalog.bounded(args, "radius", 16, 2, 32);
+    int vertical = SkillCatalog.bounded(args, "vertical_range", 12, 1, 64);
+    int seconds = SkillCatalog.bounded(args, "seconds", 1800, 30, 7200);
+    long side = 2L * radius + 1;
+    long scanSeconds = (side * side * (2L * vertical + 1) + 256L * 20 - 1) / (256L * 20);
+    if (scanSeconds * 2 > seconds)
+      throw new IllegalArgumentException(
+          "[INVALID_ARGUMENT] 矿区扫描约需" + scanSeconds
+              + "秒，超过seconds的50%；请缩小radius/vertical_range或延长seconds");
     return new MiningSpec(
         block,
         item,
@@ -54,10 +63,10 @@ record MiningSpec(
         choice(args, "mode", "vein", Set.of("surface", "vein", "baritone")),
         choice(args, "terrain", "detour", Set.of("detour", "modify")),
         count,
-        SkillCatalog.bounded(args, "radius", 16, 2, 32),
-        SkillCatalog.bounded(args, "vertical_range", 12, 1, 64),
+        radius,
+        vertical,
         limit,
-        SkillCatalog.bounded(args, "seconds", 1800, 30, 7200),
+        seconds,
         SkillCatalog.bounded(args, "min_durability", 16, 1, 10000),
         SkillCatalog.bounded(args, "free_slots", 2, 1, 12),
         delivery,

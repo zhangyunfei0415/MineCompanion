@@ -18,7 +18,7 @@ public final class TargetedInteractionJob extends Actions.Job {
   private final SneakHold sneakHold = new SneakHold();
   private InventoryMove prepare;
   private InteractionOutcome outcome;
-  private int stage, delay;
+  private int stage, delay, sneakWarmup;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -125,8 +125,14 @@ public final class TargetedInteractionJob extends Actions.Job {
         finish("失败：非破坏左键仅支持生存空主手Functional Storage抽屉");
         return;
       }
-      outcome = InteractionOutcome.begin(pos);
-      if (sneak) sneakHold.hold();
+      if (sneak) {
+        sneakHold.hold();
+        if (++sneakWarmup < 2) return;
+      }
+      BlockPos placedPos = pos.relative(face);
+      outcome = InteractionOutcome.begin(pos, placedPos);
+      PlayerEvidence.forget(pos);
+      PlayerEvidence.forget(placedPos);
       Actions.look(hit.getLocation());
       MenuContext.expect(pos);
       if (left) {
@@ -137,6 +143,7 @@ public final class TargetedInteractionJob extends Actions.Job {
       return;
     }
     if (stage == 2) {
+      if (sneak) sneakHold.maintain();
       outcome.tick();
       if (++delay < 8) return;
       if (mc().player.containerMenu != mc().player.inventoryMenu) {

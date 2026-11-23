@@ -43,6 +43,8 @@ public final class PlaceJob extends Actions.Job {
   private String fingerprint;
   private net.minecraft.world.level.block.Block block;
   private boolean sneaking;
+  private int sneakWarmup;
+  private final SneakHold sneakHold = new SneakHold();
   private final boolean creative;
 
   private static Minecraft mc() {
@@ -220,16 +222,15 @@ public final class PlaceJob extends Actions.Job {
         finish("失败：[PLACE_CONDITION] 位置不能正常放置该方块。");
         return;
       }
-      if (!mc().player.isShiftKeyDown()) {
-        mc().player.setShiftKeyDown(true);
-        mc().getConnection()
-            .send(
-                new ServerboundPlayerCommandPacket(
-                    mc().player, ServerboundPlayerCommandPacket.Action.PRESS_SHIFT_KEY));
+      if (!aim.ready(hit.getLocation())) return;
+      String stackId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+      boolean forceSneak = BreakPolicy.requiresSneakToPlace(stackId) || stackId.contains("backpack");
+      if (forceSneak || !mc().player.isShiftKeyDown()) {
+        sneakHold.hold();
         sneaking = true;
+        if (forceSneak && ++sneakWarmup < 2) return;
       }
       PlayerEvidence.forget(pos);
-      if (!aim.ready(hit.getLocation())) return;
       var predicted =
           block.getStateForPlacement(
               new BlockPlaceContext(mc().player, InteractionHand.MAIN_HAND, stack, hit));
@@ -248,6 +249,7 @@ public final class PlaceJob extends Actions.Job {
       wait = 0;
       return;
     }
+    if (sneaking) sneakHold.maintain();
     var server = PlayerEvidence.block(pos);
     boolean matched =
         server != null
@@ -375,6 +377,7 @@ public final class PlaceJob extends Actions.Job {
   }
 
   private void releaseSneak() {
+    sneakHold.release();
     if (sneaking && mc().player != null) {
       mc().player.setShiftKeyDown(false);
       if (mc().getConnection() != null)

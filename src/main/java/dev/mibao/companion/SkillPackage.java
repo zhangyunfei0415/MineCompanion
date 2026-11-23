@@ -25,6 +25,7 @@ public final class SkillPackage {
         deps.add(tool);
       }
     requires = Set.copyOf(deps);
+    checkMetadata(input);
     if (!input.has("steps")
         || input.getAsJsonArray("steps").isEmpty()
         || input.getAsJsonArray("steps").size() > 16)
@@ -122,6 +123,45 @@ public final class SkillPackage {
   }
 
   public static String string(JsonObject o, String key, String fallback) {
-    return o.has(key) ? o.get(key).getAsString() : fallback;
+    return o.has(key) && o.get(key).isJsonPrimitive() ? o.get(key).getAsString() : fallback;
+  }
+
+  private static boolean isString(JsonElement e) {
+    return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isString();
+  }
+
+  /** Display/compatibility metadata is read by the UI; reject shapes it cannot render. */
+  private static void checkMetadata(JsonObject input) {
+    for (String key : List.of("name", "description", "minecraft"))
+      if (input.has(key) && !isString(input.get(key)))
+        throw new IllegalArgumentException("技能字段 " + key + " 须为字符串");
+    if (input.has("seconds")
+        && !(input.get("seconds").isJsonPrimitive() && input.getAsJsonPrimitive("seconds").isNumber()))
+      throw new IllegalArgumentException("技能字段 seconds 须为数字");
+    if (input.has("mods")) {
+      if (!input.get("mods").isJsonObject())
+        throw new IllegalArgumentException("技能字段 mods 须为 {模组ID: 版本范围} 对象");
+      for (var e : input.getAsJsonObject("mods").entrySet())
+        if (!isString(e.getValue()))
+          throw new IllegalArgumentException("mods." + e.getKey() + " 须为版本范围字符串");
+    }
+    if (input.has("parameters")) {
+      if (!input.get("parameters").isJsonObject())
+        throw new IllegalArgumentException("技能字段 parameters 须为对象");
+      for (var e : input.getAsJsonObject("parameters").entrySet()) {
+        if (!e.getValue().isJsonObject())
+          throw new IllegalArgumentException("参数 " + e.getKey() + " 的定义须为对象");
+        var spec = e.getValue().getAsJsonObject();
+        for (String key : List.of("type", "description"))
+          if (spec.has(key) && !isString(spec.get(key)))
+            throw new IllegalArgumentException("参数 " + e.getKey() + "." + key + " 须为字符串");
+        if (spec.has("default") && !spec.get("default").isJsonPrimitive())
+          throw new IllegalArgumentException("参数 " + e.getKey() + " 的默认值须为字符串/数字/布尔");
+        for (String key : List.of("min", "max"))
+          if (spec.has(key)
+              && !(spec.get(key).isJsonPrimitive() && spec.getAsJsonPrimitive(key).isNumber()))
+            throw new IllegalArgumentException("参数 " + e.getKey() + "." + key + " 须为数字");
+      }
+    }
   }
 }

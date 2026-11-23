@@ -36,7 +36,13 @@ public final class RecentWrites {
   public static long age(String dimension, int x, int y, int z, long now) {
     Entry e = entry(dimension, x, y, z);
     if (e == null) return -1;
-    return Math.max(0, now - e.tick());
+    long age = now - e.tick();
+    if (age < 0) {
+      // Recorded under another world's game time; it is not evidence for this world.
+      WRITES.remove(key(dimension, x, y, z));
+      return -1;
+    }
+    return age;
   }
 
   public static boolean staleHint(String dimension, int x, int y, int z, long now) {
@@ -57,12 +63,13 @@ public final class RecentWrites {
 
   public static JsonObject describe(String dimension, int x, int y, int z, long now) {
     JsonObject out = new JsonObject();
-    out.addProperty("stale_hint", staleHint(dimension, x, y, z, now));
-    Entry e = entry(dimension, x, y, z);
+    long age = age(dimension, x, y, z, now);
+    out.addProperty("stale_hint", age >= 0 && age <= STALE_WINDOW);
+    Entry e = age < 0 ? null : entry(dimension, x, y, z);
     if (e != null) {
       JsonObject write = new JsonObject();
       write.addProperty("tick", e.tick());
-      write.addProperty("age_ticks", Math.max(0, now - e.tick()));
+      write.addProperty("age_ticks", age);
       write.addProperty("expected", e.expected());
       out.add("recent_write", write);
     }
@@ -78,7 +85,7 @@ public final class RecentWrites {
   }
 
   private static void prune(long now) {
-    WRITES.values().removeIf(e -> now - e.tick() > RETENTION);
+    WRITES.values().removeIf(e -> now - e.tick() > RETENTION || now < e.tick());
     if (WRITES.size() <= LIMIT) return;
     var it = WRITES.entrySet().iterator();
     while (WRITES.size() > LIMIT && it.hasNext()) {

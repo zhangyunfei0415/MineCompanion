@@ -62,8 +62,15 @@ public final class WatchMode {
     var mc = Minecraft.getInstance();
     if (mc.player == null || window != mc.getWindow().getWindow()) return false;
     if (Companion.QUICK_START.matches(key, scan)) {
-      if (action == GLFW.GLFW_PRESS) startWatching();
-      return true;
+      // Only a bare press in the world starts watching. Screens (chat, signs, key bindings, pause
+      // menu), F3 debug combos (F3+F4 game-mode switcher) and the local dialogue keep the key.
+      boolean debugCombo =
+          com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, GLFW.GLFW_KEY_F3);
+      if (mc.screen == null && !LocalDialogue.editing && !debugCombo) {
+        if (action == GLFW.GLFW_PRESS) startWatching();
+        return true;
+      }
+      if (!LocalDialogue.editing) return false;
     }
     // Handle emergency control before an EditBox or a machine can consume its rebound key.
     if ((Agent.enabled || LocalDialogue.editing) && Companion.STOP.matches(key, scan)) {
@@ -137,6 +144,11 @@ public final class WatchMode {
   public static void startWatching() {
     var mc = Minecraft.getInstance();
     if (mc.player == null || mc.level == null) return;
+    if (mc.player.isDeadOrDying()
+        || (Agent.paused && PauseControl.source == PauseControl.Source.DEATH_RECOVERY)) {
+      Companion.notifyUser("死亡恢复中：快速启动不会解除暂停，请等待重生流程完成后再开启观看");
+      return;
+    }
     LocalDialogue.close();
     if (!Agent.enabled) Agent.start();
     if (Cooperation.active()) Cooperation.set(false);

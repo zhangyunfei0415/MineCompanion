@@ -58,6 +58,65 @@ public final class RecipePlanner {
         List.copyOf(s.batches), Map.copyOf(s.stock), s.needsTable, Map.copyOf(consumed));
   }
 
+  /**
+   * Ingredient item ids (non-empty ingredients, recipe order) for the first of {@code batches}
+   * (recipe ids in execution order) that keep every later batch craftable from {@code stock} plus
+   * earlier outputs. Empty list: the remaining batches are not feasible. Null: unknown recipe or
+   * the bounded search could not decide.
+   */
+  public List<String> firstBatchPicks(List<String> batches, Map<String, Integer> stock) {
+    if (batches.isEmpty()) return null;
+    Map<String, Recipe> byId = new HashMap<>();
+    for (var r : recipes) byId.putIfAbsent(r.id, r);
+    for (String id : batches) if (!byId.containsKey(id)) return null;
+    work = 0;
+    List<String> first = new ArrayList<>();
+    try {
+      return simulate(batches, 0, 0, new HashMap<>(stock), byId, new ArrayList<>(), first)
+          ? List.copyOf(first)
+          : List.of();
+    } catch (IllegalArgumentException budgetExceeded) {
+      return null;
+    }
+  }
+
+  private boolean simulate(
+      List<String> batches,
+      int batch,
+      int index,
+      Map<String, Integer> stock,
+      Map<String, Recipe> byId,
+      List<String> picked,
+      List<String> first) {
+    budget();
+    if (batch == batches.size()) return true;
+    var r = byId.get(batches.get(batch));
+    if (index == r.ingredients.size()) {
+      if (batch == 0) {
+        first.clear();
+        first.addAll(picked);
+      }
+      stock.merge(r.output, r.amount, Integer::sum);
+      boolean ok = simulate(batches, batch + 1, 0, stock, byId, new ArrayList<>(), first);
+      stock.merge(r.output, -r.amount, Integer::sum);
+      return ok;
+    }
+    var choices =
+        r.ingredients.get(index).stream()
+            .filter(k -> stock.getOrDefault(k, 0) > 0)
+            .sorted()
+            .toList();
+    for (String id : choices) {
+      stock.merge(id, -1, Integer::sum);
+      picked.add(id);
+      boolean ok = simulate(batches, batch, index + 1, stock, byId, picked, first);
+      picked.remove(picked.size() - 1);
+      stock.merge(id, 1, Integer::sum);
+      if (ok) return true;
+    }
+    return false;
+  }
+
   private void budget() {
     if (++work > 4096) throw new IllegalArgumentException("配方搜索达到4096步上限，请拆成小任务");
   }

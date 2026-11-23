@@ -246,15 +246,74 @@ public final class BundleAdaptation {
     return bundleId.replaceAll("[^a-zA-Z0-9_.-]", "_");
   }
 
+  /** Injective stem ('_'->"__", ':'->"_c", '/'->"_s"), so distinct bundle IDs never share a file. */
+  public static String uniqueFileStem(String bundleId) {
+    StringBuilder out = new StringBuilder(bundleId.length() + 8);
+    for (int i = 0; i < bundleId.length(); i++) {
+      char c = bundleId.charAt(i);
+      if (c == '_') out.append("__");
+      else if (c == ':') out.append("_c");
+      else if (c == '/') out.append("_s");
+      else if (c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-') out.append(c);
+      else out.append("_u").append(String.format("%04x", (int) c));
+    }
+    return out.toString();
+  }
+
+  /** bundle_id declared inside a bundle/adaptation file, or null when the file is unreadable. */
+  public static String declaredBundleId(Path file) {
+    try {
+      if (Files.size(file) > 262_144) return null;
+      JsonObject root =
+          JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
+      return str(root, "bundle_id", "").trim();
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /**
+   * Keeps using a legacy (lossy {@link #safeFileStem}) file only when it belongs to this ID or
+   * cannot be read; otherwise uses the injective name so another bundle's file is never reused.
+   */
+  public static Path fileFor(Path dir, String bundleId, String suffix) {
+    Path legacy = dir.resolve(safeFileStem(bundleId) + suffix);
+    if (Files.exists(legacy)) {
+      String owner = declaredBundleId(legacy);
+      if (owner == null || owner.equals(bundleId)) return legacy;
+    }
+    return dir.resolve(uniqueFileStem(bundleId) + suffix);
+  }
+
+  public static final int MAX_FILE_BYTES = 131_072;
+
   public void save(Path file) throws Exception {
     JsonObject out = toJson();
     BundleSanitizer.assertClean(out);
+    byte[] bytes =
+        new GsonBuilder()
+            .setPrettyPrinting()
+            .disableHtmlEscaping()
+            .create()
+            .toJson(out)
+            .getBytes(StandardCharsets.UTF_8);
+    if (bytes.length > MAX_FILE_BYTES)
+      throw new IllegalArgumentException(
+          "[ADAPTATION_TOO_LARGE] 本地适配写盘后为 "
+              + bytes.length
+              + " 字节，超过 128 KiB 加载上限；未保存，请精简 skill_overrides 等覆盖内容");
+    if (Files.exists(file)) {
+      String owner = declaredBundleId(file);
+      if (owner == null || !owner.equals(bundleId))
+        throw new IllegalStateException(
+            "[ADAPTATION_FILE_CONFLICT] 适配文件 "
+                + file.getFileName()
+                + (owner == null ? " 无法读取" : " 属于其他记忆包 " + owner)
+                + "，拒绝覆盖；请先检查或用 reset=true 清除");
+    }
     Files.createDirectories(file.getParent());
     Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-    Files.writeString(
-        tmp,
-        new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create().toJson(out),
-        StandardCharsets.UTF_8);
+    Files.write(tmp, bytes);
     try {
       Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } catch (AtomicMoveNotSupportedException e) {

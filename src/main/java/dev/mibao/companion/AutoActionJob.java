@@ -53,7 +53,9 @@ public final class AutoActionJob extends Actions.Job {
     this.targetPos = targetPos == null ? null : targetPos.immutable();
     this.targetCount = Math.max(0, Math.min(2000, count));
     this.intervalTicks = GeneratorPolicy.clampIntervalTicks(intervalTicks);
-    this.maxTicks = GeneratorPolicy.clampMaxSeconds(maxSeconds) * 20;
+    int computedTicks =
+        maxSeconds < 0 ? Math.max(1, Math.min(200, -maxSeconds)) : GeneratorPolicy.clampMaxSeconds(maxSeconds) * 20;
+    this.maxTicks = computedTicks;
     this.untilToolsSpent = untilToolsSpent;
     this.minDurability = Math.max(0, Math.min(256, minDurability));
     this.itemFilter = itemFilter == null ? "" : itemFilter.trim();
@@ -73,6 +75,11 @@ public final class AutoActionJob extends Actions.Job {
     var hit = p.pick(range, 1.0f, false);
     if (hit instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK) {
       targetPos = bhr.getBlockPos().immutable();
+      return targetPos;
+    }
+    var fluidHit = p.pick(range, 1.0f, true);
+    if (fluidHit instanceof BlockHitResult fhr && fhr.getType() == HitResult.Type.BLOCK) {
+      targetPos = fhr.getBlockPos().immutable();
       return targetPos;
     }
     return null;

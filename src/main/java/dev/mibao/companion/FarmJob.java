@@ -27,6 +27,29 @@ public final class FarmJob extends Actions.Job {
   private SupplyWait seedWait;
   private int seedWaits;
   private final FarmBatch<BlockPos> batch;
+  /** Seed drops seen around the player during a replant window: entity id -> count. */
+  private final Map<Integer, Integer> seedDrops = new HashMap<>();
+
+  private void watchSeedDrops() {
+    for (var entity :
+        mc().level.getEntitiesOfClass(
+            net.minecraft.world.entity.item.ItemEntity.class,
+            mc().player.getBoundingBox().inflate(3))) {
+      var stack = entity.getItem();
+      if (stack.is(seed) && !stack.hasTag())
+        seedDrops.putIfAbsent(entity.getId(), stack.getCount());
+    }
+  }
+
+  /** Upper bound of seeds that could have entered the inventory by pickup since planting. */
+  private int vanishedSeedDrops() {
+    int n = 0;
+    for (var e : seedDrops.entrySet()) {
+      var entity = mc().level.getEntity(e.getKey());
+      if (entity == null || !entity.isAlive()) n += e.getValue();
+    }
+    return n;
+  }
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -314,6 +337,8 @@ public final class FarmJob extends Actions.Job {
       }
       mc().player.getInventory().selected = slot;
       seedBefore = PlayerEvidence.total(PlayerEvidence.actual(seedId));
+      seedDrops.clear();
+      watchSeedDrops();
       PlayerEvidence.forget(target);
       Actions.look(hit.getLocation());
       mc().gameMode.useItemOn(mc().player, InteractionHand.MAIN_HAND, hit);
@@ -323,6 +348,7 @@ public final class FarmJob extends Actions.Job {
       return;
     }
     if (phase == 5) {
+      watchSeedDrops();
       var server = PlayerEvidence.block(target);
       var actual = mc().level.getBlockState(target);
       boolean young =
@@ -334,7 +360,8 @@ public final class FarmJob extends Actions.Job {
           young,
           seedBefore,
           PlayerEvidence.total(PlayerEvidence.actual(seedId)),
-          PlayerEvidence.total(PlayerEvidence.confirmed(seedId)))) {
+          PlayerEvidence.total(PlayerEvidence.confirmed(seedId)),
+          vanishedSeedDrops())) {
         planted++;
         if (batch != null) batch.record(FarmBatch.Stage.HARVEST, target.immutable());
         WorldSense.record(target, actual);

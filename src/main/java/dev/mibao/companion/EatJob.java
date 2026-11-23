@@ -28,6 +28,7 @@ public final class EatJob extends Actions.Job {
                     && s.getFoodProperties(mc().player) != null
                     && (!filter.equals("*") || ControlPolicy.FOOD.contains(
                         net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(s.getItem()).toString()))
+                    && (!s.hasTag() || filter.contains("#"))
                     && Actions.match(s, filter));
   }
 

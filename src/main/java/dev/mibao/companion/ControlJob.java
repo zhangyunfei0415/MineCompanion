@@ -50,7 +50,10 @@ public final class ControlJob extends Actions.Job {
         finish("成功：告示牌编辑已正常关闭；文字保存另核实");
         return;
       }
-      if (ScreenInput.ftb() || Store.config.fullGameControl) {
+      if (ScreenInput.ftb()
+          || Store.config.fullGameControl
+              && !(mc.screen
+                  instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen)) {
         if (!mc.player.containerMenu.getCarried().isEmpty()) {
           finish("失败：鼠标仍持有物品，请先收好再退出任务书。");
           return;

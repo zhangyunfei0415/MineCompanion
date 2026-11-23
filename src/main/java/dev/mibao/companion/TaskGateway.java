@@ -30,7 +30,10 @@ final class TaskGateway {
         throw new IllegalArgumentException("[TASK_ID_CONFLICT] 同ID的目标/参数不同，拒绝覆盖");
       return receipt(id);
     }
-    if (HarnessController.busy()) throw new IllegalArgumentException("[BUSY] 已有任务，不叠加执行");
+    if (DutyScheduler.ownsCurrentJob() && !HarnessController.foregroundBusy()) {
+      DutyScheduler.yieldCurrentJob("task_submit 抢占：" + tool);
+    }
+    if (HarnessController.foregroundBusy()) throw new IllegalArgumentException("[BUSY] 已有任务，不叠加执行");
     long count =
         Store.data.checkpoints.keySet().stream().filter(k -> k.startsWith("task:")).count();
     if (count >= 1024)

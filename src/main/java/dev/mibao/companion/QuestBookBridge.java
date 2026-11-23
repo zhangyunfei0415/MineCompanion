@@ -21,11 +21,15 @@ public final class QuestBookBridge {
   private static long view, at;
   private static boolean treeTruncated;
   private static volatile PendingSubmit pendingSubmit;
+  private static long stateEpoch = -1;
+  private static Object stateWorld;
 
   private static final class PendingSubmit {
     final Object team, task, quest;
     final JsonObject snapshot;
     final long at = System.currentTimeMillis(); // Moment the packet was sent.
+    final long epoch = Agent.epoch;
+    final Object world = Minecraft.getInstance().level;
     volatile JsonObject view;
     int ticksLeft = SUBMIT_RECHECK_TICKS;
     boolean done;
@@ -40,6 +44,23 @@ public final class QuestBookBridge {
 
   private interface Probe {
     Object read() throws Exception;
+  }
+
+  /**
+   * Drops observations and the last submit receipt (with its old TeamData/Task references). Called
+   * on disconnect and whenever the world or {@link Agent#epoch} changes; old view numbers become
+   * invalid because the counter keeps increasing.
+   */
+  static void reset() {
+    pendingSubmit = null;
+    observed = List.of();
+    observedScreen = null;
+    stamp = "";
+    view++;
+    at = 0;
+    treeTruncated = false;
+    stateEpoch = Agent.epoch;
+    stateWorld = Minecraft.getInstance().level;
   }
 
   private static Object call(Object o, String name) throws ReflectiveOperationException {
@@ -242,6 +263,12 @@ public final class QuestBookBridge {
             invokeRead(team, "getClaimType", Minecraft.getInstance().player.getUUID(), object);
         out.addProperty("can_claim_client", (Boolean) call(claim, "canClaim"));
         out.addProperty("claimed_client", (Boolean) call(claim, "isClaimed"));
+        try {
+          if (call(object, "getExcludeFromClaimAll") instanceof Boolean excluded)
+            out.addProperty("exclude_from_claim_all", excluded);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+          /* Older FTB builds lack the flag; claim_all then falls back to the reward class list. */
+        }
       }
       out.addProperty("progress_source", "client_synced_ftb_view_not_server_file");
     } catch (ReflectiveOperationException | RuntimeException e) {
@@ -363,7 +390,11 @@ public final class QuestBookBridge {
         "navigation",
         "已观察QuestButton可用quest_book_open语义打开（允许屏外）；其他按钮仍要求实际可见。图形浏览用game_input拖动/滚轮；坐标已包含父链滚动，操作后重读。");
     PendingSubmit submit = pendingSubmit;
-    if (submit != null && submit.view != null) o.add("last_submit", submit.view.deepCopy());
+    if (submit != null
+        && submit.view != null
+        && submit.epoch == Agent.epoch
+        && submit.world == Minecraft.getInstance().level)
+      o.add("last_submit", submit.view.deepCopy());
     return o;
   }
 
@@ -728,6 +759,33 @@ public final class QuestBookBridge {
     return new ActJob(query, action, done);
   }
 
+  /** FTB reward types its own "claim all" grants directly; anything else stays user-driven. */
+  private static final Set<String> AUTO_CLAIM_REWARDS =
+      Set.of(
+          "ItemReward",
+          "XPReward",
+          "XPLevelsReward",
+          "LootReward",
+          "RandomReward",
+          "AllTableReward",
+          "CommandReward",
+          "AdvancementReward",
+          "ToastReward",
+          "StageReward",
+          "CustomReward");
+
+  /** Non-empty when claim_all must not send a packet for this reward (FTB claim-all semantics). */
+  private static String manualClaimReason(JsonObject data) {
+    if (data.has("exclude_from_claim_all") && data.get("exclude_from_claim_all").getAsBoolean())
+      return "整合包将该奖励标记为不参与一键领取";
+    String type = data.has("object_class") ? data.get("object_class").getAsString() : "";
+    String simple = type.substring(type.lastIndexOf('.') + 1);
+    if (simple.contains("Choice")) return "自选奖励需在任务书界面选择";
+    if (!data.has("exclude_from_claim_all") && !AUTO_CLAIM_REWARDS.contains(simple))
+      return "无法读取一键领取标记且奖励类型未知（" + (simple.isEmpty() ? "?" : simple) + "）";
+    return "";
+  }
+
   private static void sendClaim(long rewardId) {
     try {
       Class<?> message = Class.forName("dev.ftb.mods.ftbquests.net.ClaimRewardMessage");
@@ -766,6 +824,7 @@ public final class QuestBookBridge {
     private final List<String> skipped = new ArrayList<>();
     private final List<JsonObject> results = new ArrayList<>();
     private final List<Row> rewards = new ArrayList<>();
+    private final List<JsonObject> manualRewards = new ArrayList<>();
     private int rewardIndex;
     private Row verifying;
 
@@ -806,7 +865,7 @@ public final class QuestBookBridge {
       refresh();
       questId = viewedQuestId();
       questTitle = viewedQuestTitle();
-      if (questId > 0 && QuestMatch.matches(questTitle, query)) {
+      if (questId > 0 && QuestMatch.exact(questTitle, query)) {
         phase = 1;
         wait = 1;
         return;
@@ -880,9 +939,25 @@ public final class QuestBookBridge {
           if (!data.has("can_claim_client") || !data.get("can_claim_client").getAsBoolean())
             continue;
           if (!data.has("object_id")) continue;
+          String manual = manualClaimReason(data);
+          if (!manual.isEmpty()) {
+            var skip = new JsonObject();
+            skip.addProperty("reward_id", data.get("object_id").getAsString());
+            if (data.has("object_title")) skip.add("title", data.get("object_title"));
+            if (data.has("object_class")) skip.add("reward_class", data.get("object_class"));
+            skip.addProperty("reason", manual);
+            manualRewards.add(skip);
+            continue;
+          }
           rewards.add(row);
         }
         if (rewards.isEmpty()) {
+          if (!manualRewards.isEmpty()) {
+            finish(
+                "部分完成：[QUEST_REWARD_MANUAL] 可领取的奖励都需玩家在任务书界面手动选择/领取，未发送任何领取包；"
+                    + summary("claim_all"));
+            return;
+          }
           if (anyClaimed) {
             finish(summary("claim_all"));
             return;
@@ -977,6 +1052,11 @@ public final class QuestBookBridge {
         for (String title : skipped) already.add(title);
         out.add("skipped_completed", already);
       }
+      if (!act.equals("submit") && !manualRewards.isEmpty()) {
+        var manual = new JsonArray();
+        for (JsonObject reward : manualRewards) manual.add(reward);
+        out.add("skipped_manual_rewards", manual);
+      }
       out.addProperty(
           "note",
           act.equals("submit")
@@ -1027,6 +1107,7 @@ public final class QuestBookBridge {
 
   /** Client tick hook: re-read FTB's client team data once the server round trip has settled. */
   static void tick() {
+    if (Agent.epoch != stateEpoch || Minecraft.getInstance().level != stateWorld) reset();
     PendingSubmit pending = pendingSubmit;
     if (pending == null || pending.done) return;
     if (--pending.ticksLeft > 0) return;

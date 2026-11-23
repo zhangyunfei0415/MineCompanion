@@ -10,6 +10,7 @@ public final class LocalExecutor {
   private static void interruptInput(String message) {
     FollowControl.suspend(message);
     DutyScheduler.suspend(message);
+    BaritoneNavigation.cancelActive(message);
     if (Actions.job instanceof MiningRouteJob route) route.suspendInput(message);
     if (Actions.job instanceof BaritoneMiningJob mining) mining.interruptedBy(message);
     if (Actions.job instanceof UseHandJob use) use.suspend();
@@ -95,6 +96,8 @@ public final class LocalExecutor {
         if (mc.screen != null || HarnessController.busy() || !Agent.task.isBlank())
           FollowControl.suspend("等待当前任务或界面结束");
         else FollowControl.tick();
+      } else if (mc.screen == null && !HarnessController.busy() && Agent.task.isBlank()) {
+        DutyScheduler.tickStandby();
       }
     }
   }

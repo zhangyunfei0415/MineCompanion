@@ -27,6 +27,7 @@ public final class Store {
   private static FileLock controlLock;
   private static boolean presetsWritten;
   private static String lastSavedSkillsJson;
+  private static volatile boolean dirty;
 
   public static boolean hasControl() {
     return controlLock != null && controlLock.isValid();
@@ -296,6 +297,15 @@ public final class Store {
   }
 
   public static void importData(Data d) {
+    if (!worldKey.equals("disconnected") && Files.exists(dataFile())) {
+      try {
+        Files.copy(
+            dataFile(),
+            ROOT.resolve("pre-import-" + worldKey + "-" + System.currentTimeMillis() + ".json"));
+      } catch (Exception e) {
+        throw new IllegalStateException("导入前无法保留原世界记忆文件，已取消导入：" + e.getClass().getSimpleName());
+      }
+    }
     normalize(d);
     mergeSkills(d, worldKey);
     data = d;
@@ -578,7 +588,18 @@ public final class Store {
     }
   }
 
+  /** Marks memory dirty; Companion.tick merges pending writes into one save about every 5 seconds. */
+  public static void saveSoon() {
+    dirty = true;
+  }
+
+  /** Writes once when saveSoon() requests are pending (periodic tick, disconnect or logout). */
+  public static void flushPending() {
+    if (dirty) save();
+  }
+
   public static void save() {
+    dirty = false;
     // Two launchers may share one game directory. The window selected in the
     // panel owns persistence until it exits; the passive window never overwrites it.
     if (controlLock == null || !controlLock.isValid()) {
@@ -668,27 +689,63 @@ public final class Store {
   }
 
   public static Path backup() throws Exception {
+    if (!worldReadable) {
+      // The in-memory data is a temporary blank memory; never let it become the "latest backup".
+      if (worldKey.equals("disconnected") || !Files.exists(dataFile()))
+        throw new IllegalStateException("当前为临时空白记忆，且没有可备份的原世界文件");
+      Files.createDirectories(ROOT);
+      Path original =
+          ROOT.resolve("unreadable-original-" + worldKey + "-" + System.currentTimeMillis() + ".json");
+      Files.copy(dataFile(), original);
+      return original;
+    }
     save();
     Path p = ROOT.resolve("backup-" + worldKey + "-" + System.currentTimeMillis() + ".json");
     Files.writeString(p, GSON.toJson(data));
     return p;
   }
 
+  private static boolean blankMemory(Data d) {
+    return d.places.isEmpty()
+        && d.facts.isEmpty()
+        && (d.checkpoints == null || d.checkpoints.isEmpty())
+        && d.inventoryMemories.isEmpty()
+        && d.workLedger.isEmpty()
+        && d.stockTargets.isEmpty()
+        && d.logisticsRecords.isEmpty();
+  }
+
   public static void restoreLatest() throws Exception {
     if (worldKey.equals("disconnected")) throw new IllegalStateException("请先进入世界");
-    Path p;
+    List<Path> candidates;
     try (var stream = Files.list(ROOT)) {
-      p =
+      candidates =
           stream
               .filter(f -> f.getFileName().toString().startsWith("backup-" + worldKey + "-"))
-              .max(Comparator.comparing(f -> f.getFileName().toString()))
-              .orElseThrow(() -> new IllegalStateException("没有此服务器的备份"));
+              .sorted(Comparator.comparing((Path f) -> f.getFileName().toString()).reversed())
+              .toList();
     }
-    Data d = GSON.fromJson(Files.readString(p), Data.class);
-    if (d == null || d.places == null || d.facts == null || d.skills == null)
-      throw new IllegalStateException("备份格式不正确");
-    normalize(d);
-    backup();
+    if (candidates.isEmpty()) throw new IllegalStateException("没有此服务器的备份");
+    Data d = null;
+    for (Path p : candidates) {
+      Data candidate;
+      try {
+        candidate = GSON.fromJson(Files.readString(p), Data.class);
+      } catch (Exception e) {
+        continue;
+      }
+      if (candidate == null
+          || candidate.places == null
+          || candidate.facts == null
+          || candidate.skills == null) continue;
+      normalize(candidate);
+      // A blank backup taken while the world file was unreadable would replace the real file.
+      if (!worldReadable && blankMemory(candidate)) continue;
+      d = candidate;
+      break;
+    }
+    if (d == null) throw new IllegalStateException("备份格式不正确或只有临时空白记忆的备份");
+    if (worldReadable || Files.exists(dataFile())) backup();
     importData(d);
   }
 }

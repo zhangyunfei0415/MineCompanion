@@ -9,12 +9,27 @@ public final class ChatCommand {
 
   record Follow(FollowAction action, String argument) {}
 
-  enum DutyAction { STANDBY, BASE_STEWARD, ESCORT_GUARD, EXPEDITION_GATHER, PAUSE, RESUME, STATUS }
+  enum DutyAction {
+    STANDBY,
+    BASE_STEWARD,
+    ESCORT_GUARD,
+    EXPEDITION_GATHER,
+    GUIDE_HOME,
+    PAUSE,
+    RESUME,
+    STATUS
+  }
 
-  record Duty(DutyAction action) {}
+  record Duty(DutyAction action, String argument) {
+    Duty(DutyAction action) {
+      this(action, "");
+    }
+  }
 
   private static final Pattern NAMED_FOLLOW =
       Pattern.compile("跟随(?:玩家)?\\s+([A-Za-z0-9_]{1,16})", Pattern.UNICODE_CHARACTER_CLASS);
+  private static final Pattern GUIDE_TO =
+      Pattern.compile("(?:带我去|带路去|领我去|带我回)\\s*(.+)");
 
   public static String extract(String message, String name) {
     var match = mention(message, name);
@@ -82,10 +97,17 @@ public final class ChatCommand {
           new Duty(DutyAction.ESCORT_GUARD);
       case "外出探索", "外出采集", "外出探索采集", "探索搜刮" ->
           new Duty(DutyAction.EXPEDITION_GATHER);
+      case "带我回家", "领路回家", "带路回家", "带我回基地", "带我回入口", "送我回家" ->
+          new Duty(DutyAction.GUIDE_HOME, command.contains("入口") ? "nearest_entry" : "nearest_safe");
       case "暂停值守", "停止值守" -> new Duty(DutyAction.PAUSE);
       case "恢复值守", "启动值守", "开始值守" -> new Duty(DutyAction.RESUME);
       case "值守状态", "陪同状态" -> new Duty(DutyAction.STATUS);
-      default -> null;
+      default -> {
+        var guide = GUIDE_TO.matcher(command);
+        yield guide.matches()
+            ? new Duty(DutyAction.GUIDE_HOME, guide.group(1).trim())
+            : null;
+      }
     };
   }
 

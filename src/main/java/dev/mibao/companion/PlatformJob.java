@@ -26,7 +26,7 @@ public final class PlatformJob extends Actions.Job {
   private final String scope = Store.scope() + "|" + dimension;
   private final int oldSlot, delay;
   private final boolean creative;
-  private boolean originalSneak, started, finished;
+  private boolean originalSneak, started, finished, sneakSent;
   private int phase, placed, wait, stepTicks, before;
   private long generation;
   private InventoryMove prepare;
@@ -232,7 +232,8 @@ public final class PlatformJob extends Actions.Job {
   private void crouch() {
     PlayerControls.hold(mc().options.keyShift);
     mc().player.setSprinting(false);
-    if (!mc().player.isShiftKeyDown()) {
+    if (!sneakSent && !mc().player.isShiftKeyDown()) {
+      sneakSent = true;
       mc().player.setShiftKeyDown(true);
       mc().getConnection()
           .send(
@@ -242,7 +243,7 @@ public final class PlatformJob extends Actions.Job {
   }
 
   private void still() {
-    PlayerControls.motionState(false, false);
+    PlayerControls.motionState(false, false, false, true);
   }
 
   public void guardEdge() {
@@ -275,7 +276,7 @@ public final class PlatformJob extends Actions.Job {
     }
     p.setYRot((float) Math.toDegrees(Math.atan2(-dx, dz)));
     p.setXRot(35);
-    PlayerControls.motionState(true, false);
+    PlayerControls.motionState(true, false, false, true);
     return false;
   }
 

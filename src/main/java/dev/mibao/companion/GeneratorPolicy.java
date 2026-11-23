@@ -14,7 +14,17 @@ public final class GeneratorPolicy {
           "minecraft:cobbled_deepslate",
           "minecraft:deepslate",
           "minecraft:basalt",
-          "minecraft:obsidian");
+          "minecraft:smooth_basalt",
+          "minecraft:granite",
+          "minecraft:diorite",
+          "minecraft:andesite",
+          "minecraft:obsidian",
+          "create:limestone",
+          "create:scoria",
+          "create:veridium",
+          "create:asurine",
+          "create:crimsite",
+          "create:ochrum");
 
   public enum AutoMode {
     MINE_HOLD("刷石机/定点连挖"),

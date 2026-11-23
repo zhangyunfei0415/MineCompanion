@@ -2,6 +2,63 @@
 
 这里记录公开发行和影响下一版的重要开发节点。贡献按可核对的工程、测试和产品决策分工记录。自动化测试和实机验收在各版本内分别说明。
 
+## 0.8.7 · 2026-11-24
+
+**正式发布版：整合主动探图开图与「带玩家回家」引路（`rc1`）、室内障碍同高度自动回退与 AE/背包/待命自理进食体验升级（`rc2`）、全仓 379 个 Java 类审阅 79 项 P0/P1/P2 安全与稳健性加固（`rc3`），并在最终收口彻底重构 `RoamExplorationJob` 迷宫走廊优先寻路与精确统计（消除虚高 `stuck_ms`、消除 `newCells` 同步竞态、防止逆向 `FRONTIER` 折返并实现 ±45°/±90° 绕墙切向选路）。** 构建版本为 `0.8.7` / `release-0.8.7-20261124-01`，产物为 `logistics-companion-0.8.7.jar`（`16,341,288 B`，SHA-256 `70DB841D7CCEB9AC6FDDA9A201CE5B849BCB87615A122A917CDEFCDA6CB783DF`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| 三轮实机验证、需求定型与全仓审阅调度 | 项目维护者 & Hydrogen | 完成《阈限工业》1.20.1 连续三轮（`0.8.6` / `rc1` / `rc3`）实机定位与回归验收：验证通过普通箱子/精妙背包方块存取、FTB 任务书 `claim_all`（安全跳过自选奖励）、AE2 终端联动与 `ae_deposit` 自动找槽、Baritone 密集机器零误拆绕行与 `explore_return` 精准返航，并锁定 `explore_roam` 后室折返与 `stuck_ms` 虚高两项收口根因；项目维护者提出「带玩家回家」功能并主导 `0.8.7` 迭代周期与全仓审阅调度。 |
+| 主动探图底层原则确立 | Muse | 确立 `explore_roam`“以步时护栏取代出程全图证明、20s/16m 朝向锁定、5s 脱困阶梯 + 5 分钟负缓存、消除 0 步假成功”核心架构设计。 |
+| 全仓 79 项安全与稳定性审计修复（`rc3`） | awsquick | 对全仓 379 个 Java 类与资源文件审计并修复 10 条 P0（Baritone 暂停/自卫急停、搭桥潜行保持、探图岩浆脱困状态机、探索分片损坏防崩、跨 tick 切槽防错丢、FTB 自选保护、畸形技能包防御、切换云端清密钥、拦截聊天框 `/` 指令与 NBT 选择器绕过）、28 条 P1 与 41 条 P2 问题。 |
+| 主动探图、「带玩家回家」、`rc1/rc2` 兼容重构与最终迷宫走廊收口 | Gemini | 在 `rc1`/`rc2`/`rc3` 集成与调优之上，于 `0.8.7` 正式版重写 `ExplorationRoamPolicy`（`STUCK_GRACE_TICKS` 25 tick 步进宽限、`headingAlignment`、`pickHeadingGuided`、`scoreFrontier` 与 `scoreCorridorCell`）与 `RoamExplorationJob`：引入独立 `SESSION_SEEN_CELLS` 修正 `newCells` 竞态、`FAILED_TARGETS` 目标级冷却免误伤当前区块、开阔地前置校验 + 迷宫 `openExplorationStep` 走廊 BFS 优先选路、前后方向加权防逆向折返，以及岩浆/撤退通路可行性校验；调优 `DutyScheduler` 后室野生容器兼容并完成 `0.8.7` 正式构建。 |
+
+离线全量构建及 **139 个测试套件 / 718 项测试全部通过**（0 失败 / 0 错误 / 0 跳过，新增 `ExplorationRoamAndCompatTest#roamGuidedHeadingAndCorridorScoringAvoidUturnsAndFalseStuck`）；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。已完成 `0.8.7` 正式版 JAR 打包，待发布至 GitHub。
+
+## 0.8.7rc3 · 2026-11-24
+
+**安全与稳健性全面加固候选版：合入基于全仓 379 个 Java 类与资源深度审阅的全部 79 项缺陷修复（P0 10 / P1 28 / P2 41，改动 74 个 Java 文件 + 1 个内置技能包 JSON），在保持默认后室/野外搜刮与正常操控零负担的前提下完成全量编译集成、协议与因果证据测试升级、回归单测补全及后室野生容器兼容调优。** 构建版本为 `0.8.7rc3` / `audit-hardening-rc3-20261124-01`，产物为 `logistics-companion-0.8.7rc3.jar`（`16,336,164 B`，SHA-256 `578281A8756A0EF9D5C2A94C84ECDDBD72E2A69E0EC7560C65E417DAE1B40909`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| 全仓静态审阅与 79 项 P0/P1/P2 修复产出 | awsquick & 项目维护者 | 在高智能模式下完成 `0.8.7rc2` 全仓 379 个 Java 类、`companion_input.js`、技能包与配置文件通读，产出涵盖 **10 条 P0 + 28 条 P1 + 41 条 P2** 的定位与修复包（`companion-fix-all-src.zip`，共 75 个源码/资源文件，经 SHA-256 逐一校验对齐基线）。 |
+| P0 关键安全性与防崩溃/防丢物修复（10 项） | awsquick | 补齐 `BaritoneNavigation.cancelActive` 暂停/人工接手/伙伴面板/自卫急停、`PlatformJob` 全阶段维持 `sneak=true` 防坠、`RoamExplorationJob` 岩浆脱困 `escapeTicks` 状态机、`ExplorationStore.reloadReadOnly` 防 NPE 崩溃及 `Companion.tick` 子系统异常隔离、`DropInventoryJob`/`HandoffJob` 跨 tick 切槽防错丢、`QuestBookBridge.claim_all` 跳过自选与排除项、`SkillPackage`/`SkillLibrary`/`WorkbenchScreen` 畸形字段防御、`WorkbenchSettingsViews`/`DecisionService` 切换云端服务商清密钥与一致性校验、`GameInputJob` 拦截聊天框 `/` 绕过，以及 `GameCommandPolicy`/`CommandWords` 拦截 `summon`/`give` NBT 与引号内广泛选择器。 |
+| P1 功能与调度可靠性加固（28 项） | awsquick | 修复 `Navigator.ownsInput` 与 `EatJob` 低血自愈碰撞、`Navigator.stand` 全身高致命方块检查、`waterRecoveries` 入口清零、`RangedHuntJob` 近身 4 格威胁退让、`BaritoneNavigation` `EntityBlock` 防误拆保护、`ElytraRouteJob` 烟花内联不中断滑翔、`ExplorationGraph` 满 4096 节点引脚保护与悬空边跳过、`ExplorationMemory` 分布式锁原子抢占、`RoamExplorationJob` 敌怪护栏 `ticks` 递增与撤退推进、`ContainerJob`/`MenuClickJob`/`InventorySession`/`ControlJob` 光标与关门防掉物核验、`InteractionOutcome`/`InteractionReceipt` 因果证据收紧、`GuiProfileActions`/`VersionRange`/`SmeltFuelPlan`/`FarmJob` 匹配与燃料安全、`DutyScheduler` 回城退避与 `tickStandby` 待命进食接入、`HarnessController` 只读查询免打断值守与异步截图编码、`Agent` 中断 `tool_call` 协议补全，以及 `WatchMode` F4 防误触。 |
+| P2 边界缺陷、性能与资源安全性修复（41 项） | awsquick | 修复 `Move`/`InventoryMemory`/`CollectionJob`/`MachineObservation`/`AeTerminalBridge`/`Hud` 等主线程性能与 NBT 热路径卡顿，补充 `BundleLibrary`/`BundleAdaptation` `uniqueFileStem` 单射防覆盖与 `builtin:` 伪装拦截、`Store` 坏档防覆盖备份、`ChatOutbox` 过滤 `§` 防踢线、`read_web` 总超时与私网段拦截、`RecentWrites` 换世界清理、`CommandJob` 精确 `tp` 坐标与 `clone` 保护、以及内置熔炉示例技能收紧批量至 `8` 件并重算 SHA-256。 |
+| 合入集成、后室搜刮 UX 调优、回归测试与 `rc3` 构建发布 | Gemini | 校验合入全量 75 个文件并保留 `coremods/companion_input.js` 未改；调整 `DutyScheduler` 野外容器搜刮策略——在严格保留基地围栏、`Store.data.places`、世界记忆已登记容器（含双箱半格）及潜影盒隔离的前提下，移除硬性“仅限单人+刷怪笼旁”限制以兼容《阈限工业》联机/后室搜刮；同步更新 `GameCommandPolicyTest` 与 `InteractionReceiptTest` 至加固后契约并新增 `AuditHardeningRc3Test`（覆盖满图引脚、最小浪费燃料、四段/前缀版本、指令 NBT/选择器及单射文件名），完成 `0.8.7rc3` 离线构建与回归验收。 |
+
+离线全量构建及 **139 个测试套件 / 717 项测试全部通过**（0 失败 / 0 错误 / 0 跳过，包含更新后的 `GameCommandPolicyTest`/`InteractionReceiptTest` 与新增 `AuditHardeningRc3Test`）；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。
+
+## 0.8.7rc2 · 2026-11-23
+
+**候选更新版：围绕 `0.8.7rc1` 实机五项待修清单定向加固——近距室内 `go_to` 优先本地网格寻路与同高度 1~2 格安全空位自动回退、`ae_deposit` 支持按 `item`（及可选 `count`）自动匹配背包槽位、`move_inventory` 回执显式返回目标 `hotbar_slot` 并支持 `select=true` 即时选中、新增 `STANDBY` 待命可配置饥饿阈值自动吃到满策略，以及 `query_world` 单页上限放宽至 `256`。** 构建版本为 `0.8.7rc2` / `roam-compat-rc2-20261123-02`，产物为 `logistics-companion-0.8.7rc2.jar`（`16,298,959 B`，SHA-256 `B36BF9DD9B459A9F3B308FE73C76992E98DF66175667DDD12AB0BE750BE0C910`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| `0.8.7rc1` 实机回归验收与五项待修清单定位 | Hydrogen & 项目维护者 | 在实机确认普通箱子/精妙背包存取（含 280 灰尘/187 混凝土块/羽毛）、任务书、AE2 终端识别及 `eat_food`/`recent_chat` 等稳定通过的同时，准确定位基地内 `go_to` 遇障碍/活板门卡死与 `[NOT_REACHABLE]`、`ae_deposit` 强依赖 `inventory_slot`、`move_inventory` 未回传具体 `hotbar_slot`、`STANDBY` 下缺可配自理吃到满触发器，以及 `query_world` 单页被截断在 64 条等问题。 |
+| 室内 `go_to` 本地优先与同高度安全回退 | Gemini | 在 `ArrivalGate` 新增纯逻辑 `fallbackCandidate`（严守同层 `|dy|<=0.65`，水平覆盖 1~2 格空位）；`Navigator` 对 24 格内已加载短距移动优先走本地 A*+过门开活板门处理，Baritone 在 96 格内卡停时自动接管到本地寻路，当原目标格被家具/地毯等占格或孤立受阻时经 `collectFallbackGoals` 自动回退至同高度最近可达安全格，并由 `Actions.move` 在回执中写明回退落点坐标。 |
+| `ae_deposit` 按 `item` 自动匹配背包槽位 | Gemini | 在 `AeTransferProof` 新增 `selectDepositSlot`（`inventory_slot` 省略或为 `-1` 时按 `item` 优先主背包 `9..35` 再快捷栏 `0..8` 匹配整组，可选匹配或省略 `count` 整组存入，并保持数量不符时明确报错提示不自动拆分）；同步更新 `AeTransferJob`、`Agent` 与 `ToolSchemas`。 |
+| `move_inventory` 回传 `hotbar_slot` 与 `select` 支持 | Gemini | `InventoryMove` 在 `destination=hotbar` 的所有成功路径均固定写入 `hotbar_slot=<n>`；`Agent` 与 `ToolSchemas` 为 `move_inventory` 新增 `select=true` 可选参数（移动并在服务器快照确认后直接切换主手选中该格），未传时在成功回执中标明当前是否已选中及对应 `select_slot`。 |
+| `STANDBY` 待命饥饿阈值自动吃到满策略 | Gemini | 在 `CompanionDuty` 新增持久化字段 `standbyAutoEat`（默认关）、`autoEatThreshold`（默认 `10`、`2..19`）与 `autoEatTarget`（默认 `20`、`>threshold..20`）及纯逻辑判定 `shouldTriggerAutoEat`；`DutyScheduler` 在待命或值守空闲时触发连续补食至目标饱食度（仅扫描原版随身背包 `0..35` 普通食物，不触碰精妙背包，并由任何显式任务即刻抢占），`duty_set`/`duty_status`、工作台 UI 与 `ToolSchemas` 同步开放调节。 |
+| `query_world` 分页上限放宽至 `256` | Gemini | 将 `Agent`、`WorldSense.query` 与 `ToolSchemas` 的 `query_world` 单页 `limit` 上限由 `64` 放宽至 `256`（默认仍为 `16`），减少对象密集基地翻页次数。 |
+
+离线全量构建及 **138 个测试套件 / 712 项测试全部通过**（0 失败 / 0 错误 / 0 跳过，新增 `Rc2CompatAndFallbackTest` 覆盖同层安全格回退、`ae_deposit` 槽位匹配与 `STANDBY` 阈值进食）；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。等待实机二次验收后定版 `0.8.7` 正式版。
+
+## 0.8.7rc1 · 2026-11-23
+
+**候选更新版：围绕《阈限工业》实机反馈与探图架构重构，上线 `explore_roam` 主动开图与「带玩家回家」引路模式、修复 `STALE` 边自愈与 `AUTO_FULL` 死亡循环、打通后台收集全路径零 `[BUSY]` 抢占与队友目标 `ESCORT_GUARD`、适配精妙背包潜行放收与标准 `ChestMenu` 容器存取、加固岩浆窄格避险并补充多人聊天缓冲/自动点亮指路石/刷石机容错。** 构建版本为 `0.8.7rc1` / `roam-compat-rc1-20261123-01`，产物为 `logistics-companion-0.8.7rc1.jar`（`16,290,981 B`，SHA-256 `FD98EC58FBAB3DB2BD5906341BF5336356CE97F2C2BD917E7D4AACFE7EFF4CC5`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| 后室实机缺陷定位与「带玩家回家」需求提出 | 项目维护者 & Hydrogen | 在《阈限工业》1.20.1 `0.8.6` 实机排查中定位 `STALE` 边锁死、`AUTO_FULL` 降级死磕掉落物、室内与岩浆旁脱困、精妙背包与《精致家具》`ChestMenu` 适配、`BASE_STEWARD` 阻塞 `duty_set`/`go_to`、队友跟随抢回主人、`[CHAT]` 暴露、指路石点亮及刷石机切态等问题；项目维护者补充提出由伴侣沿已记录三维路线「带玩家回家」功能。 |
+| 主动探图核心架构提案 | Muse | 指出旧探索流程「出程先预验证路线」与 `stop_on_junction` 起点 `0` 步假成功两大根因，提出朝向推进与步时护栏、区块/扇区新颖度、`20s/16m` 朝向锁定、`5s` 卡住恢复阶梯 + `5` 分钟负缓存及 `EXPLORE_NO_PROGRESS` 验收体系。 |
+| 主动开图、`STALE` 自愈与「带玩家回家」引路实现 | Gemini | 新增 `ExplorationRoamPolicy` 与 `RoamExplorationJob` 实现 `explore_roam` 出程主动探图（区块新颖度、朝向锁定、室内出口 BFS、敌对与岩浆护栏、5 秒脱困与 5 分钟负缓存）；在 `ExplorationGraph` / `ExplorationMemory` / `ExplorationJob` 中加入 `revalidateEdges`/`revalidateLocalEdges` 自愈、修复 `explore_branch` `steps > 0` 防 0 步假成功、为 `direction()` 增加开口回退，并落地 `explore_return(guide_player=true)` 与 `ChatCommand.DutyAction.GUIDE_HOME`（「带我回家」/「带我去 \<地标\>」）及工作台按钮。 |
+| 值守降级止损、全路径抢占、队友护卫与岩浆安全脱困 | Gemini | `CollectionJob` 恒定触发 `skipListener` 维护 `blockedDrops`（同世界切模式保留）并抑制零收获开包闪屏；`DutyScheduler` 阻止探索失败盲切 `BASE_STEWARD`、扩展 `CompanionDuty` 支持 `escortTargetUuid`/`escortTargetName` 队友 `ESCORT_GUARD`；`HarnessController`/`TaskGateway`/`Agent` 全路径自动抢占后台收集消除 `[BUSY]`；`SwimRecovery` 与 `Navigator`（`lethalHazard`/`isNarrowHazardAdjacent`）禁止向紧邻岩浆或火焰窄格侧移。 |
+| 精妙背包、标准 `ChestMenu` 与 `gui_slot` 兼容修复 | Gemini | 修复 `SneakHold` 真实按键预热保持及 `ItemOnBlockOperation`/`PlaceJob` 潜行放置确认；`BreakPolicy` 放行自保留 NBT 便携容器（经 `confirm=true`）及确认清空的通用储物方块并保留未知机器拦截；新增 `StorageMenuPolicy`（仅校验简单类名与界面结构，拦截 `workbench`/`machine`/`craft`/`factory` 等危险界面）自动放行无特殊控件的标准 `ChestMenu` 存取；修正 `MenuClickJob` 与 `ReasonCodes` 的 `QUICK_MOVE_NO_EFFECT` / `CURSOR_OCCUPIED` 判定。 |
+| 聊天记录暴露、自动指路石与刷石机左键容错 | Gemini | 新增 `ChatBuffer` 并在 `observe`/`events` 输出最近多人 `[CHAT]`；`DutyScheduler` 自动点亮附近 `waystones:waystone` 并标为 `SAFE_POINT`；`GeneratorPolicy` 与 `AutoActionJob` 增强刷石机切态容错与左键持续挖掘支持。 |
+
+离线全量构建及 **137 个测试套件 / 709 项测试全部通过**（0 失败 / 0 错误 / 0 跳过，新增 `ExplorationRoamAndCompatTest`）；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。等待《阈限工业》与平原实机双端验收后冲刺 `0.8.7` 正式版。
+
 ## 0.8.6 · 2026-11-22
 
 **正式发布版：整合三维探索记忆（`rc1`）、通用科技模组菜单重同步与全主题输入框（`rc2`）、G9/G10 易变 NBT 修复与女仆式值守系统（`rc3`）、涉水/爬梯/跑酷与 F4 节能降占（`rc4`），并在收口波次及最终审阅加固中完成驻守持续清场拾取、双开防串台伴侣联动、AI 自主切档、主人视线感知/递物资、活板门与按钮铁门通行、后台值守零 `[BUSY]` 抢占、刷石机流体安全白名单、内置智能后台连点/长按挂机引擎与「Gemini 星灵」双画风立绘。** 构建版本为 `0.8.6` / `release-0.8.6-20261122-02`，产物为 `logistics-companion-0.8.6.jar`（`16,252,660 B`，SHA-256 `0560FAA992C7465D24D53C4F1F52D2609834F660F25A358F93327ED01FBF0572`）。

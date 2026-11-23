@@ -28,14 +28,40 @@ public final class BreakPolicy {
             || id.startsWith("minecraft:potted_"));
   }
 
+  public static boolean isSelfRetainingPortableContainer(String id) {
+    if (id == null || id.isBlank()) return false;
+    String lower = id.toLowerCase(java.util.Locale.ROOT);
+    return (lower.startsWith("minecraft:") && lower.endsWith("shulker_box"))
+        || (lower.startsWith("sophisticatedbackpacks:") && lower.contains("backpack"));
+  }
+
+  public static boolean requiresSneakToPlace(String id) {
+    if (id == null || id.isBlank()) return false;
+    String lower = id.toLowerCase(java.util.Locale.ROOT);
+    return lower.startsWith("sophisticatedbackpacks:") && lower.contains("backpack");
+  }
+
   public static String denial(
       String id, boolean blockEntity, boolean targeted, boolean confirm, boolean freshEmpty) {
+    return denial(id, blockEntity, targeted, confirm, freshEmpty, false);
+  }
+
+  public static String denial(
+      String id,
+      boolean blockEntity,
+      boolean targeted,
+      boolean confirm,
+      boolean freshEmpty,
+      boolean verifiedGenericStorage) {
     if (id.equals("minecraft:spawner")
         || id.equals("minecraft:end_portal_frame")
         || id.equals("minecraft:bedrock")) return "[BLOCK_PROTECTED] 该目标不可由通用拆除执行器处理";
     if (!blockEntity || simpleDecoration(id)) return "";
     if (!targeted) return "[BLOCK_ENTITY_PROTECTED] 批量采集不拆存储/机器；使用定点break_block";
-    if (!CONTAINERS.contains(id) && !(id.startsWith("minecraft:") && id.endsWith("shulker_box")))
+    if (isSelfRetainingPortableContainer(id)) {
+      return confirm ? "" : "[CONFIRM_REQUIRED] 拆收便携背包/潜影盒需要confirm=true";
+    }
+    if (!CONTAINERS.contains(id) && !verifiedGenericStorage)
       return "[UNSUPPORTED_MACHINE] 未识别机器的内容与拆除掉落，请使用已验证技能或人工处理";
     if (!confirm) return "[CONFIRM_REQUIRED] 拆容器需要confirm=true与刚打开核实的空库存";
     return freshEmpty ? "" : "[CONTAINER_OBSERVATION_REQUIRED] 先实际打开并核实空容器，再明确拆除；历史库存不能证明现在为空";

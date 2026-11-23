@@ -27,7 +27,11 @@ final class ExplorationStore {
 
   private record Shard(int schema, String scope, String dimension, ExplorationGraph.Snapshot graph) {}
   record Key(String scope, String dimension) {}
-  record Loaded(ExplorationGraph graph, boolean writable) {}
+  record Loaded(ExplorationGraph graph, boolean writable, boolean failed) {
+    Loaded(ExplorationGraph graph, boolean writable) {
+      this(graph, writable, false);
+    }
+  }
 
   static Path path(Path root, Key key) {
     try {
@@ -42,10 +46,22 @@ final class ExplorationStore {
   }
 
   static CompletableFuture<Loaded> load(Path root, Key key) {
+    return load(root, key, false);
+  }
+
+  /** Lock poll: reads the shard only after this client actually obtained the write lock, else null. */
+  static CompletableFuture<Loaded> claimAndLoad(Path root, Key key) {
+    return load(root, key, true);
+  }
+
+  private static CompletableFuture<Loaded> load(Path root, Key key, boolean onlyIfClaimed) {
     return CompletableFuture.supplyAsync(() -> {
       Path path = path(root, key);
+      boolean writable = false, reading = false;
       try {
-        boolean writable = claim(path);
+        writable = claim(path);
+        if (onlyIfClaimed && !writable) return null;
+        reading = true;
         if (Files.notExists(path)) return new Loaded(new ExplorationGraph(), writable);
         if (Files.size(path) > MAX_BYTES) throw new IOException("Exploration shard too large");
         try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -55,10 +71,24 @@ final class ExplorationStore {
           return new Loaded(ExplorationGraph.from(shard.graph), writable);
         }
       } catch (IOException | RuntimeException e) {
+        if (!reading && onlyIfClaimed) return null;
         LOG.log(System.Logger.Level.WARNING, "Exploration shard could not be loaded: " + path, e);
-        return new Loaded(new ExplorationGraph(), false);
+        if (!reading) return new Loaded(new ExplorationGraph(), false);
+        // Do not keep a lease for a shard this client cannot use; later polls must be able to claim again.
+        if (writable) unlock(path);
+        return new Loaded(new ExplorationGraph(), false, true);
       }
     }, IO);
+  }
+
+  private static void unlock(Path path) {
+    var lock = LEASES.remove(path);
+    if (lock == null) return;
+    try {
+      lock.channel().close();
+    } catch (IOException e) {
+      LOG.log(System.Logger.Level.WARNING, "Could not close exploration shard lock", e);
+    }
   }
 
   private static boolean claim(Path path) throws IOException {
@@ -133,7 +163,8 @@ final class ExplorationStore {
           return new Loaded(ExplorationGraph.from(shard.graph), false);
         }
       } catch (IOException | RuntimeException e) {
-        return null;
+        LOG.log(System.Logger.Level.WARNING, "Exploration shard could not be read: " + path, e);
+        return new Loaded(new ExplorationGraph(), false, true);
       }
     }, IO);
   }

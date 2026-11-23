@@ -101,13 +101,13 @@
       "author": "MineCompanion",
       "license": "MIT",
       "minecraft": "1.20.1",
-      "description": "使用 UiProfile 语义槽位往熔炉投燃料与原料、等待成品并取出核验。",
+      "description": "使用 UiProfile 语义槽位往熔炉投燃料与原料、等待成品并取出核验。单批最多 8 件（约 80 秒，1 个煤可烧 8 件）；更多数量请分批运行。",
       "parameters": {
         "furnace": {"type": "string"},
         "fuel": {"type": "string", "default": "minecraft:coal"},
-        "fuel_count": {"type": "integer", "default": 1, "min": 1, "max": 64},
+        "fuel_count": {"type": "integer", "default": 1, "min": 1, "max": 64, "description": "燃料数量须足够烧完 count：煤/木炭 1 个可烧 8 件，默认 1 个煤匹配 count 上限 8"},
         "input": {"type": "string", "default": "minecraft:raw_iron"},
-        "count": {"type": "integer", "default": 1, "min": 1, "max": 64},
+        "count": {"type": "integer", "default": 1, "min": 1, "max": 8, "description": "单批原料数量，上限 8，与 1 个煤及 90 秒等待匹配"},
         "output": {"type": "string", "default": "minecraft:iron_ingot"}
       },
       "requires": [
@@ -132,7 +132,7 @@
     }
   ],
   "integrity": {
-    "content_sha256": "4af06873aaf16f16549993b00a2a38f68684a054ade5a55466679d6564abe9c5",
+    "content_sha256": "ad2e19ccb1d52a41618728c644cfc891651df3977f1e63d7e66201a2cc913d50",
     "exported_by_build": "g4neon-open-memory-20261121-01"
   }
 }

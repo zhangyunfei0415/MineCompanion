@@ -75,5 +75,20 @@ final class CommandWords {
     return false;
   }
 
+  private static final java.util.regex.Pattern NBT_SELECTOR =
+      java.util.regex.Pattern.compile("(?<![A-Za-z0-9_.@])@[aerp](?![A-Za-z0-9_])");
+
+  /**
+   * Broad selector anywhere inside a {...} NBT section, quoted or not. Text in NBT can be replayed
+   * as a command (command blocks, minecarts), so the quote exemption of {@link #broadSelector}
+   * does not apply there.
+   */
+  static boolean selectorInNbt(String command) {
+    // Everything from the first '{' is treated as NBT: braces inside quoted strings cannot be used
+    // to close the section early and hide a selector after it.
+    int start = command.indexOf('{');
+    return start >= 0 && NBT_SELECTOR.matcher(command.substring(start)).find();
+  }
+
   private CommandWords() {}
 }

@@ -23,10 +23,11 @@ public final class ItemOnBlockOperation {
   private final InventorySession initial = new InventorySession(false),
       verify = new InventorySession(false);
   private final int oldSlot;
-  private int phase, ticks, delay, beforeCount;
+  private int phase, ticks, delay, beforeCount, sneakWarmup;
   private boolean sent, effect, menu;
   private ItemStack before;
-  private BlockState blockBefore, aboveBefore;
+  private BlockState blockBefore, aboveBefore, placedBefore;
+  private BlockPos placedPos;
   public String detail = "", error = "";
   private Item bucketResult;
   private int bucketResultBefore;
@@ -144,8 +145,14 @@ public final class ItemOnBlockOperation {
       BlockHitResult hit = top ? Reach.top(target) : Reach.hit(target);
       if (hit == null) return fail("[NO_VISIBLE_FACE] 没有可见且在距离内的交互面");
       if (!aim.ready(hit.getLocation())) return 0;
+      if (sneak) {
+        sneakHold.hold();
+        if (++sneakWarmup < 2) return 0;
+      }
+      placedPos = hit.getBlockPos().relative(hit.getDirection());
       blockBefore = mc().level.getBlockState(target);
       aboveBefore = mc().level.getBlockState(target.above());
+      placedBefore = mc().level.hasChunkAt(placedPos) ? mc().level.getBlockState(placedPos) : aboveBefore;
       machineBefore = MachineObservation.state(target);
       machineRevision = MachineObservation.revision(target);
       if (before.is(Items.BUCKET)) {
@@ -158,11 +165,11 @@ public final class ItemOnBlockOperation {
         bucketResult = Items.BUCKET;
       if (bucketResult != null) bucketResultBefore = itemCount(bucketResult);
       beforeCount = count();
-      outcome = InteractionOutcome.begin(target, target.above());
-      if (sneak) sneakHold.hold();
+      outcome = InteractionOutcome.begin(target, target.above(), placedPos);
       PlayerEvidence.begin();
       PlayerEvidence.forget(target);
       PlayerEvidence.forget(target.above());
+      PlayerEvidence.forget(placedPos);
       Actions.look(hit.getLocation());
       MenuContext.expect(target);
       sent = true;
@@ -177,11 +184,13 @@ public final class ItemOnBlockOperation {
     }
     if (phase == 3) {
       delay++;
+      if (sneak) sneakHold.maintain();
       outcome.tick();
       if (sneak && delay >= 8) sneakHold.release();
       effect |=
           changed(target, blockBefore)
               || changed(target.above(), aboveBefore)
+              || (placedPos != null && changed(placedPos, placedBefore))
               || MachineObservation.changed(target, machineBefore, machineRevision);
       menu = mc().player.containerMenu != mc().player.inventoryMenu;
       if (menu) {
@@ -203,6 +212,7 @@ public final class ItemOnBlockOperation {
     effect |=
         changed(target, blockBefore)
             || changed(target.above(), aboveBefore)
+            || (placedPos != null && changed(placedPos, placedBefore))
             || MachineObservation.changed(target, machineBefore, machineRevision);
     int consumed = Math.max(0, beforeCount - count());
     verify.close();
@@ -245,7 +255,15 @@ public final class ItemOnBlockOperation {
     }
     if (BlockUseProof.verified(effect, false, true))
       return success(BlockUseProof.outcome(true, consumed), consumed);
-    if (outcome.confirmed()) return success("interaction_evidence", consumed);
+    if (outcome.confirmed())
+      return fail(
+          "[USE_PARTIAL] 仅观察到目标处关联现象，未取得物品对方块使用的直接核验；"
+              + context()
+              + "；消耗="
+              + consumed
+              + "；"
+              + outcome.detail()
+              + "；先观察，不自动重放");
     return fail(
         "[USE_UNCONFIRMED] "
             + BlockUseProof.outcome(false, consumed)

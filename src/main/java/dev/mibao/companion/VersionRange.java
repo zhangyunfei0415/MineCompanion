@@ -11,7 +11,10 @@ import java.util.regex.Pattern;
 public final class VersionRange {
   public record MatchResult(boolean matched, boolean advisory, String detail) {}
 
-  private static final Pattern VERSION_CORE = Pattern.compile("^v?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?(.*)$");
+  private static final Pattern VERSION_CORE =
+      Pattern.compile("^v?(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?(?:\\.(\\d+))?(.*)$");
+  /** Forge mods often publish "1.20.1-3.20.5" / "mc1.20.1-3.20.5": the leading MC version is not the mod version. */
+  private static final Pattern MC_PREFIX = Pattern.compile("^(?:mc)?1\\.20(?:\\.1)?[-_+](?=\\d)");
   private static final Pattern CLAUSE = Pattern.compile("^(>=|<=|>|<|=|\\^|~)?\\s*(.+)$");
 
   private VersionRange() {}
@@ -60,8 +63,8 @@ public final class VersionRange {
       String prefix = clause.substring(0, clause.length() - 2);
       int[] req = parseTuple(prefix);
       if (req == null) return new MatchResult(true, true, "advisory wildcard: " + clause);
-      String[] parts = prefix.split("\\.");
-      for (int i = 0; i < Math.min(parts.length, 3); i++) {
+      String[] parts = stripMinecraft(prefix).split("\\.");
+      for (int i = 0; i < Math.min(parts.length, 4); i++) {
         if (actual[i] != req[i]) {
           return new MatchResult(false, false, installedRaw + " does not match " + clause);
         }
@@ -98,14 +101,14 @@ public final class VersionRange {
       case "<=" -> new MatchResult(cmp <= 0, false, cmp <= 0 ? "<=" : installedRaw + " > " + targetStr);
       case "^" -> {
         int[] upper;
-        if (target[0] > 0) upper = new int[] {target[0] + 1, 0, 0};
-        else if (target[1] > 0) upper = new int[] {0, target[1] + 1, 0};
-        else upper = new int[] {0, 0, target[2] + 1};
+        if (target[0] > 0) upper = new int[] {target[0] + 1, 0, 0, 0};
+        else if (target[1] > 0) upper = new int[] {0, target[1] + 1, 0, 0};
+        else upper = new int[] {0, 0, target[2] + 1, 0};
         boolean ok = cmp >= 0 && compareTuples(actual, upper) < 0;
         yield new MatchResult(ok, false, ok ? "caret" : installedRaw + " outside " + clause);
       }
       case "~" -> {
-        int[] upper = new int[] {target[0], target[1] + 1, 0};
+        int[] upper = new int[] {target[0], target[1] + 1, 0, 0};
         boolean ok = cmp >= 0 && compareTuples(actual, upper) < 0;
         yield new MatchResult(ok, false, ok ? "tilde" : installedRaw + " outside " + clause);
       }
@@ -114,32 +117,42 @@ public final class VersionRange {
   }
 
   private static boolean hasPrereleaseSuffix(String version) {
-    Matcher m = VERSION_CORE.matcher(version);
+    Matcher m = VERSION_CORE.matcher(stripMinecraft(version.trim()));
     if (!m.matches()) return false;
-    String rest = m.group(4);
-    return rest != null && !rest.isBlank() && !rest.startsWith("+");
+    String rest = m.group(5);
+    return rest != null && rest.startsWith("-");
+  }
+
+  static String stripMinecraft(String version) {
+    return MC_PREFIX.matcher(version).replaceFirst("");
   }
 
   private static int[] parseTuple(String version) {
     if (version == null || version.isBlank()) return null;
-    Matcher m = VERSION_CORE.matcher(version.trim());
+    Matcher m = VERSION_CORE.matcher(stripMinecraft(version.trim()));
     if (!m.matches()) return null;
     try {
       int major = Integer.parseInt(m.group(1));
       int minor = m.group(2) != null ? Integer.parseInt(m.group(2)) : 0;
       int patch = m.group(3) != null ? Integer.parseInt(m.group(3)) : 0;
-      String suffix = m.group(4);
-      if (suffix != null && !suffix.isEmpty() && suffix.charAt(0) != '-' && suffix.charAt(0) != '+') {
+      int build = m.group(4) != null ? Integer.parseInt(m.group(4)) : 0;
+      String suffix = m.group(5);
+      // "-pre"/"+meta" and dotted build labels ("0.5.1.f", "1.2.3.4.5") keep the numeric core.
+      if (suffix != null
+          && !suffix.isEmpty()
+          && suffix.charAt(0) != '-'
+          && suffix.charAt(0) != '+'
+          && !(suffix.charAt(0) == '.' && suffix.length() > 1)) {
         return null;
       }
-      return new int[] {major, minor, patch};
+      return new int[] {major, minor, patch, build};
     } catch (NumberFormatException e) {
       return null;
     }
   }
 
   private static int compareTuples(int[] a, int[] b) {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
       if (a[i] != b[i]) return Integer.compare(a[i], b[i]);
     }
     return 0;

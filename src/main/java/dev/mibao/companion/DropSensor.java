@@ -23,12 +23,29 @@ public final class DropSensor {
         new PriorityQueue<ItemEntity>(
             Comparator.<ItemEntity>comparingDouble(p::distanceToSqr).reversed());
     long until = System.nanoTime() + 1_000_000;
-    for (var e : Minecraft.getInstance().level.getEntitiesOfClass(ItemEntity.class, area)) {
-      if (++sampled > 512 || sampled % 32 == 0 && System.nanoTime() > until) {
+    int[] checked = {0};
+    // Filter inside the entity query so the 512 budget counts only eligible drops, not unrelated clutter.
+    var matches =
+        Minecraft.getInstance()
+            .level
+            .getEntitiesOfClass(
+                ItemEntity.class,
+                area,
+                e -> {
+                  if (truncated) return false;
+                  if (++checked[0] % 32 == 0 && System.nanoTime() > until) {
+                    truncated = true;
+                    return false;
+                  }
+                  return eligible.test(e);
+                });
+    sampled = checked[0];
+    int accepted = 0;
+    for (var e : matches) {
+      if (++accepted > 512) {
         truncated = true;
         break;
       }
-      if (!eligible.test(e)) continue;
       found.add(e);
       if (found.size() > 64) {
         found.poll();

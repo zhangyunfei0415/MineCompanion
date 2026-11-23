@@ -48,6 +48,24 @@ public final class DeltaProof {
 
   public static boolean planted(
       boolean serverYoungCrop, int seedBefore, int actualSeed, int confirmedSeed) {
-    return serverYoungCrop && actualSeed == confirmedSeed && actualSeed == seedBefore - 1;
+    return planted(serverYoungCrop, seedBefore, actualSeed, confirmedSeed, 0);
+  }
+
+  /**
+   * Replant proof when same-item drops may be picked up in the same server tick as the planting
+   * click: the seed count must be exactly one below the baseline plus at most the seed drops that
+   * vanished from around the player during the window ({@code pickedUpBound}).
+   */
+  public static boolean planted(
+      boolean serverYoungCrop,
+      int seedBefore,
+      int actualSeed,
+      int confirmedSeed,
+      int pickedUpBound) {
+    int gainedSincePlant = actualSeed - (seedBefore - 1);
+    return serverYoungCrop
+        && actualSeed == confirmedSeed
+        && gainedSincePlant >= 0
+        && gainedSincePlant <= Math.max(0, pickedUpBound);
   }
 }

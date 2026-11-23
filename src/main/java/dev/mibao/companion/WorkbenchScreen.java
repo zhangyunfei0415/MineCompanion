@@ -115,6 +115,19 @@ public final class WorkbenchScreen extends Screen {
 
   @Override
   protected void init() {
+    try {
+      rebuild();
+    } catch (RuntimeException e) {
+      fallbackRebuild(e);
+    }
+  }
+
+  /** A page that cannot render returns to its list instead of escaping into a crash report. */
+  private void fallbackRebuild(RuntimeException e) {
+    selected = "";
+    section = -1;
+    scroll = 0;
+    status = Rules.clean("页面数据异常，已返回列表：" + e.getMessage(), 180);
     rebuild();
   }
 
@@ -485,7 +498,11 @@ public final class WorkbenchScreen extends Screen {
       run.run();
     } catch (Exception e) {
       status = Rules.clean(e.getMessage(), 180);
-      rebuild();
+      try {
+        rebuild();
+      } catch (RuntimeException again) {
+        fallbackRebuild(again);
+      }
     }
   }
 
@@ -1250,14 +1267,14 @@ public final class WorkbenchScreen extends Screen {
           () -> {
             text(SkillPackage.string(p.definition, "description", ""));
             mutedText("依赖 · " + p.requires + "\n兼容问题 · " + SkillLibrary.issues(p));
-            var params =
-                p.definition.has("parameters")
-                    ? p.definition.getAsJsonObject("parameters")
-                    : new JsonObject();
+            var params = new JsonObject();
+            if (p.definition.has("parameters") && p.definition.get("parameters").isJsonObject())
+              for (var e : p.definition.getAsJsonObject("parameters").entrySet())
+                if (e.getValue().isJsonObject()) params.add(e.getKey(), e.getValue());
             for (var e : params.entrySet()) {
               String key = e.getKey();
               var spec = e.getValue().getAsJsonObject();
-              String value = spec.has("default") ? spec.get("default").getAsString() : "";
+              String value = SkillPackage.string(spec, "default", "");
               field(
                   p.id + "/" + key,
                   key + " · " + SkillPackage.string(spec, "type", "string"),
@@ -1272,9 +1289,7 @@ public final class WorkbenchScreen extends Screen {
                     String val =
                         drafts.getOrDefault(
                             p.id + "/" + e.getKey(),
-                            e.getValue().getAsJsonObject().has("default")
-                                ? e.getValue().getAsJsonObject().get("default").getAsString()
-                                : "");
+                            SkillPackage.string(e.getValue().getAsJsonObject(), "default", ""));
                     String type =
                         SkillPackage.string(e.getValue().getAsJsonObject(), "type", "string");
                     if (type.equals("integer")) values.addProperty(e.getKey(), Integer.parseInt(val));
@@ -1341,6 +1356,8 @@ public final class WorkbenchScreen extends Screen {
                 try {
                   var imported =
                       BundleLibrary.importJson(minecraft.keyboardHandler.getClipboard());
+                  if (imported == null)
+                    throw new IllegalStateException("导入后未能加载该记忆包，请查看记忆包错误列表");
                   SkillLibrary.refresh();
                   status = "已导入待验证记忆包：" + imported.effective().name;
                   detail("@bundle:" + imported.effective().bundleId);

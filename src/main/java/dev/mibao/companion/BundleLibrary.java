@@ -29,6 +29,10 @@ public final class BundleLibrary {
   public static final Map<String, BundleAdaptation> adaptations = new LinkedHashMap<>();
   public static final Map<String, EffectiveBundle> effectiveEntries = new LinkedHashMap<>();
   public static final List<String> errors = new ArrayList<>();
+  private static final Map<String, Path> bundleFiles = new LinkedHashMap<>();
+  private static final Map<String, Path> adaptationFiles = new LinkedHashMap<>();
+  private static final List<String> BUILTIN_NAMES = List.of("builtin-vanilla-furnace-demo");
+  private static Map<String, String> builtinShaCache;
 
   private BundleLibrary() {}
 
@@ -53,6 +57,8 @@ public final class BundleLibrary {
     adaptations.clear();
     effectiveEntries.clear();
     errors.clear();
+    bundleFiles.clear();
+    adaptationFiles.clear();
     Path bundlesFolder = bundlesDir(libraryRoot);
     Path adaptFolder = adaptationsDir(libraryRoot);
     try {
@@ -78,6 +84,7 @@ public final class BundleLibrary {
               throw new IllegalArgumentException("重复记忆包 ID：" + bundle.bundleId);
             }
             upstreamEntries.put(bundle.bundleId, bundle);
+            bundleFiles.put(bundle.bundleId, p);
           } catch (Exception e) {
             errors.add(p.getFileName() + "：" + Rules.clean(e.getMessage(), 180));
           }
@@ -94,6 +101,7 @@ public final class BundleLibrary {
             if (Files.size(p) > 131_072) throw new IllegalArgumentException("超过 128 KiB");
             BundleAdaptation adapt = BundleAdaptation.load(p);
             adaptations.put(adapt.bundleId, adapt);
+            adaptationFiles.put(adapt.bundleId, p);
           } catch (Exception e) {
             errors.add(p.getFileName() + "：" + Rules.clean(e.getMessage(), 180));
           }
@@ -117,7 +125,7 @@ public final class BundleLibrary {
         String trust =
             trackA
                 ? "local_track_a_verified"
-                : up.bundleId.startsWith("builtin:")
+                : genuineBuiltin(up)
                     ? "builtin_reference"
                     : "external_unverified_reference";
         effectiveEntries.put(
@@ -131,21 +139,66 @@ public final class BundleLibrary {
   }
 
   private static void seedBuiltins(Path bundlesFolder) {
-    for (String name : List.of("builtin-vanilla-furnace-demo")) {
+    for (String name : BUILTIN_NAMES) {
       Path target = bundlesFolder.resolve(name + ".mcskill.json");
-      if (!Files.exists(target)) {
-        try (var in =
-            BundleLibrary.class.getResourceAsStream("/skill-bundles/" + name + ".mcskill.json")) {
-          if (in != null) {
+      String text = builtinResource(name);
+      if (text == null) continue;
+      try {
+        if (!Files.exists(target)) {
+          try {
+            Files.writeString(target, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+          } catch (FileAlreadyExistsException ignored) {
+          }
+        } else if (Files.size(target) <= 262_144) {
+          // Refresh an outdated seeded copy so fixes to the shipped bundle reach existing libraries.
+          JsonObject jar = JsonParser.parseString(text).getAsJsonObject();
+          JsonObject disk =
+              JsonParser.parseString(Files.readString(target, StandardCharsets.UTF_8))
+                  .getAsJsonObject();
+          if (str(disk, "bundle_id", "").equals(str(jar, "bundle_id", ""))
+              && !CanonicalJson.bundleContentSha256(disk)
+                  .equals(CanonicalJson.bundleContentSha256(jar))) {
+            Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+            Files.writeString(tmp, text, StandardCharsets.UTF_8);
             try {
-              Files.copy(in, target);
-            } catch (FileAlreadyExistsException ignored) {
+              Files.move(
+                  tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+              Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
           }
+        }
+      } catch (Exception ignored) {
+      }
+    }
+  }
+
+  private static String builtinResource(String name) {
+    try (var in =
+        BundleLibrary.class.getResourceAsStream("/skill-bundles/" + name + ".mcskill.json")) {
+      return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /** builtin_reference only for content identical to a bundle shipped inside the mod jar. */
+  private static synchronized boolean genuineBuiltin(SkillBundle up) {
+    if (!up.bundleId.startsWith("builtin:")) return false;
+    if (builtinShaCache == null) {
+      Map<String, String> shas = new HashMap<>();
+      for (String name : BUILTIN_NAMES) {
+        String text = builtinResource(name);
+        if (text == null) continue;
+        try {
+          JsonObject jar = JsonParser.parseString(text).getAsJsonObject();
+          shas.put(str(jar, "bundle_id", ""), CanonicalJson.bundleContentSha256(jar));
         } catch (Exception ignored) {
         }
       }
+      builtinShaCache = shas;
     }
+    return up.contentSha256.equals(builtinShaCache.get(up.bundleId));
   }
 
   public record CompatibilityReport(List<String> blockingIssues, List<String> advisories) {}
@@ -354,7 +407,7 @@ public final class BundleLibrary {
     if (entry.adaptation() != null
         && entry.adaptation().trackAValid(entry.upstream(), entry.effective(), environment))
       return "local_track_a_verified";
-    return entry.upstream().bundleId.startsWith("builtin:") ? "builtin_reference" : "external_unverified_reference";
+    return genuineBuiltin(entry.upstream()) ? "builtin_reference" : "external_unverified_reference";
   }
 
   public static JsonObject buildTrackStatusJson(
@@ -398,9 +451,7 @@ public final class BundleLibrary {
     if (upstream == null) throw new IllegalArgumentException("未找到待适配记忆包：" + bundleId);
     if (args.has("verify_track_a") && args.get("verify_track_a").getAsBoolean())
       throw new IllegalArgumentException("[TRACK_A_RECEIPT_REQUIRED] 请实际运行轨道 A 的生产技能并取得成功回执");
-    Path adaptFile =
-        adaptationsDir(libraryRoot)
-            .resolve(BundleAdaptation.safeFileStem(bundleId) + ".adapt.json");
+    Path adaptFile = adaptationFile(libraryRoot, bundleId);
     if (args.has("reset") && args.get("reset").getAsBoolean()) {
       adaptations.remove(bundleId);
       Files.deleteIfExists(adaptFile);
@@ -413,6 +464,11 @@ public final class BundleLibrary {
     }
 
     BundleAdaptation saved = adaptations.get(bundleId);
+    if (saved == null && Files.exists(adaptFile))
+      throw new IllegalStateException(
+          "[ADAPTATION_UNREADABLE] 磁盘上已有未能加载的适配文件 "
+              + adaptFile.getFileName()
+              + "（过大或格式无效）；为免覆盖原有本地适配与验证记录，请先修复或用 reset=true 清除");
     BundleAdaptation adapt = saved == null ? null : BundleAdaptation.parse(saved.toJson());
     if (adapt == null) {
       adapt = new BundleAdaptation();
@@ -480,6 +536,11 @@ public final class BundleLibrary {
         }
       }
     }
+    if (adapt.skillOverrides.size() > 16
+        || adapt.uiProfilePatches.size() > 16
+        || adapt.skillParamDefaults.size() > 16)
+      throw new IllegalArgumentException(
+          "[ADAPTATION_TOO_LARGE] skill_overrides、ui_profile_patches、skill_param_defaults 每类最多 16 项");
     SkillBundle effective = upstream.applyAdaptation(adapt);
     boolean trackAValid = adapt.trackAValid(upstream, effective, currentEnvKey);
     if (!trackAValid) adapt.invalidateTrackEvidence();
@@ -517,6 +578,9 @@ public final class BundleLibrary {
     adapt.save(adaptFile);
     refresh(libraryRoot, false);
     EffectiveBundle latest = effectiveEntries.get(bundleId);
+    if (latest == null || adaptations.get(bundleId) == null)
+      throw new IllegalStateException(
+          "[ADAPTATION_UNVERIFIED] 适配文件已写入但刷新后未能加载，本次适配未生效：" + Rules.clean(String.join("；", errors), 200));
     JsonObject out = new JsonObject();
     out.addProperty("bundle_id", bundleId);
     out.addProperty("adaptation_file", adaptFile.getFileName().toString());
@@ -525,6 +589,12 @@ public final class BundleLibrary {
         "track_status",
         buildTrackStatusJson(upstream, latest.effective(), adapt, installedMods, currentEnvKey));
     return out;
+  }
+
+  private static Path adaptationFile(Path libraryRoot, String bundleId) {
+    Path loaded = adaptationFiles.get(bundleId);
+    if (loaded != null) return loaded;
+    return BundleAdaptation.fileFor(adaptationsDir(libraryRoot), bundleId, ".adapt.json");
   }
 
   private static void applyProfilePatch(
@@ -558,18 +628,67 @@ public final class BundleLibrary {
     }
     JsonObject obj = JsonParser.parseString(jsonText).getAsJsonObject();
     SkillBundle bundle = new SkillBundle(obj);
+    if (bundle.bundleId.startsWith("builtin:"))
+      throw new IllegalArgumentException(
+          "[BUNDLE_RESERVED_NAMESPACE] builtin: 命名空间保留给随 Mod 发布的内置记忆包，请改用其他命名空间");
     Path dir = bundlesDir(libraryRoot);
     Files.createDirectories(dir);
-    Path target = dir.resolve(BundleAdaptation.safeFileStem(bundle.bundleId) + ".mcskill.json");
     JsonObject sanitizedOut = bundle.toExportJson(null, false, bundle.exportedByBuild);
+    byte[] bytes = PRETTY.toJson(sanitizedOut).getBytes(StandardCharsets.UTF_8);
+    if (bytes.length > 262_144)
+      throw new IllegalArgumentException(
+          "[BUNDLE_TOO_LARGE] 记忆包写盘后为 " + bytes.length + " 字节，超过 256 KiB 加载上限；未导入");
+    String expectedSha = CanonicalJson.bundleContentSha256(sanitizedOut);
+    List<Path> owners = new ArrayList<>();
+    try (var stream = Files.list(dir)) {
+      for (Path p :
+          stream.filter(f -> f.getFileName().toString().endsWith(".mcskill.json")).sorted().toList())
+        if (bundle.bundleId.equals(BundleAdaptation.declaredBundleId(p))) owners.add(p);
+    }
+    if (owners.size() > 1)
+      throw new IllegalStateException(
+          "[BUNDLE_ID_CONFLICT] bundles 目录已有多个文件声明 "
+              + bundle.bundleId
+              + "："
+              + owners.stream().map(p -> p.getFileName().toString()).toList()
+              + "；请先只保留其中一个");
+    Path target =
+        owners.isEmpty()
+            ? dir.resolve(BundleAdaptation.uniqueFileStem(bundle.bundleId) + ".mcskill.json")
+            : owners.get(0);
+    boolean hadOld = Files.exists(target);
+    if (owners.isEmpty() && hadOld)
+      throw new IllegalStateException(
+          "[BUNDLE_FILE_CONFLICT] 目标文件 " + target.getFileName() + " 已存在且不属于该记忆包，拒绝覆盖");
+    Path backup = target.resolveSibling(target.getFileName() + ".bak");
+    if (hadOld) Files.copy(target, backup, StandardCopyOption.REPLACE_EXISTING);
     Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
-    Files.writeString(tmp, PRETTY.toJson(sanitizedOut), StandardCharsets.UTF_8);
+    Files.write(tmp, bytes);
     try {
       Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     } catch (AtomicMoveNotSupportedException e) {
       Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
     }
     refresh(libraryRoot, false);
+    SkillBundle loaded = upstreamEntries.get(bundle.bundleId);
+    if (loaded == null
+        || !target.equals(bundleFiles.get(bundle.bundleId))
+        || !expectedSha.equals(loaded.contentSha256)
+        || effectiveEntries.get(bundle.bundleId) == null) {
+      String name = target.getFileName().toString();
+      String detail =
+          errors.stream().filter(e -> e.startsWith(name)).findFirst().orElse("未在刷新结果中找到该文件");
+      if (hadOld) Files.move(backup, target, StandardCopyOption.REPLACE_EXISTING);
+      else Files.deleteIfExists(target);
+      refresh(libraryRoot, false);
+      throw new IllegalStateException(
+          "[BUNDLE_IMPORT_UNVERIFIED] 写入后未能从 "
+              + name
+              + " 加载该记忆包，已回滚"
+              + (hadOld ? "为旧版本" : "")
+              + "：" + Rules.clean(detail, 200));
+    }
+    if (hadOld) Files.deleteIfExists(backup);
     return effectiveEntries.get(bundle.bundleId);
   }
 
@@ -592,6 +711,9 @@ public final class BundleLibrary {
       source = upstreamEntries.get(bundleId);
       adapt = adaptations.get(bundleId);
     } else {
+      if (bundleId.startsWith("builtin:"))
+        throw new IllegalArgumentException(
+            "[BUNDLE_RESERVED_NAMESPACE] builtin: 命名空间保留给随 Mod 发布的内置记忆包，请改用其他命名空间");
       JsonObject body = new JsonObject();
       body.addProperty("schema", 2);
       body.addProperty("bundle_id", bundleId);
@@ -735,6 +857,11 @@ public final class BundleLibrary {
     boolean trackB = bundle.isTrackBSkill(run.skillId());
     if (!trackB && (!productionVerified || !bundle.isManualSkill(run.skillId()))) return;
     var saved = entry.adaptation();
+    Path file = adaptationFile(libraryRoot, run.bundleId());
+    if (saved == null && Files.exists(file)) {
+      errors.add(run.bundleId() + " 无法保存验证记录：已有未能加载的适配文件 " + file.getFileName() + "，未覆盖");
+      return;
+    }
     var adapt = saved == null ? new BundleAdaptation() : BundleAdaptation.parse(saved.toJson());
     boolean currentEvidence = adapt.trackAValid(entry.upstream(), bundle, currentEnvKey);
     if (trackB && !currentEvidence) return;
@@ -753,9 +880,9 @@ public final class BundleLibrary {
       adapt.trackState.lastVerifiedSkill = run.skillId();
     }
     try {
-      Path file = adaptationsDir(libraryRoot).resolve(BundleAdaptation.safeFileStem(run.bundleId()) + ".adapt.json");
       adapt.save(file);
       adaptations.put(run.bundleId(), adapt);
+      adaptationFiles.put(run.bundleId(), file);
       effectiveEntries.put(run.bundleId(),
           new EffectiveBundle(entry.upstream(), adapt, bundle, adapt.hasAdaptation(), true, "local_track_a_verified"));
       UiProfileStore.registerBundleProfiles(effectiveEntries.values());

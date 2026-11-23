@@ -12,9 +12,9 @@ public final class Navigator {
   private List<BlockPos> path = List.of();
   private int index, stuck, ticks, replans, settling;
   private Vec3 last;
-  private BlockPos target;
+  private BlockPos target, requestedTarget;
   private String error = "";
-  private boolean baritone, exact, topFace, localOnly, interaction;
+  private boolean baritone, exact, topFace, localOnly, interaction, fallbackTargetUsed, baritoneFallbackUsed;
   private java.util.function.Predicate<BlockPos> allowedCell;
   private GridSearch search;
   private Set<BlockPos> goals = Set.of();
@@ -27,6 +27,7 @@ public final class Navigator {
   private final Map<BlockPos, Boolean> searchStands = new HashMap<>();
   private SwimRecovery water;
   private int waterRecoveries;
+  private boolean ownsInput;
   private final BaritoneNavigation external = new BaritoneNavigation();
   private NavigationPassage passage = new NavigationPassage();
   private JumpCycle jump = new JumpCycle();
@@ -65,6 +66,7 @@ public final class Navigator {
 
   public boolean startForFace(BlockPos goal, Direction face) {
     requiredFace = face;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = false;
@@ -79,6 +81,18 @@ public final class Navigator {
 
   public String error() {
     return error;
+  }
+
+  public BlockPos requestedTarget() {
+    return requestedTarget;
+  }
+
+  public BlockPos resolvedTarget() {
+    return target;
+  }
+
+  public boolean usedFallback() {
+    return fallbackTargetUsed;
   }
 
   /** Require arrival exactly at a stance cell; call before starting a navigation. */
@@ -130,16 +144,27 @@ public final class Navigator {
 
   public boolean start(BlockPos goal) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = false;
     topFace = false;
     localOnly = false;
+    baritoneFallbackUsed = false;
+    return begin(goal, false);
+  }
+
+  private boolean fallbackToLocal(BlockPos goal) {
+    baritoneFallbackUsed = true;
+    external.stop();
+    baritone = false;
+    localOnly = true;
     return begin(goal, false);
   }
 
   public boolean startLocal(BlockPos goal) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = false;
@@ -150,6 +175,7 @@ public final class Navigator {
 
   public boolean startExact(BlockPos goal) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = true;
@@ -178,6 +204,7 @@ public final class Navigator {
 
   public boolean startForInteraction(BlockPos goal) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = false;
@@ -188,6 +215,7 @@ public final class Navigator {
 
   public boolean startForPlanting(BlockPos goal) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = null;
     exact = false;
@@ -198,6 +226,7 @@ public final class Navigator {
 
   public boolean startForPickup(AABB item) {
     requiredFace = null;
+    waterRecoveries = 0;
     placement = false;
     pickupBox = item;
     exact = true;
@@ -227,6 +256,7 @@ public final class Navigator {
   public boolean startForPlacement(BlockPos goal, Direction face) {
     placementFace = face;
     requiredFace = null;
+    waterRecoveries = 0;
     pickupBox = null;
     exact = false;
     topFace = false;
@@ -278,8 +308,12 @@ public final class Navigator {
 
   private boolean begin(BlockPos goal, boolean use) {
     stop();
+    goals = Set.of();
+    search = null;
     error = "";
+    requestedTarget = goal;
     target = goal;
+    fallbackTargetUsed = false;
     interaction = use;
     ticks = stuck = replans = settling = 0;
     scannedCandidates = standCandidates = visibleCandidates = bothCandidates = 0;
@@ -303,7 +337,11 @@ public final class Navigator {
       }
       mc().player.closeContainer();
     }
-    if (!interaction && !exact && !localOnly && external.start(goal)) {
+    if (!interaction
+        && !exact
+        && !localOnly
+        && (!mc().level.hasChunkAt(goal) || mc().player.blockPosition().distSqr(goal) > 24 * 24)
+        && external.start(goal)) {
       baritone = true;
       last = mc().player.position();
       return true;
@@ -414,6 +452,13 @@ public final class Navigator {
                       goal.getZ() + .5,
                       exact)) options.add(at);
             }
+      if (options.isEmpty() && !exact) {
+        BlockPos fallbackBest = collectFallbackGoals(goal, start, options);
+        if (fallbackBest != null) {
+          fallbackTargetUsed = true;
+          target = fallbackBest;
+        }
+      }
     }
     goals = Set.copyOf(options);
     if (goals.isEmpty()) {
@@ -433,6 +478,12 @@ public final class Navigator {
   public int tick() {
     var p = mc().player;
     if (p == null) return -1;
+    ownsInput = true;
+    if (baritone && external.consumeCancelled()) {
+      // Baritone was cancelled by pause/takeover/self-defense: re-plan instead of NO_PATH.
+      baritone = false;
+      return begin(requestedTarget != null ? requestedTarget : target, interaction) ? 0 : -1;
+    }
     if (water != null) {
       Actions.status = "导航恢复 · 上浮并寻找近岸安全落脚点";
       int r = water.tick();
@@ -447,7 +498,8 @@ public final class Navigator {
       return 0;
     }
     if (++ticks > (baritone ? 12000 : 2400)) return fail("[NAVIGATION_TIMEOUT] 导航时间预算耗尽");
-    double arrivalY = exact ? surfaceY(target) : target.getY();
+    double arrivalY = (exact || fallbackTargetUsed) ? surfaceY(target) : target.getY();
+    if (!Double.isFinite(arrivalY)) arrivalY = target.getY();
     if (baritone
         && !exact
         && Math.abs(p.getX() - target.getX() - .5) <= 2
@@ -482,10 +534,23 @@ public final class Navigator {
       release();
       GridSearch.State result = search.advance(192, 2_000_000);
       if (result == GridSearch.State.SEARCHING) return 0;
-      if (result != GridSearch.State.FOUND)
+      if (result != GridSearch.State.FOUND) {
+        if (!exact && !interaction && pickupBox == null && !fallbackTargetUsed && requestedTarget != null) {
+          Set<BlockPos> expanded = new HashSet<>();
+          BlockPos fallbackBest = collectFallbackGoals(requestedTarget, standingCell(), expanded);
+          if (fallbackBest != null && !expanded.equals(goals)) {
+            fallbackTargetUsed = true;
+            target = fallbackBest;
+            goals = Set.copyOf(expanded);
+            search = createSearch(standingCell());
+            return 0;
+          }
+        }
         return fail("搜索预算内未找到安全路线（展开 " + search.expanded() + "/20000；候选站位 " + goals.size() + "）");
+      }
       path = search.path().stream().map(Navigator::pos).toList();
       if (path.isEmpty()) path = List.of(standingCell());
+      if (fallbackTargetUsed && !path.isEmpty()) target = path.get(path.size() - 1);
       index = 0;
       resetParkour();
       search = null;
@@ -503,12 +568,11 @@ public final class Navigator {
     }
     if (stuck > 100 && !baritone) return fail("路线受阻或尚未到达目标高度，请检查地形");
     if (baritone) {
-      if (ticks > 100
-          && !external.active()
-          && p.blockPosition().distSqr(target) <= 64
-          && mc().level.hasChunkAt(target)) {
-        external.stop();
-        return startLocal(target) ? 0 : -1;
+      if ((stuck > 100 || (ticks > 40 && !external.active()))
+          && !baritoneFallbackUsed
+          && mc().level.hasChunkAt(target)
+          && p.blockPosition().distSqr(target) <= 96 * 96) {
+        return fallbackToLocal(requestedTarget != null ? requestedTarget : target) ? 0 : -1;
       }
       if (stuck > 200 || (ticks > 100 && !external.active()))
         return fail("[NO_PATH] Baritone 已停止或连续十秒没有位移；请观察路径与目标");
@@ -766,12 +830,14 @@ public final class Navigator {
   }
 
   public void stop() {
+    boolean owned = ownsInput;
+    ownsInput = false;
     resetParkour();
     if (water != null) {
       water.stop();
       water = null;
     }
-    release();
+    if (owned) release();
     if (search != null) {
       search.cancel();
       search = null;
@@ -784,7 +850,7 @@ public final class Navigator {
     PlayerControls.release();
   }
 
-  private static boolean lethalHazard(BlockPos p) {
+  static boolean lethalHazard(BlockPos p) {
     if (!mc().level.hasChunkAt(p)) return true;
     var s = mc().level.getBlockState(p);
     var fluid = s.getFluidState();
@@ -798,6 +864,34 @@ public final class Navigator {
         || s.is(Blocks.CACTUS)
         || s.is(Blocks.CAMPFIRE)
         || s.is(Blocks.SOUL_CAMPFIRE);
+  }
+
+  static boolean isLavaOrFire(BlockPos p) {
+    if (mc().level == null || !mc().level.hasChunkAt(p)) return true;
+    var s = mc().level.getBlockState(p);
+    return s.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)
+        || s.is(Blocks.FIRE)
+        || s.is(Blocks.SOUL_FIRE)
+        || s.is(Blocks.MAGMA_BLOCK)
+        || s.is(Blocks.CAMPFIRE)
+        || s.is(Blocks.SOUL_CAMPFIRE);
+  }
+
+  /** Rejects cramped cells bordering lava or fire during unstick / roam detours. */
+  static boolean isNarrowHazardAdjacent(BlockPos cell) {
+    if (mc().level == null || !mc().level.hasChunkAt(cell)) return true;
+    if (isLavaOrFire(cell) || isLavaOrFire(cell.above()) || isLavaOrFire(cell.below())) return true;
+    boolean nearLavaFire = false;
+    int safeExits = 0;
+    for (var dir : Direction.Plane.HORIZONTAL) {
+      BlockPos side = cell.relative(dir);
+      if (isLavaOrFire(side) || isLavaOrFire(side.above()) || isLavaOrFire(side.below())) {
+        nearLavaFire = true;
+      } else if (stand(side) || stand(side.above()) || stand(side.below())) {
+        safeExits++;
+      }
+    }
+    return nearLavaFire && safeExits <= 1;
   }
 
   private static boolean isWater(BlockPos p) {
@@ -879,11 +973,10 @@ public final class Navigator {
     double y = surfaceY(cell);
     if (!Double.isFinite(y)) return false;
     if (isWater(cell) || isWater(cell.above())) return false;
-    if (lethalHazard(cell.below())
-        || lethalHazard(BlockPos.containing(cell.getX() + .5, y, cell.getZ() + .5))
-        || lethalHazard(
-            BlockPos.containing(cell.getX() + .5, y + mc().player.getBbHeight(), cell.getZ() + .5)))
-      return false;
+    if (lethalHazard(cell.below())) return false;
+    int bodyTop = (int) Math.floor(y + mc().player.getBbHeight());
+    for (int by = (int) Math.floor(y); by <= bodyTop; by++)
+      if (lethalHazard(new BlockPos(cell.getX(), by, cell.getZ()))) return false;
     return NavigationPassage.clear(body(foot(cell)), planning);
   }
 
@@ -942,6 +1035,10 @@ public final class Navigator {
 
   static boolean openMiningStep(BlockPos from, BlockPos to) {
     return stand(from) && stand(to) && traversable(from, to, false);
+  }
+
+  static boolean openExplorationStep(BlockPos from, BlockPos to) {
+    return standPath(from) && standPath(to) && traversable(from, to, Store.config.autoOpenDoors);
   }
 
   private static boolean traversable(BlockPos from, BlockPos to, boolean planning) {
@@ -1096,6 +1193,32 @@ public final class Navigator {
         }
       }
     }
+  }
+
+  private BlockPos collectFallbackGoals(BlockPos goal, BlockPos start, Set<BlockPos> out) {
+    BlockPos best = null;
+    double bestGoalSq = Double.MAX_VALUE;
+    double bestStartSq = Double.MAX_VALUE;
+    for (int dx = -2; dx <= 2; dx++)
+      for (int dz = -2; dz <= 2; dz++)
+        for (int dy = -1; dy <= 1; dy++) {
+          BlockPos at = goal.offset(dx, dy, dz);
+          if (!allowed(at) || !stand(at)) continue;
+          Vec3 v = foot(at);
+          if (!ArrivalGate.fallbackCandidate(
+              v.x, v.y, v.z, goal.getX() + .5, goal.getY(), goal.getZ() + .5)) continue;
+          out.add(at);
+          double goalSq = (double) dx * dx + (double) dz * dz + Math.abs(dy) * 0.25;
+          double startSq = at.distSqr(start);
+          if (best == null
+              || goalSq < bestGoalSq - 1e-6
+              || (Math.abs(goalSq - bestGoalSq) <= 1e-6 && startSq < bestStartSq)) {
+            best = at;
+            bestGoalSq = goalSq;
+            bestStartSq = startSq;
+          }
+        }
+    return best;
   }
 
   private static GridSearch.Cell cell(BlockPos p) {

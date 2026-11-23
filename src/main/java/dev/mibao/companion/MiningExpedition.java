@@ -237,7 +237,15 @@ public final class MiningExpedition extends Actions.Job {
 
   static String guard(BlockPos pos) {
     var job = active();
-    if (job == null || Agent.paused || Cooperation.yielding()) return "";
+    if (Agent.paused || Cooperation.yielding())
+      return BaritoneNavigation.externalActive() ? "MINING_PAUSED" : "";
+    if (job == null)
+      return BaritoneNavigation.externalActive()
+              && mc().level != null
+              && mc().level.hasChunkAt(pos)
+              && mc().level.getBlockState(pos).hasBlockEntity()
+          ? "NAVIGATION_PROTECTED"
+          : "";
     String reason = job.breakReason(pos);
     if (!reason.isBlank()) {
       job.lastGuard = reason + " @ " + pos.toShortString();
@@ -833,7 +841,8 @@ public final class MiningExpedition extends Actions.Job {
     broken.forEach(p -> positions.add(coordinates(p)));
     value.add("broken", positions);
     Store.data.checkpoints.put("mining:" + id, value);
-    Store.save();
+    if (ended) Store.save();
+    else Store.saveSoon();
   }
 
   JsonObject status() {

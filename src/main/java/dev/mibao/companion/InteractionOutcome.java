@@ -23,6 +23,9 @@ import net.minecraft.world.phys.AABB;
  */
 public final class InteractionOutcome {
   public static final int WINDOW_TICKS = 40;
+  /** Drops only count as evidence when first seen this early and this close to the target. */
+  private static final int LINK_TICKS = 12;
+  private static final double LINK_DISTANCE = 1.5;
 
   private record Watch(BlockPos pos, BlockState before, String machine, long revision) {}
 
@@ -33,6 +36,7 @@ public final class InteractionOutcome {
   private final Set<Integer> knownEntities = new LinkedHashSet<>();
   private final Map<Integer, String[]> freshEntities = new LinkedHashMap<>();
   private final DropSensor sensor = new DropSensor();
+  private final List<AABB> anchors = new ArrayList<>();
   private AABB area;
   private int ticks;
   private boolean blockChanged, machineChanged, truncated;
@@ -49,6 +53,14 @@ public final class InteractionOutcome {
   /** Starts the window around the given target blocks (none for inventory-only commands). */
   public static InteractionOutcome begin(BlockPos... watch) {
     InteractionOutcome outcome = new InteractionOutcome(watch == null ? new BlockPos[0] : watch);
+    outcome.captureBaseline();
+    return outcome;
+  }
+
+  /** Starts the window for an entity target: drops near that box may link to the action. */
+  public static InteractionOutcome beginNear(AABB target) {
+    InteractionOutcome outcome = new InteractionOutcome(new BlockPos[0]);
+    if (target != null) outcome.anchors.add(target);
     outcome.captureBaseline();
     return outcome;
   }
@@ -74,7 +86,11 @@ public final class InteractionOutcome {
               MachineObservation.revision(pos)));
     }
     AABB observed = null;
-    for (BlockPos pos : positions) observed = union(observed, new AABB(pos).inflate(8));
+    for (AABB anchor : anchors) observed = union(observed, anchor.inflate(8));
+    for (BlockPos pos : positions) {
+      anchors.add(new AABB(pos));
+      observed = union(observed, new AABB(pos).inflate(8));
+    }
     area = union(observed, player.getBoundingBox().inflate(8));
     for (ItemEntity entity : mc().level.getEntitiesOfClass(ItemEntity.class, area))
       knownEntities.add(entity.getId());
@@ -99,8 +115,10 @@ public final class InteractionOutcome {
       if (knownEntities.contains(entity.getId())) continue;
       ItemStack stack = entity.getItem();
       if (stack.isEmpty()) continue;
+      boolean linked = ticks <= LINK_TICKS && nearTarget(entity.getX(), entity.getY(), entity.getZ());
       freshEntities.putIfAbsent(
-          entity.getId(), new String[] {itemId(stack), Integer.toString(stack.getCount())});
+          entity.getId(),
+          new String[] {itemId(stack), Integer.toString(stack.getCount()), linked ? "1" : "0"});
     }
     if (sensor.truncated) truncated = true;
   }
@@ -148,6 +166,7 @@ public final class InteractionOutcome {
       JsonObject item = new JsonObject();
       item.addProperty("id", row[0]);
       item.addProperty("count", Integer.parseInt(row[1]));
+      item.addProperty("linked", "1".equals(row[2]));
       dropped.add(item);
     }
     out.add("dropped", dropped);
@@ -179,6 +198,17 @@ public final class InteractionOutcome {
         counts.merge(WorldSense.fingerprint(stack), stack.getCount(), Integer::sum);
     }
     return counts;
+  }
+
+  /** True when a point lies within {@link #LINK_DISTANCE} of any target block or entity box. */
+  private boolean nearTarget(double x, double y, double z) {
+    for (AABB box : anchors) {
+      double dx = Math.max(0, Math.max(box.minX - x, x - box.maxX));
+      double dy = Math.max(0, Math.max(box.minY - y, y - box.maxY));
+      double dz = Math.max(0, Math.max(box.minZ - z, z - box.maxZ));
+      if (dx * dx + dy * dy + dz * dz <= LINK_DISTANCE * LINK_DISTANCE) return true;
+    }
+    return false;
   }
 
   private static String itemId(ItemStack stack) {

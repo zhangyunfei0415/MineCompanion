@@ -249,6 +249,42 @@ public final class MenuContext {
     }
   }
 
+  public static boolean isSafeGenericStorageMenu() {
+    var mc = Minecraft.getInstance();
+    if (mc.player == null) return false;
+    var m = mc.player.containerMenu;
+    if (m == mc.player.inventoryMenu) return false;
+    int containerSlots = 0, playerSlots = 0;
+    boolean hasResultOrSpecial = false;
+    for (var slot : m.slots) {
+      if (slot instanceof ResultSlot
+          || slot instanceof FurnaceResultSlot
+          || slot instanceof MerchantResultSlot) {
+        hasResultOrSpecial = true;
+        break;
+      }
+      if (slot.container == mc.player.getInventory()) playerSlots++;
+      else containerSlots++;
+    }
+    boolean hasWidgets = false;
+    if (mc.screen != null) {
+      for (var child : mc.screen.children()) {
+        if (child instanceof net.minecraft.client.gui.components.AbstractButton
+            || child instanceof net.minecraft.client.gui.components.EditBox) {
+          hasWidgets = true;
+          break;
+        }
+      }
+    }
+    return StorageMenuPolicy.isSafeGenericStorageMenu(
+        m.getClass().getName(),
+        ChestMenu.class.isAssignableFrom(m.getClass()),
+        containerSlots,
+        playerSlots,
+        hasResultOrSpecial,
+        hasWidgets);
+  }
+
   public static String kind() {
     var m = Minecraft.getInstance().player.containerMenu;
     if (m == Minecraft.getInstance().player.inventoryMenu) return "player_inventory";
@@ -265,6 +301,7 @@ public final class MenuContext {
             || type == HopperMenu.class
             || type == DispenserMenu.class
             || type == ShulkerBoxMenu.class
+            || isSafeGenericStorageMenu()
         ? "storage"
         : "unclassified";
   }
@@ -288,17 +325,23 @@ public final class MenuContext {
    * cursor or menu state moved. Failures carry a distinct reason code.
    */
   public static void validate(int expectedId, int expectedState, long view, int target) {
-    require(expectedId, expectedState, view, target);
+    require(expectedId, expectedState, view, target, false);
+  }
+
+  public static void validate(
+      int expectedId, int expectedState, long view, int target, boolean requireEmptyCursor) {
+    require(expectedId, expectedState, view, target, requireEmptyCursor);
   }
 
   /**
    * Same validation for jobs that already received a fresh menu view; ids come from the capture.
    */
   public static void validateStored(long view, int target) {
-    require(observedMenuId, observedState, view, target);
+    require(observedMenuId, observedState, view, target, false);
   }
 
-  private static void require(int expectedId, int expectedState, long view, int target) {
+  private static void require(
+      int expectedId, int expectedState, long view, int target, boolean requireEmptyCursor) {
     tick();
     boolean sync = synchronizedNow();
     var m = Minecraft.getInstance().player.containerMenu;
@@ -310,6 +353,7 @@ public final class MenuContext {
             && observedLayout.equals(layout())
             && evidence.validTarget(
                 m, observedMenuId, view, target, m.getSlot(target).getItem(), m.getCarried());
+    boolean cursorOk = !requireEmptyCursor || m.getCarried().isEmpty();
     var facts =
         new MenuViewCheck.Facts(
             sync,
@@ -319,7 +363,7 @@ public final class MenuContext {
                 || observedMenuId != m.containerId
                 || !observedLayout.equals(layout()),
             expectedState != observedState,
-            true,
+            cursorOk,
             observedSlots.contains(target),
             valid);
     String code = MenuViewCheck.code(facts);

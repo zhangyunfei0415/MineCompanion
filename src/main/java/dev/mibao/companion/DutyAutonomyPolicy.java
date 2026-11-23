@@ -51,6 +51,46 @@ public final class DutyAutonomyPolicy {
       long lastAutoSwitchAt,
       long manualOverrideUntil,
       long ownerOfflineDurationMs) {
+    return recommendTransition(
+        level,
+        current,
+        armed,
+        hasHome,
+        ownerOnline,
+        ownerDistance,
+        ownerMovingAway,
+        baseRadius,
+        freeSlots,
+        minFreeSlots,
+        expeditionReturned,
+        nowMs,
+        lastAutoSwitchAt,
+        manualOverrideUntil,
+        ownerOfflineDurationMs,
+        true);
+  }
+
+  /**
+   * @param homeReachable home is in the current dimension, loaded and within the 96-block local
+   *     navigation limit; offline return-to-base is only recommended when this holds.
+   */
+  public static Transition recommendTransition(
+      Level level,
+      CompanionDuty.Mode current,
+      boolean armed,
+      boolean hasHome,
+      boolean ownerOnline,
+      double ownerDistance,
+      boolean ownerMovingAway,
+      int baseRadius,
+      int freeSlots,
+      int minFreeSlots,
+      boolean expeditionReturned,
+      long nowMs,
+      long lastAutoSwitchAt,
+      long manualOverrideUntil,
+      long ownerOfflineDurationMs,
+      boolean homeReachable) {
     if (level == null || level == Level.MANUAL_LOCK) return null;
     if (nowMs < manualOverrideUntil) return null;
     if (lastAutoSwitchAt > 0 && nowMs - lastAutoSwitchAt < AUTO_SWITCH_COOLDOWN_MS) return null;
@@ -63,7 +103,8 @@ public final class DutyAutonomyPolicy {
         && current == CompanionDuty.Mode.ESCORT_GUARD
         && !ownerOnline
         && ownerOfflineDurationMs >= OWNER_OFFLINE_RETURN_MS
-        && hasHome) {
+        && hasHome
+        && homeReachable) {
       return new Transition(
           CompanionDuty.Mode.BASE_STEWARD, true, "主人离线超过15秒，自动切回驻守基地看家");
     }

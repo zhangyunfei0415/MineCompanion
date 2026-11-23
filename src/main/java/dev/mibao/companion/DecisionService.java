@@ -58,6 +58,24 @@ public final class DecisionService {
     return o;
   }
 
+  /**
+   * Refuse to send a credential whose recognisable format belongs to a different provider than the
+   * configured protocol/host (e.g. an OpenAI "sk-" key bound for Google, or a Google "AIza" key
+   * bound for a non-Google host).
+   */
+  static void checkKeyMatchesProvider(DecisionWire.Profile profile) {
+    String key = profile.key();
+    if (key.isBlank()) return;
+    String host = java.net.URI.create(profile.endpoint()).getHost();
+    host = host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+    boolean googleHost = host.equals("googleapis.com") || host.endsWith(".googleapis.com");
+    boolean googleKey = key.startsWith("AIza");
+    boolean openAiStyleKey = key.startsWith("sk-");
+    if (("GOOGLE".equals(profile.protocol()) && openAiStyleKey) || (googleKey && !googleHost))
+      throw new IllegalArgumentException(
+          "[DECISION_KEY_MISMATCH] 已保存的密钥与当前判断服务商/接口不匹配，未发送；请在模型与连接页重新填写密钥");
+  }
+
   static void choose(JsonObject input, Consumer<String> done) {
     if (REQUEST.pending()) throw new IllegalArgumentException("[DECISION_BUSY] 已有判断请求");
     var mc = Minecraft.getInstance();
@@ -66,6 +84,7 @@ public final class DecisionService {
     if (!Agent.enabled || Agent.paused || Cooperation.yielding())
       throw new IllegalArgumentException("[DECISION_PAUSED] 当前未接管或已暂停");
     var profile = DecisionWire.profile(Store.config);
+    checkKeyMatchesProvider(profile);
     var choices = input.getAsJsonArray("candidates");
     if (choices == null || choices.size() < 2 || choices.size() > 12)
       throw new IllegalArgumentException(

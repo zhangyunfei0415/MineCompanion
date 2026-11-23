@@ -35,6 +35,9 @@ final class ExplorationMemory {
   private static double lastGroundY;
   private static int unknownDirections;
   private static long lastObservation, lastExternalModTime, lastExternalPollTick;
+  private static long failedModTime = Long.MIN_VALUE;
+  private static int pollBackoff = 40;
+  private static boolean polling;
 
   static ExplorationGraph graph() { return graph; }
   static Cell current() {
@@ -70,27 +73,49 @@ final class ExplorationMemory {
               ? ExplorationStore.load(Store.ROOT, key)
               : ExplorationStore.reloadReadOnly(Store.ROOT, key);
     }
-      if (loading != null) {
-        if (!loading.isDone()) return;
+      // A background poll must not pause sampling; only the first load of a shard blocks.
+      if (loading != null && !loading.isDone() && graph == null) return;
+      if (loading != null && loading.isDone()) {
         var loaded = loading.join();
-        if (loaded != null) {
-          graph = loaded.graph();
-          writable = loaded.writable();
-          queuedRevision = graph.revision();
-          try {
-            Path p = ExplorationStore.path(Store.ROOT, key);
-            if (Files.isRegularFile(p))
-              lastExternalModTime = Files.getLastModifiedTime(p).toMillis();
-          } catch (Exception ignored) {
-          }
-        }
+        boolean polled = polling;
+        polling = false;
         loading = null;
+        long mod = shardModTime();
+        if (loaded == null) {
+          // Lock poll: the shard is still held elsewhere; keep the live in-memory graph and back off.
+          pollBackoff = Math.min(400, pollBackoff * 2);
+        } else if (loaded.failed()) {
+          // Remember the unreadable version so it is not re-parsed until the file changes.
+          failedModTime = mod;
+          if (graph == null) {
+            graph = loaded.graph();
+            writable = false;
+            queuedRevision = graph.revision();
+          }
+        } else if (polled && graph != null && Actions.job instanceof ExplorationJob) {
+          // Never swap the map under a running explore job; hand the lease back and retry later.
+          if (loaded.writable()) ExplorationStore.release(Store.ROOT, key);
+        } else {
+          // Keep local samples when the disk copy has not changed since it was last loaded.
+          if (graph == null || !polled || mod != lastExternalModTime) {
+            graph = loaded.graph();
+            queuedRevision = graph.revision();
+          }
+          writable = loaded.writable();
+          lastExternalModTime = mod;
+          failedModTime = Long.MIN_VALUE;
+          pollBackoff = 40;
+        }
       }
       boolean wantWrite =
           ClientRolePolicy.shouldClaimExplorationWriteLock(Agent.enabled, Store.hasControl());
-      if (wantWrite && !writable && key != null && loading == null && tick - lastExternalPollTick >= 40) {
+      if (wantWrite && !writable && key != null && loading == null
+          && tick - lastExternalPollTick >= pollBackoff) {
         lastExternalPollTick = tick;
-        loading = ExplorationStore.load(Store.ROOT, key);
+        if (!(Actions.job instanceof ExplorationJob) && shardModTime() != failedModTime) {
+          polling = true;
+          loading = ExplorationStore.claimAndLoad(Store.ROOT, key);
+        }
       } else if (!wantWrite
           && !writable
           && key != null
@@ -101,7 +126,9 @@ final class ExplorationMemory {
           Path p = ExplorationStore.path(Store.ROOT, key);
           if (Files.isRegularFile(p)) {
             long mod = Files.getLastModifiedTime(p).toMillis();
-            if (mod != lastExternalModTime) {
+            if (mod != lastExternalModTime && mod != failedModTime
+                && !(Actions.job instanceof ExplorationJob)) {
+              polling = true;
               loading = ExplorationStore.reloadReadOnly(Store.ROOT, key);
             }
           }
@@ -113,6 +140,7 @@ final class ExplorationMemory {
       saving = null;
     }
     if (tick - lastSave >= SAVE_TICKS) flush(false);
+    if (graph == null) return;
     if (!mc.player.isAlive() || mc.player.getAbilities().flying || mc.player.isSpectator()
         || mc.player.isPassenger() || mc.player.isFallFlying() || mc.player.isInWater()) {
       resetTrace();
@@ -187,6 +215,9 @@ final class ExplorationMemory {
     writable = false;
     lastExternalModTime = 0;
     lastExternalPollTick = 0;
+    failedModTime = Long.MIN_VALUE;
+    pollBackoff = 40;
+    polling = false;
     resetTrace();
   }
 
@@ -199,6 +230,15 @@ final class ExplorationMemory {
     saving = ExplorationStore.save(Store.ROOT, key, graph.snapshot());
   }
 
+  private static long shardModTime() {
+    try {
+      Path p = ExplorationStore.path(Store.ROOT, key);
+      return Files.isRegularFile(p) ? Files.getLastModifiedTime(p).toMillis() : 0L;
+    } catch (Exception ignored) {
+      return 0L;
+    }
+  }
+
   static boolean loaded(BlockPos at) {
     var level = Minecraft.getInstance().level;
     return level != null && !level.isOutsideBuildHeight(at) && level.hasChunkAt(at)
@@ -209,7 +249,32 @@ final class ExplorationMemory {
     BlockPos a = pos(from), b = pos(to);
     return loaded(a) && loaded(b) && loaded(a.above()) && loaded(b.above())
         && !portal(a) && !portal(a.above()) && !portal(b) && !portal(b.above())
-        && Navigator.openMiningStep(a, b);
+        && Navigator.openExplorationStep(a, b);
+  }
+
+  /** Re-evaluates nearby STALE/BLOCKED edges against live world blocks so cleared paths heal automatically. */
+  static int revalidateLocalEdges(Cell center, int radius, long now) {
+    if (graph == null || center == null) return 0;
+    long rSq = (long) radius * radius;
+    return graph.revalidateEdges(
+        edge -> {
+          if (edge.from().distanceSquared(center) > rSq
+              && edge.to().distanceSquared(center) > rSq) {
+            return false;
+          }
+          var cells = edge.cells();
+          if (cells.size() < 2) return false;
+          for (Cell c : cells) {
+            if (!loaded(pos(c))) return false;
+          }
+          for (int i = 1; i < cells.size(); i++) {
+            Cell a = cells.get(i - 1);
+            Cell b = cells.get(i);
+            if (!clear(a, b) || !clear(b, a)) return false;
+          }
+          return true;
+        },
+        now);
   }
 
   private static boolean portal(BlockPos at) {
@@ -258,6 +323,7 @@ final class ExplorationMemory {
 
   private static void observe(Cell here, long now) {
     lastObservation = tick;
+    if (writable) revalidateLocalEdges(here, 6, now);
     var open = adjacent(here);
     unknownDirections = 0;
     for (int[] d : DIRECTIONS) {
@@ -363,16 +429,60 @@ final class ExplorationMemory {
     if (graph == null) return Set.of();
     var matches = new LinkedHashSet<Cell>();
     Node lastFace = null;
+    String normalized = target == null ? "" : target.strip();
+    if (!frontier && (normalized.equalsIgnoreCase("home") || normalized.equalsIgnoreCase("base"))) {
+      var d = DutyScheduler.duty();
+      if (d.hasHome && key != null && key.dimension().equals(d.homeDimension)) {
+        Cell homeCell = new Cell(d.homeX, d.homeY, d.homeZ);
+        if (graph.walked(homeCell)) {
+          matches.add(homeCell);
+          return matches;
+        }
+        Cell nearestToHome =
+            graph.nodes().stream()
+                .filter(n -> n.kind() != Kind.FRONTIER && n.kind() != Kind.HAZARD)
+                .min(Comparator.comparingLong(n -> n.cell().distanceSquared(homeCell)))
+                .map(Node::cell)
+                .orElse(null);
+        if (nearestToHome != null) matches.add(nearestToHome);
+        return matches;
+      }
+    }
     for (Node n : graph.nodes()) {
       if (frontier != (n.kind() == Kind.FRONTIER) || n.kind() == Kind.HAZARD) continue;
-      if (target.equals("last_work_face") && n.kind() == Kind.WORK_FACE
+      if (normalized.equals("last_work_face") && n.kind() == Kind.WORK_FACE
           && (lastFace == null || n.last_seen() > lastFace.last_seen())) lastFace = n;
-      if (n.cell().id().equals(target) || !n.name().isBlank() && n.name().equalsIgnoreCase(target)
-          || target.equals("nearest_entry") && n.kind() == Kind.ENTRY
-          || target.equals("nearest_safe") && (n.kind() == Kind.SAFE_POINT || n.kind() == Kind.ENTRY))
+      if (n.cell().id().equals(normalized) || !n.name().isBlank() && n.name().equalsIgnoreCase(normalized)
+          || normalized.equals("nearest_entry") && n.kind() == Kind.ENTRY
+          || normalized.equals("nearest_safe") && (n.kind() == Kind.SAFE_POINT || n.kind() == Kind.ENTRY))
         matches.add(n.cell());
     }
     if (lastFace != null) matches.add(lastFace.cell());
+    if (!frontier && matches.isEmpty() && (normalized.equals("nearest_entry") || normalized.equals("nearest_safe"))) {
+      if (normalized.equals("nearest_entry")) {
+        for (Node n : graph.nodes()) {
+          if (n.kind() == Kind.SAFE_POINT) matches.add(n.cell());
+        }
+      }
+      if (matches.isEmpty()) {
+        var d = DutyScheduler.duty();
+        if (d.hasHome && key != null && key.dimension().equals(d.homeDimension)) {
+          Cell homeCell = new Cell(d.homeX, d.homeY, d.homeZ);
+          if (graph.walked(homeCell)) matches.add(homeCell);
+          else {
+            graph.nodes().stream()
+                .filter(n -> n.kind() != Kind.FRONTIER && n.kind() != Kind.HAZARD)
+                .min(Comparator.comparingLong(n -> n.cell().distanceSquared(homeCell)))
+                .map(Node::cell)
+                .ifPresent(matches::add);
+          }
+        }
+      }
+      if (matches.isEmpty()) {
+        Cell oldest = graph.oldestWalkedCell();
+        if (oldest != null) matches.add(oldest);
+      }
+    }
     return matches;
   }
 

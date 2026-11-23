@@ -255,7 +255,7 @@ public final class Hud {
     if (now - linkCheckedAt > 1000) {
       linkCheckedAt = now;
       try {
-        harnessLinked = HarnessController.status().get("lease_active").getAsBoolean();
+        harnessLinked = HarnessController.leaseActive();
       } catch (Exception e) {
         harnessLinked = false;
       }

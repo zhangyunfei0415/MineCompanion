@@ -30,6 +30,12 @@ public final class ArrivalGate {
     return dx * dx + dz * dz <= 1.5 * 1.5 && Math.abs(y - ty) <= .65;
   }
 
+  /** Same-floor horizontal 1..2 block fallback when an indoor target cell is occupied or blocked. */
+  public static boolean fallbackCandidate(
+      double x, double y, double z, double tx, double ty, double tz) {
+    return Math.abs(x - tx) <= 2.05 && Math.abs(z - tz) <= 2.05 && Math.abs(y - ty) <= .65;
+  }
+
   public static boolean advanceWaypoint(
       double distanceSquared, boolean grounded, boolean last, boolean actualGoal) {
     return grounded && distanceSquared < .16 && (!last || actualGoal);

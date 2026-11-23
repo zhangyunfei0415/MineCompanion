@@ -31,6 +31,14 @@ public final class QuestMatch {
         || title.toLowerCase(Locale.ROOT).contains(q.toLowerCase(Locale.ROOT));
   }
 
+  /** True only for an exact (or case-insensitive exact) title; never a substring shortcut. */
+  public static boolean exact(String title, String query) {
+    if (query == null || title == null) return false;
+    String q = query.trim();
+    if (q.isEmpty() || title.isEmpty()) return false;
+    return title.equals(q) || title.equalsIgnoreCase(q);
+  }
+
   /**
    * Resolve a query to one visible semantic quest button: exact match, then case-insensitive exact,
    * then unique substring. Ambiguity never picks a winner.

@@ -128,12 +128,14 @@ public final class Actions {
       return;
     }
     if (Agent.paused) {
+      BaritoneNavigation.cancelActive("AI已暂停");
       if (job instanceof UseHandJob use) use.suspend();
       if (job instanceof GameInputJob) job.finish("输入已中断并释放：AI已暂停，请重新观察。");
       Navigator.release();
       return;
     }
     if (Panel.managing(mc().screen)) {
+      BaritoneNavigation.cancelActive("进入伙伴面板");
       if (job instanceof GameInputJob) job.finish("输入已中断并释放：进入伙伴面板，不自动续按。");
       Navigator.release();
       return;
@@ -283,6 +285,7 @@ public final class Actions {
     o.add("permissions", PermissionView.current());
     o.add("world_objects_nearby", WorldSense.query("", "all", 32, 8));
     o.add("places", Store.GSON.toJsonTree(Store.data.places));
+    o.add("recent_chat", ChatBuffer.recentJson(Store.scope(), 10));
     o.add("visual_assistance", VisualAssist.context());
     return o;
   }
@@ -412,7 +415,10 @@ public final class Actions {
     String[] parts = filter.split("#", 2);
     boolean base =
         BuiltInRegistries.ITEM.getKey(s.getItem()).toString().equals(parts[0])
-            || s.getHoverName().getString().contains(parts[0]);
+            || parts[0].isEmpty()
+            || net.minecraft.ChatFormatting.stripFormatting(s.getHoverName().getString())
+                .strip()
+                .equals(parts[0].strip());
     return base
         && (parts.length == 1
             || (parts[1].startsWith("sha256:")
@@ -440,20 +446,34 @@ public final class Actions {
               }
             }
             int r = nav.tick();
-            if (r == 1)
+            if (r == 1) {
+              BlockPos landed =
+                  !exact && nav.usedFallback() && nav.resolvedTarget() != null ? nav.resolvedTarget() : p;
+              boolean fellBack = !exact && nav.usedFallback() && !landed.equals(p);
               finish(
-                  (exact ? "成功：已精确落地：" : "成功：已在目标高度附近稳定落地：")
-                      + p.toShortString()
-                      + "；"
+                  (fellBack
+                          ? "成功：原目标格 "
+                              + p.toShortString()
+                              + " 被占用或受阻，已自动回退至同高度最近安全格 "
+                              + landed.toShortString()
+                              + " 稳定落地；"
+                          : (exact ? "成功：已精确落地：" : "成功：已在目标高度附近稳定落地：")
+                              + p.toShortString()
+                              + "；")
                       + ArrivalReceipt.landingText(
                           mc().player.getX(),
                           mc().player.getY(),
                           mc().player.getZ(),
-                          p.getX(),
-                          p.getY(),
-                          p.getZ(),
-                          Navigator.surfaceY(p))
-                      + (exact ? "（精确模式水平容差0.4格）" : "（普通移动允许水平2格接近范围）"));
+                          landed.getX(),
+                          landed.getY(),
+                          landed.getZ(),
+                          Navigator.surfaceY(landed))
+                      + (exact
+                          ? "（精确模式水平容差0.4格）"
+                          : fellBack
+                              ? "（室内障碍自动回退，未将隔层视为到达）"
+                              : "（普通移动允许水平2格接近范围）"));
+            }
             if (r < 0) finish("失败：" + nav.error());
           }
 

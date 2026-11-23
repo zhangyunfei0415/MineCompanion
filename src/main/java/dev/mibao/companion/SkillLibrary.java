@@ -91,7 +91,14 @@ public final class SkillLibrary {
       var r = p.definition.deepCopy();
       r.remove("steps");
       r.addProperty("enabled", !Store.config.disabledPackages.contains(p.id));
-      r.add("issues", issues(p));
+      JsonArray found;
+      try {
+        found = issues(p);
+      } catch (RuntimeException e) {
+        found = new JsonArray();
+        found.add("技能元数据格式错误：" + Rules.clean(e.getMessage(), 120));
+      }
+      r.add("issues", found);
       var check = Store.data.skillChecks.get(key(p));
       r.addProperty("verification", check == null ? "当前环境待验证" : check.status);
       r.addProperty("successful_runs", check == null ? 0 : check.successes);
@@ -114,13 +121,17 @@ public final class SkillLibrary {
       if (!dep.isBlank() && !mods.contains(dep)) a.add("缺少组件 " + dep);
     }
     if (p.definition.has("minecraft")
-        && !p.definition
-            .get("minecraft")
-            .getAsString()
+        && !SkillPackage.string(p.definition, "minecraft", "")
             .equals(net.minecraft.SharedConstants.getCurrentVersion().getName()))
       a.add("Minecraft版本不匹配");
-    if (p.definition.has("mods"))
+    if (p.definition.has("mods") && !p.definition.get("mods").isJsonObject())
+      a.add("技能元数据格式错误：mods 须为对象");
+    else if (p.definition.has("mods"))
       for (var e : p.definition.getAsJsonObject("mods").entrySet()) {
+        if (!e.getValue().isJsonPrimitive()) {
+          a.add("技能元数据格式错误：mods." + e.getKey());
+          continue;
+        }
         var mod =
             net.minecraftforge.fml.ModList.get().getMods().stream()
                 .filter(m -> m.getModId().equals(e.getKey()))

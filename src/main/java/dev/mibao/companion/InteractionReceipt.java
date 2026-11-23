@@ -13,7 +13,11 @@ import java.util.List;
 final class InteractionReceipt {
   private InteractionReceipt() {}
 
-  /** True when the evidence contains any of the three observation classes. */
+  /**
+   * True only for causally linked evidence: target block/machine change, or a drop that appeared
+   * right at the target soon after the action. Inventory deltas and unrelated nearby drops are
+   * notes, never confirmation.
+   */
   static boolean confirmed(JsonObject evidence) {
     return !confirmations(evidence).isEmpty();
   }
@@ -21,8 +25,10 @@ final class InteractionReceipt {
   /** Chinese single-line receipt: confirmed facts, or why nothing changed. */
   static String summarize(JsonObject evidence) {
     List<String> parts = confirmations(evidence);
-    if (parts.isEmpty()) return "未观察到背包/掉落物/方块/机器变化";
-    return "已确认：" + String.join("；", parts);
+    List<String> notes = notes(evidence);
+    String suffix = notes.isEmpty() ? "" : "；附注（无因果归因，不作成功依据）：" + String.join("，", notes);
+    if (parts.isEmpty()) return "未观察到目标方块/机器变化或目标处新掉落" + suffix;
+    return "已确认：" + String.join("；", parts) + suffix;
   }
 
   /** Delayed readout of the two evidence samples, appended to unconfirmed receipts. */
@@ -52,11 +58,6 @@ final class InteractionReceipt {
   private static List<String> confirmations(JsonObject evidence) {
     List<String> parts = new ArrayList<>();
     if (evidence == null) return parts;
-    for (JsonElement element : array(evidence, "inventory")) {
-      JsonObject row = object(element);
-      long delta = number(row, "delta");
-      if (delta > 0) parts.add("拾取 " + text(row, "id") + "×" + delta);
-    }
     if (flag(evidence, "block_changed")) {
       String after = text(evidence, "block_after");
       parts.add(after.isBlank() ? "目标方块变化" : "方块变为 " + after);
@@ -65,7 +66,25 @@ final class InteractionReceipt {
     for (JsonElement element : array(evidence, "dropped")) {
       JsonObject row = object(element);
       long count = number(row, "count");
-      if (count > 0) parts.add("掉落 " + text(row, "id") + "×" + count + " 在地上（尚未入包，落地10tick后才可拾取）");
+      if (count > 0 && flag(row, "linked"))
+        parts.add("目标处掉落 " + text(row, "id") + "×" + count + " 在地上（尚未入包，落地10tick后才可拾取）");
+    }
+    return parts;
+  }
+
+  /** Observations without causal attribution: inventory gains and drops away from the target. */
+  private static List<String> notes(JsonObject evidence) {
+    List<String> parts = new ArrayList<>();
+    if (evidence == null) return parts;
+    for (JsonElement element : array(evidence, "inventory")) {
+      JsonObject row = object(element);
+      long delta = number(row, "delta");
+      if (delta > 0) parts.add("背包 " + text(row, "id") + "+" + delta);
+    }
+    for (JsonElement element : array(evidence, "dropped")) {
+      JsonObject row = object(element);
+      long count = number(row, "count");
+      if (count > 0 && !flag(row, "linked")) parts.add("附近掉落 " + text(row, "id") + "×" + count);
     }
     return parts;
   }

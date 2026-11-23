@@ -38,12 +38,13 @@ public final class ToolMenu {
           "follow",
               Set.of("follow_targets", "follow_start", "follow_status", "follow_stop",
                   "follow_enter_portal", "duty_status", "duty_set", "observe_owner_focus",
-                  "handoff_to_owner", "inspect_client"),
+                  "handoff_to_owner", "explore_query", "explore_roam", "explore_return", "inspect_client"),
           "logistics",
               Set.of(
                   "explore_mark",
                   "explore_query",
                   "explore_branch",
+                  "explore_roam",
                   "explore_return",
                   "duty_status",
                   "duty_set",
@@ -135,6 +136,7 @@ public final class ToolMenu {
                   "explore_mark",
                   "explore_query",
                   "explore_branch",
+                  "explore_roam",
                   "explore_return",
                   "fish",
                   "find_blocks",
@@ -220,8 +222,8 @@ public final class ToolMenu {
   public static String profile(String task) {
     String text = (task == null ? "" : task).toLowerCase(Locale.ROOT);
     if (!override.isBlank() && overrideTask.equals(text)) return override;
-    if (text.matches("(?s).*(跟随|陪伴|跟着|守护|值守|驻守|护卫|陪同|一起去下界|一起去末地).*")) return "follow";
-    if (text.matches("(?s).*(探路|回程|岔口|迷宫|后室|工作面|探索地图|记住.{0,8}入口|explor).*"))
+    if (text.matches("(?s).*(跟随|陪伴|跟着|守护|值守|驻守|护卫|陪同|带我回|领路回|带路回|带玩家回|一起去下界|一起去末地).*")) return "follow";
+    if (text.matches("(?s).*(探路|开图|漫游|回程|岔口|迷宫|后室|工作面|探索地图|记住.{0,8}入口|explor).*"))
       return "gathering";
     if (text.startsWith("采矿委托：")
         || text.matches("(?s).*(采矿|矿道|矿井|矿脉|开矿|挖矿|挖.{0,12}(钻石|铁矿|煤矿|铜矿|红石)|下挖).*"))

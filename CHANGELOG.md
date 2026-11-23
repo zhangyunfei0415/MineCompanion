@@ -1,3 +1,9 @@
+# 0.8.7 · release-0.8.7-20261124-01 · 2026-11-24
+
+- 正式发布版：整合主动探图开图与「带玩家回家」引路（`rc1`）、室内 `go_to` 同高度安全回退与 AE/背包/待命自理进食升级（`rc2`）、全仓 379 个 Java 类审阅 79 项 P0/P1/P2 安全与稳健性加固（`rc3`），以及收口阶段 `ExplorationRoamPolicy` / `RoamExplorationJob` 迷宫走廊优先寻路与精确统计重构。
+- 核心改进：`explore_roam` 开阔地前置校验 + 迷宫 `openExplorationStep` 走廊 BFS、±45°/±90° 侧向绕墙防逆向 `FRONTIER` 折返与真实 `stuck_ms`、`explore_return(guide_player=true)`「带玩家回家」、`sophisticatedbackpacks:backpack` 潜行放置/安全挖起与标准 `ChestMenu` 放行、`ae_deposit` 按 `item` 自动找槽、`move_inventory` 回传 `hotbar_slot` 与 `select=true`、`STANDBY` 饥饿阈值自理进食、`query_world` 256 上限、以及全仓 P0/P1/P2 防崩溃/防丢装备/防越权加固。
+- 见 [0.8.7 正式版发布说明](docs/releases/RELEASE-0.8.7-20261124.md) 与 [版本与贡献记录](VERSION-HISTORY.md)。
+
 # 0.8.6 · release-0.8.6-20261122-02 · 2026-11-22
 
 - 正式发布版：整合三维探索记忆（`rc1`）、通用科技模组菜单重同步与全主题 `DeskEditBox`（`rc2`）、G9/G10 易变 NBT 修复与女仆式值守系统（`rc3`）、涉水/爬梯/跑酷与 F4 一键限帧静音节能（`rc4`）。

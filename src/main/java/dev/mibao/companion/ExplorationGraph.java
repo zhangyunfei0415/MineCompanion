@@ -50,6 +50,8 @@ final class ExplorationGraph {
   private final LinkedHashMap<Key, Edge> edges = new LinkedHashMap<>();
   private final Map<Cell, Set<Key>> incident = new HashMap<>();
   private final Map<Cell, Set<Key>> interiors = new HashMap<>();
+  /** Cells the current walk/transition is linking; trim() must not evict them mid-operation. */
+  private final Set<Cell> pinned = new HashSet<>();
   private long revision;
 
   long revision() { return revision; }
@@ -87,7 +89,7 @@ final class ExplorationGraph {
           || e.destination_dimension == null || e.reason == null || !graph.nodes.containsKey(e.from)
           || e.destination_dimension.isEmpty() && !graph.nodes.containsKey(e.to)
           || e.cells.size() > MAX_CELLS || !validGeometry(e))
-        throw new IllegalArgumentException("Invalid exploration edge");
+        continue; // Drop a single dangling/invalid edge instead of discarding the whole shard.
       graph.put(e);
     }
     return graph;
@@ -130,12 +132,19 @@ final class ExplorationGraph {
       int i = edge.cells.indexOf(from), j = edge.cells.indexOf(to);
       if (edge.returnable() && Math.abs(i - j) == 1 && j >= 0 && (!mined || edge.mined_segment)) return;
     }
-    ensure(from, now);
-    ensure(to, now);
-    var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.VERIFIED, List.of(from, to), mined, now, "");
-    if (!validGeometry(edge)) throw new IllegalArgumentException("Expected contiguous walking step");
-    Edge current = edges.get(key(edge));
-    if (current == null || !current.returnable() || mined && !current.mined_segment) put(edge);
+    pinned.add(from);
+    pinned.add(to);
+    try {
+      ensure(from, now);
+      ensure(to, now);
+      var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.VERIFIED, List.of(from, to), mined, now, "");
+      if (!validGeometry(edge)) throw new IllegalArgumentException("Expected contiguous walking step");
+      if (node(from) == null || node(to) == null) return;
+      Edge current = edges.get(key(edge));
+      if (current == null || !current.returnable() || mined && !current.mined_segment) put(edge);
+    } finally {
+      pinned.clear();
+    }
     compress(from);
     compress(to);
     trim();
@@ -155,9 +164,16 @@ final class ExplorationGraph {
   }
 
   void transition(Cell from, Cell to, String destinationDimension, EdgeKind kind, long now) {
-    ensure(from, now);
-    if (destinationDimension.isEmpty()) ensure(to, now);
-    put(new Edge(from, to, destinationDimension, kind, State.OBSERVED, List.of(), false, now, ""));
+    pinned.add(from);
+    if (destinationDimension.isEmpty()) pinned.add(to);
+    try {
+      ensure(from, now);
+      if (destinationDimension.isEmpty()) ensure(to, now);
+      if (node(from) == null || destinationDimension.isEmpty() && node(to) == null) return;
+      put(new Edge(from, to, destinationDimension, kind, State.OBSERVED, List.of(), false, now, ""));
+    } finally {
+      pinned.clear();
+    }
     trim();
   }
 
@@ -341,12 +357,13 @@ final class ExplorationGraph {
     return List.of();
   }
 
-  private void trim() {
+  void trim() {
     while (nodes.size() > MAX_NODES) {
-      Node victim = nodes.values().stream().filter(n -> !n.important()).findFirst()
+      Node victim = nodes.values().stream().filter(n -> !n.important() && !pinned.contains(n.cell)).findFirst()
           .orElseGet(() -> nodes.values().stream().filter(n -> n.kind != Kind.ENTRY
-              && n.kind != Kind.SAFE_POINT && n.name.isBlank()).findFirst()
-              .orElseGet(() -> nodes.values().iterator().next()));
+              && n.kind != Kind.SAFE_POINT && n.name.isBlank() && !pinned.contains(n.cell)).findFirst()
+              .orElseGet(() -> nodes.values().stream().filter(n -> !pinned.contains(n.cell)).findFirst()
+                  .orElseGet(() -> nodes.values().iterator().next())));
       for (Key key : List.copyOf(incident.getOrDefault(victim.cell, Set.of()))) remove(key);
       nodes.remove(victim.cell);
       revision++;
@@ -356,5 +373,79 @@ final class ExplorationGraph {
           .map(Map.Entry::getKey).orElseGet(() -> edges.keySet().iterator().next());
       remove(victim);
     }
+  }
+
+  /**
+   * Re-checks STALE / BLOCKED bidirectional edges against live terrain. If temporary obstacles
+   * (doors opened, blocks cleared) are now passable, heals them back to VERIFIED / OBSERVED.
+   */
+  int revalidateEdges(java.util.function.Predicate<Edge> isClear, long now) {
+    int healed = 0;
+    for (Edge e : List.copyOf(edges.values())) {
+      if (e.kind != EdgeKind.BIDIRECTIONAL
+          || (e.state != State.STALE && e.state != State.BLOCKED)) continue;
+      if (!isClear.test(e)) continue;
+      Node nf = node(e.from);
+      Node nt = node(e.to);
+      State restored =
+          (nf != null && nf.kind == Kind.FRONTIER) || (nt != null && nt.kind == Kind.FRONTIER)
+              ? State.OBSERVED
+              : State.VERIFIED;
+      put(
+          new Edge(
+              e.from,
+              e.to,
+              e.destination_dimension,
+              e.kind,
+              restored,
+              e.cells,
+              e.mined_segment,
+              now,
+              ""));
+      healed++;
+    }
+    if (healed > 0) trim();
+    return healed;
+  }
+
+  Cell oldestWalkedCell() {
+    for (Node n : nodes.values()) {
+      if (n.kind != Kind.FRONTIER && n.kind != Kind.HAZARD) return n.cell;
+    }
+    return null;
+  }
+
+  Map<Long, Integer> chunkVisitCounts() {
+    Map<Long, Integer> counts = new HashMap<>();
+    for (Node n : nodes.values()) {
+      if (n.kind != Kind.FRONTIER && n.kind != Kind.HAZARD) {
+        counts.merge(ExplorationRoamPolicy.chunkKey(n.cell.x(), n.cell.z()), 1, Integer::sum);
+      }
+    }
+    for (Edge e : edges.values()) {
+      if (!e.returnable()) continue;
+      for (int i = 1; i < e.cells.size() - 1; i++) {
+        Cell c = e.cells.get(i);
+        counts.merge(ExplorationRoamPolicy.chunkKey(c.x(), c.z()), 1, Integer::sum);
+      }
+    }
+    return counts;
+  }
+
+  Map<Long, Integer> sectorVisitCounts() {
+    Map<Long, Integer> counts = new HashMap<>();
+    for (Node n : nodes.values()) {
+      if (n.kind != Kind.FRONTIER && n.kind != Kind.HAZARD) {
+        counts.merge(ExplorationRoamPolicy.sectorKey(n.cell.x(), n.cell.z()), 1, Integer::sum);
+      }
+    }
+    for (Edge e : edges.values()) {
+      if (!e.returnable()) continue;
+      for (int i = 1; i < e.cells.size() - 1; i++) {
+        Cell c = e.cells.get(i);
+        counts.merge(ExplorationRoamPolicy.sectorKey(c.x(), c.z()), 1, Integer::sum);
+      }
+    }
+    return counts;
   }
 }

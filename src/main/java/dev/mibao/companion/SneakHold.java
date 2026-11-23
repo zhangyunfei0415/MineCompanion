@@ -12,24 +12,49 @@ final class SneakHold {
   }
 
   void hold() {
-    if (held || mc().player == null || mc().player.isShiftKeyDown()) return;
-    held = true;
-    mc().player.setShiftKeyDown(true);
-    mc().getConnection()
-        .send(
-            new ServerboundPlayerCommandPacket(
-                mc().player, ServerboundPlayerCommandPacket.Action.PRESS_SHIFT_KEY));
+    var mc = mc();
+    if (mc.player == null) return;
+    if (!held) {
+      held = true;
+      PlayerControls.hold(mc.options.keyShift);
+      if (mc.player.input != null) mc.player.input.shiftKeyDown = true;
+      mc.player.setShiftKeyDown(true);
+      if (mc.getConnection() != null) {
+        mc.getConnection()
+            .send(
+                new ServerboundPlayerCommandPacket(
+                    mc.player, ServerboundPlayerCommandPacket.Action.PRESS_SHIFT_KEY));
+      }
+    } else {
+      maintain();
+    }
+  }
+
+  /** Re-asserts sneak input each tick so LocalPlayer.aiStep does not clear shiftKeyDown before useItemOn. */
+  void maintain() {
+    if (!held) return;
+    var mc = mc();
+    if (mc.player == null) return;
+    mc.options.keyShift.setDown(true);
+    if (mc.player.input != null) mc.player.input.shiftKeyDown = true;
+    mc.player.setShiftKeyDown(true);
   }
 
   void release() {
     if (!held) return;
     held = false;
-    if (mc().player == null) return;
-    mc().player.setShiftKeyDown(false);
-    mc().getConnection()
-        .send(
-            new ServerboundPlayerCommandPacket(
-                mc().player, ServerboundPlayerCommandPacket.Action.RELEASE_SHIFT_KEY));
+    var mc = mc();
+    mc.options.keyShift.setDown(false);
+    PlayerControls.release();
+    if (mc.player == null) return;
+    if (mc.player.input != null) mc.player.input.shiftKeyDown = false;
+    mc.player.setShiftKeyDown(false);
+    if (mc.getConnection() != null) {
+      mc.getConnection()
+          .send(
+              new ServerboundPlayerCommandPacket(
+                  mc.player, ServerboundPlayerCommandPacket.Action.RELEASE_SHIFT_KEY));
+    }
   }
 
   boolean held() {

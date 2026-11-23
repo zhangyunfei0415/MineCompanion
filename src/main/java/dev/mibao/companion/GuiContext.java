@@ -405,14 +405,22 @@ public final class GuiContext {
     return match.entry().profile();
   }
 
+  /** The unique active widget with this label; null when absent or ambiguous (never the first). */
   public static AbstractWidget findActiveWidgetByLabel(String label) {
+    var all = findActiveWidgetsByLabel(label);
+    return all.size() == 1 ? all.get(0) : null;
+  }
+
+  /** Every active, visible widget whose label equals {@code label}, in traversal order. */
+  public static List<AbstractWidget> findActiveWidgetsByLabel(String label) {
     require();
     widgets.clear();
     collect(mc().screen, 0);
+    List<AbstractWidget> found = new ArrayList<>();
     for (var w : widgets.values()) {
-      if (w.active && w.visible && w.getMessage().getString().equals(label)) return w;
+      if (w.active && w.visible && w.getMessage().getString().equals(label)) found.add(w);
     }
-    return null;
+    return found;
   }
 
   public static int[] validateRelativePoint(long expectedView, int dx, int dy) {

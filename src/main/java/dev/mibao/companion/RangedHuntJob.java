@@ -25,8 +25,8 @@ public final class RangedHuntJob extends Actions.Job {
   private InventoryMove prepare;
   private InventorySession verify;
   private LivingEntity target;
-  private BlockPos stance;
-  private int phase, delay, confirmed, shots, arrowBefore, wait;
+  private BlockPos stance, stanceTarget;
+  private int phase, delay, confirmed, shots, arrowBefore, wait, stanceAttempts;
   private long attempt;
   private boolean drawing;
 
@@ -133,6 +133,30 @@ public final class RangedHuntJob extends Actions.Job {
       result("偏离指定区域");
       return;
     }
+    long now = System.nanoTime();
+    var danger =
+        mc().level
+            .getEntitiesOfClass(
+                net.minecraft.world.entity.monster.Monster.class,
+                mc().player.getBoundingBox().inflate(4),
+                m -> {
+                  if (!m.isAlive()) return false;
+                  String mid =
+                      net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+                          .getKey(m.getType())
+                          .toString();
+                  if (allowCreeper && "minecraft:creeper".equals(mid) && m == target) return false;
+                  if (!CombatPolicy.HUNTABLE.contains(mid)) return mc().player.hasLineOfSight(m);
+                  return m != target && CombatPolicy.recent(now, CombatEvidence.attacker(m.getUUID()));
+                });
+    if (!danger.isEmpty()) {
+      release();
+      result(
+          "近处有未适配威胁或近身攻击者 "
+              + net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(danger.get(0).getType())
+              + "，已松开拉弓并停止弓箭作业，交给自卫通道或撤离");
+      return;
+    }
     if (!mc().player.getMainHandItem().is(Items.BOW)) {
       int found = -1;
       for (int i = 0; i < 36; i++) {
@@ -194,6 +218,8 @@ public final class RangedHuntJob extends Actions.Job {
       HuntJob.focus = target.getUUID();
       wait = 0;
       attempt = 0;
+      stanceAttempts = 0;
+      stanceTarget = null;
     }
     Actions.status =
         HuntJob.detail =
@@ -205,7 +231,17 @@ public final class RangedHuntJob extends Actions.Job {
     if (phase == 0) {
       double distance = mc().player.distanceTo(target);
       if (distance < 5 || distance > 14 || !mc().player.hasLineOfSight(target)) {
-        if (stance == null || ++delay % 12 == 0) {
+        if (stance == null
+            || (++delay % 12 == 0
+                && stanceTarget != null
+                && target.blockPosition().distSqr(stanceTarget) > 9)) {
+          if (++stanceAttempts > 6) {
+            skipped.add(target.getUUID());
+            target = null;
+            stance = null;
+            stanceTarget = null;
+            return;
+          }
           stance = bowStance();
           if (stance == null) {
             skipped.add(target.getUUID());
@@ -218,8 +254,16 @@ public final class RangedHuntJob extends Actions.Job {
             stance = null;
             return;
           }
+          stanceTarget = target.blockPosition();
         }
         int r = nav.tick();
+        if (r < 0) {
+          skipped.add(target.getUUID());
+          target = null;
+          stance = null;
+          stanceTarget = null;
+          return;
+        }
         if (r != 0) stance = null;
         return;
       }

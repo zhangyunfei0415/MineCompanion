@@ -320,7 +320,7 @@ public final class WorldSense {
 
   public static JsonObject query(String text, String category, int radius, int offset, int limit) {
     offset = Rules.bounded(offset, 0, WorldMemory.MAX_OBJECTS);
-    limit = Rules.bounded(limit, 1, 64);
+    limit = Rules.bounded(limit, 1, 256);
     var p = mc().player;
     String dim = mc().level.dimension().location().toString();
     String alias = categoryAlias(text);

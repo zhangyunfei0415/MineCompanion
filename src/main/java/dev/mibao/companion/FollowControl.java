@@ -29,10 +29,10 @@ final class FollowControl {
   private final boolean allowEnd;
   private final Navigator nav = new Navigator();
   private final ArrayDeque<BlockPos> waypoints = new ArrayDeque<>();
-  private BlockPos seen, goal, failedAt;
+  private BlockPos seen, goal, failedAt, endEntry;
   private Portal observedPortal, crossing, lastCrossing, lastTargetPortal;
   private String lastTargetDimension;
-  private int ticks, lastSeen, retryAfter, portalDeadline, failures;
+  private int ticks, lastSeen, retryAfter, portalDeadline, failures, entryTicks;
   private long lastSeenAt;
   private boolean chasing, explicitPortal, rejoining;
   private String phase = "queued", detail = "等待控制空闲";
@@ -220,6 +220,10 @@ final class FollowControl {
         && current.profile.equals(profile) && current.allowEnd == end) return status();
     if (current != null) stop("切换跟随目标");
     if (local && !Agent.enabled) Agent.start();
+    if (!uuid.isBlank() || !name.isBlank()) {
+      select(online.get());
+      DutyScheduler.bindEscortTarget(online.get().id(), online.get().name());
+    }
     current = new FollowControl(online.get(), profile, end);
     Companion.notifyUser("跟随 " + current.target.name() + " · " + profileLabel(profile));
     return status();
@@ -534,10 +538,13 @@ final class FollowControl {
   private void stepThroughPortal() {
     if (crossing == null) {
       var confirmed = portalAt(observedPortal.cell());
+      // End portals have no collision and sit over a lava/void well: stand on the frame ring.
+      BlockPos stance =
+          "end".equals(observedPortal.kind()) ? endStance(observedPortal.cell()) : observedPortal.cell();
       if (confirmed == null || !confirmed.kind().equals(observedPortal.kind())
           || !confirmed.dimension().equals(observedPortal.dimension())
           || !portalAllowed(observedPortal.kind())
-          || !Navigator.stand(observedPortal.cell())
+          || stance == null || !Navigator.stand(stance)
           || !portalInRange(observedPortal) || ticks >= portalDeadline) {
         observedPortal = null;
         suspend("目标进入门口；等待玩家带领或确认入口");
@@ -545,12 +552,13 @@ final class FollowControl {
       }
       release();
       crossing = observedPortal;
-      if (!nav.startFollow(crossing.cell(), this::allowedCell)) {
+      entryTicks = 0;
+      if (!nav.startFollow(stance, this::allowedCell)) {
         crossing = observedPortal = null;
         suspend("传送门入口不可安全到达");
         return;
       }
-      goal = crossing.cell();
+      goal = stance;
     }
     var confirmed = portalAt(crossing.cell());
     if (ticks >= portalDeadline || confirmed == null || !confirmed.kind().equals(crossing.kind())) {
@@ -573,8 +581,68 @@ final class FollowControl {
         return;
       }
     }
+    if (goal == null && "end".equals(crossing.kind())) {
+      stepIntoEndPortal();
+      return;
+    }
     phase = goal == null ? "waiting_portal" : "approaching_portal";
     detail = "沿已观察的门口前进并等待正常传送";
+  }
+
+  /** Standable cell on or beside the end portal frame, horizontally next to an end portal block. */
+  private BlockPos endStance(BlockPos portal) {
+    BlockPos best = null;
+    double score = Double.MAX_VALUE;
+    for (var c : BlockPos.betweenClosed(portal.offset(-4, -1, -4), portal.offset(4, 2, 4))) {
+      var cell = c.immutable();
+      if (portalAt(cell) != null || endEntryFrom(cell) == null || !allowedCell(cell)
+          || !Navigator.stand(cell)) continue;
+      double d = cell.distSqr(mc().player.blockPosition());
+      if (d < score) {
+        score = d;
+        best = cell;
+      }
+    }
+    return best;
+  }
+
+  private BlockPos endEntryFrom(BlockPos stance) {
+    for (var direction : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+      var side = stance.relative(direction);
+      for (var at : List.of(side, side.below())) {
+        var portal = portalAt(at);
+        if (portal != null && portal.kind().equals("end")) return at;
+      }
+    }
+    return null;
+  }
+
+  /** One controlled step off the frame; done when the body touches the portal block shape. */
+  private void stepIntoEndPortal() {
+    var p = mc().player;
+    if (endEntry == null) endEntry = endEntryFrom(Navigator.standingCell());
+    if (endEntry == null || portalAt(endEntry) == null || ++entryTicks > 40
+        || Navigator.lethalHazard(endEntry.above())) {
+      release();
+      crossing = observedPortal = null;
+      explicitPortal = false;
+      phase = "portal_blocked";
+      detail = "末地门受控步入未能接触门方块";
+      return;
+    }
+    var touch = new net.minecraft.world.phys.AABB(endEntry.getX(), endEntry.getY(), endEntry.getZ(),
+        endEntry.getX() + 1, endEntry.getY() + .75, endEntry.getZ() + 1);
+    if (p.getBoundingBox().intersects(touch)) {
+      Navigator.release();
+      phase = "waiting_portal";
+      detail = "已接触末地门，等待正常传送";
+      return;
+    }
+    double dx = endEntry.getX() + .5 - p.getX(), dz = endEntry.getZ() + .5 - p.getZ();
+    p.setYRot((float) Math.toDegrees(Math.atan2(-dx, dz)));
+    PlayerControls.motionState(true, false);
+    phase = "entering_portal";
+    detail = "沿门框受控步入末地传送门";
   }
 
   private boolean portalAllowed(String kind) {
@@ -603,6 +671,10 @@ final class FollowControl {
   private void release() {
     if (goal != null) nav.stop();
     goal = null;
+    if (endEntry != null) {
+      endEntry = null;
+      Navigator.release();
+    }
   }
 
   private void resetObservations() {

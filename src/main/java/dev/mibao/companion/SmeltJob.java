@@ -100,6 +100,11 @@ public final class SmeltJob extends Actions.Job {
       return;
     }
     if (MenuContext.revision() <= revision || !MenuContext.synchronizedNow()) {
+      if (phase == 3) {
+        // The server pushes furnace slot changes itself; full resync is only a slow fallback.
+        if (++wait % 40 == 0) MenuRefresh.request();
+        return;
+      }
       if (++wait > 160) finish("部分完成：熔炉菜单8秒内没有完整稳定同步，停止保留现场");
       return;
     }
@@ -149,6 +154,8 @@ public final class SmeltJob extends Actions.Job {
         var stack = slot.getItem();
         int duration = burnTime(stack);
         if (slot.container != mc().player.getInventory() || duration <= 0) continue;
+        // Only ordinary fuels from the inventory; chests/crafting tables/protected items never burn.
+        if (!ordinaryFuel(stack) || LogisticsRuntime.protectedItem(stack)) continue;
         String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         available.merge(id, stack.getCount(), Integer::sum);
         durations.put(id, duration);
@@ -161,6 +168,19 @@ public final class SmeltJob extends Actions.Job {
       var plan =
           SmeltFuelPlan.choose(
               cookingTicks, existingId, oldFuel, available, durations, input, count);
+      if (existingId.isEmpty() && oldFuel + plan.toAdd() > fuelCapacity(m, plan.fuel())) {
+        // Short fuels may need more items than one fuel slot holds; prefer a fuel that fits.
+        Map<String, Integer> fitting = new HashMap<>();
+        for (var e : durations.entrySet()) {
+          int d = e.getValue();
+          if (d > 0 && (cookingTicks + d - 1) / d <= fuelCapacity(m, e.getKey()))
+            fitting.put(e.getKey(), d);
+        }
+        if (!fitting.isEmpty())
+          plan =
+              SmeltFuelPlan.choose(
+                  cookingTicks, existingId, oldFuel, available, fitting, input, count);
+      }
       fuelId = plan.fuel();
       fuel = plan.required();
       addedFuel = plan.toAdd();
@@ -185,6 +205,18 @@ public final class SmeltJob extends Actions.Job {
                     + "缺"
                     + plan.missing()
                     + "；可用普通木板、原木、煤、木炭、煤炭块、烈焰棒，以当前炉型燃烧时长为准");
+        return;
+      }
+      int fuelSlotCapacity = fuelCapacity(m, fuelId);
+      if (oldFuel + addedFuel > fuelSlotCapacity) {
+        finish(
+            "失败：[FUEL_SLOT_CAPACITY] 燃料"
+                + fuelId
+                + "需要"
+                + (oldFuel + addedFuel)
+                + "个，超过燃料槽上限"
+                + fuelSlotCapacity
+                + "；未移动任何输入/燃料，请减少本批数量或准备燃烧更久的燃料");
         return;
       }
       if (RestockTask.latest != null && "production".equals(RestockTask.latest.kind)) {
@@ -289,7 +321,9 @@ public final class SmeltJob extends Actions.Job {
         finish("部分完成：熔炉出现非目标产物，停止");
         return;
       }
-      refresh();
+      // Wait passively for the next server-pushed slot update instead of polling a full resync.
+      revision = MenuContext.revision();
+      wait = 0;
       return;
     }
     boolean verified =
@@ -439,6 +473,16 @@ public final class SmeltJob extends Actions.Job {
     return burnTime(stack, station);
   }
 
+  private static final Set<String> ORDINARY_FUELS =
+      Set.of("minecraft:coal", "minecraft:charcoal", "minecraft:coal_block", "minecraft:blaze_rod");
+
+  /** Fuel whitelist matching the user-facing hint: planks, logs, coal, charcoal, coal block, blaze rod. */
+  static boolean ordinaryFuel(ItemStack stack) {
+    if (stack.is(net.minecraft.tags.ItemTags.PLANKS)
+        || stack.is(net.minecraft.tags.ItemTags.LOGS_THAT_BURN)) return true;
+    return ORDINARY_FUELS.contains(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+  }
+
   static int burnTime(ItemStack stack, CookingStation station) {
     if (stack.isEmpty() || stack.hasTag() || stack.isDamageableItem()) return 0;
     // Container-returning fuels need their own inventory ledger, so keep them separate.
@@ -449,6 +493,12 @@ public final class SmeltJob extends Actions.Job {
   }
 
   private int addedFuel, fuelLimit;
+
+  /** Items the fuel slot can hold for this fuel id, never above 64. */
+  private static int fuelCapacity(AbstractContainerMenu m, String id) {
+    var item = BuiltInRegistries.ITEM.get(new net.minecraft.resources.ResourceLocation(id));
+    return Math.min(64, m.getSlot(1).getMaxStackSize(new ItemStack(item)));
+  }
 
   private void issue(int slot, int button, ClickType type) {
     Actions.click(slot, button, type);

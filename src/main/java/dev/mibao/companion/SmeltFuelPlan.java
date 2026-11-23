@@ -29,8 +29,9 @@ final class SmeltFuelPlan {
                                           0,
                                           stock.getOrDefault(id, 0)
                                               - (id.equals(input) ? inputCount : 0))))
-                      .thenComparing(
-                          Comparator.comparingInt((String id) -> durations.get(id)).reversed())
+                      // Least burn time thrown away first, then fewest items, then a stable id.
+                      .thenComparingLong(id -> waste(ticks, durations.get(id)))
+                      .thenComparingInt(id -> (ticks + durations.get(id) - 1) / durations.get(id))
                       .thenComparing(id -> id))
               .findFirst()
               .orElse("minecraft:coal");
@@ -41,5 +42,11 @@ final class SmeltFuelPlan {
         Math.max(0, stock.getOrDefault(fuel, 0) - (fuel.equals(input) ? inputCount : 0));
     int add = Math.max(0, required - oldCount);
     return new Plan(fuel, required, oldCount, available, add, Math.max(0, add - available));
+  }
+
+  /** Burn ticks left unused after cooking {@code ticks} with whole items of {@code duration}. */
+  static long waste(int ticks, int duration) {
+    long items = (ticks + (long) duration - 1) / duration;
+    return items * duration - ticks;
   }
 }

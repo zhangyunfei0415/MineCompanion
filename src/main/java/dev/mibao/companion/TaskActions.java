@@ -16,6 +16,7 @@ final class TaskActions {
                 "explore_mark",
                 "explore_query",
                 "explore_branch",
+                "explore_roam",
                 "explore_return",
                 "illuminate_area",
                 "work_session",

@@ -157,6 +157,61 @@ final class WorkbenchDutyView {
     renderAutoActionCard(t);
 
     ui.card(
+        "三维探索领路（带玩家回家）",
+        "安全回程",
+        t.accent(),
+        () -> {
+          ui.mutedText("沿已走通的 3D 安全回程图领路回到基地/入口/安全点，会在拐角与过远处主动停下等待玩家跟上。");
+          ui.row(
+              "带玩家回最近安全点/基地",
+              () -> {
+                var mc = net.minecraft.client.Minecraft.getInstance();
+                if (!Agent.enabled) Agent.start();
+                if (!Agent.enabled) {
+                  ui.setStatus("当前窗口未持有AI控制权，请在AI窗口启动");
+                  return;
+                }
+                DutyScheduler.yieldCurrentJob("手动开启带玩家回家");
+                var args = new com.google.gson.JsonObject();
+                args.addProperty("target", "nearest_safe");
+                args.addProperty("guide_player", true);
+                args.addProperty("max_seconds", 240);
+                try {
+                  ExplorationJob.start(
+                      "explore_return",
+                      args,
+                      r -> Companion.notifyUser(Rules.clean(r, 180)));
+                  mc.setScreen(null);
+                } catch (IllegalArgumentException ex) {
+                  ui.setStatus(ex.getMessage());
+                }
+              },
+              "带玩家回维度入口",
+              () -> {
+                var mc = net.minecraft.client.Minecraft.getInstance();
+                if (!Agent.enabled) Agent.start();
+                if (!Agent.enabled) {
+                  ui.setStatus("当前窗口未持有AI控制权，请在AI窗口启动");
+                  return;
+                }
+                DutyScheduler.yieldCurrentJob("手动开启带玩家回入口");
+                var args = new com.google.gson.JsonObject();
+                args.addProperty("target", "nearest_entry");
+                args.addProperty("guide_player", true);
+                args.addProperty("max_seconds", 240);
+                try {
+                  ExplorationJob.start(
+                      "explore_return",
+                      args,
+                      r -> Companion.notifyUser(Rules.clean(r, 180)));
+                  mc.setScreen(null);
+                } catch (IllegalArgumentException ex) {
+                  ui.setStatus(ex.getMessage());
+                }
+              });
+        });
+
+    ui.card(
         "安全护栏与生活自理",
         "防呆防丢",
         t.accentAlt(),
@@ -168,6 +223,27 @@ final class WorkbenchDutyView {
               false,
               duty.autoEat ? "推荐开启" : "",
               t.success());
+          ui.worldToggleRow(
+              "待命空闲按阈值自动进食（仅用随身背包普通食物，不触碰精妙背包）",
+              () -> duty.standbyAutoEat,
+              v -> duty.standbyAutoEat = v,
+              duty.standbyAutoEat,
+              duty.standbyAutoEat ? "待命自理" : "",
+              duty.standbyAutoEat ? t.accentAlt() : 0);
+          ui.mutedText(
+              "自动进食触发与目标（当前："
+                  + duty.autoEatThreshold
+                  + " → "
+                  + duty.autoEatTarget
+                  + "）：");
+          ui.segmentRow(
+              List.of(
+                  eatThresholdOption(duty, 8),
+                  eatThresholdOption(duty, 10),
+                  eatThresholdOption(duty, 12),
+                  eatThresholdOption(duty, 14),
+                  eatTargetOption(duty, 18),
+                  eatTargetOption(duty, 20)));
           ui.worldToggleRow(
               "遇疑难异常允许低频求助大模型（默认关 · 防烧 Token）",
               () -> duty.allowAiEscalation,
@@ -269,6 +345,30 @@ final class WorkbenchDutyView {
         duty.baseRadius == r,
         () -> {
           duty.baseRadius = r;
+          Store.save();
+          ui.rebuild();
+        });
+  }
+
+  private WorkbenchScreen.SegmentOption eatThresholdOption(CompanionDuty duty, int threshold) {
+    return new WorkbenchScreen.SegmentOption(
+        "≤" + threshold + " 触发",
+        duty.autoEatThreshold == threshold,
+        () -> {
+          duty.autoEatThreshold = threshold;
+          duty.normalize();
+          Store.save();
+          ui.rebuild();
+        });
+  }
+
+  private WorkbenchScreen.SegmentOption eatTargetOption(CompanionDuty duty, int target) {
+    return new WorkbenchScreen.SegmentOption(
+        "吃到 " + target,
+        duty.autoEatTarget == target,
+        () -> {
+          duty.autoEatTarget = target;
+          duty.normalize();
           Store.save();
           ui.rebuild();
         });
@@ -576,7 +676,16 @@ final class WorkbenchDutyView {
       ui.setStatus("当前窗口未持有AI控制权，请在AI窗口启动");
       return;
     }
+    if (Agent.paused || Cooperation.yielding() || HarnessController.busy()) {
+      ui.setStatus("[BUSY] 当前已暂停、交给玩家或有前台作业，请先恢复控制或等待作业结束");
+      return;
+    }
+    if (Actions.job != null && !DutyScheduler.ownsCurrentJob()) {
+      ui.setStatus("[BUSY] 已有连续作业在执行，请先停止当前作业再开启后台挂机");
+      return;
+    }
     DutyScheduler.yieldCurrentJob("手动开启后台挂机：" + mode.label);
+    if (Actions.job != null) Actions.cancel();
     mc.setScreen(null);
     Actions.job =
         new AutoActionJob(

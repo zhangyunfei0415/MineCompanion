@@ -167,7 +167,12 @@ public final class HandoffJob extends Actions.Job {
       }
       Vec3 aimPoint = new Vec3(target.getX(), target.getY() + target.getBbHeight() * 0.65, target.getZ());
       if (!aim.ready(aimPoint)) return;
-      mc.player.getInventory().selected = prepare.readySlot;
+      if (mc.player.getInventory().selected != prepare.readySlot) {
+        // drop() only sends a player-action packet; the carried-slot packet is sent by the next
+        // tick's gameMode.tick(). Switch now and drop next tick so the server drops this stack.
+        mc.player.getInventory().selected = prepare.readySlot;
+        return;
+      }
       ItemStack hand = mc.player.getMainHandItem();
       if (hand.isEmpty() || !Actions.match(hand, itemFilter)) {
         finish("失败：[ITEM_CHANGED] 手持物品发生变化。");
