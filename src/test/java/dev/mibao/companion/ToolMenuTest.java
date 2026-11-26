@@ -19,6 +19,18 @@ class ToolMenuTest {
     assertEquals("gathering", ToolMenu.profile("去钓鱼"));
     assertTrue(names(ToolMenu.select(ToolSchemas.all(), "照明", Set.of()))
         .containsAll(Set.of("light_survey", "illuminate_area", "find_blocks")));
+    assertEquals("construction", ToolMenu.profile("读取蓝图并用回滚日志撤销误放"));
+    assertTrue(
+        names(ToolMenu.select(ToolSchemas.all(), "蓝图建造", Set.of()))
+            .containsAll(
+                Set.of(
+                    "blueprint_list",
+                    "blueprint_inspect",
+                    "blueprint_build",
+                    "blueprint_status",
+                    "rollback_journal",
+                    "policy_whitelist",
+                    "report_plan")));
     assertTrue(names(ToolMenu.select(ToolSchemas.all(), "钓鱼", Set.of())).contains("fish"));
     assertTrue(Rules.WRITE.containsAll(Set.of("fish", "illuminate_area")));
     assertTrue(ControlPolicy.needsInputPermission("fish"));

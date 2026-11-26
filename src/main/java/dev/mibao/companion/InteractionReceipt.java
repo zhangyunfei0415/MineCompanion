@@ -39,6 +39,11 @@ final class InteractionReceipt {
     String after = text(evidence, "block_after");
     if (!before.isBlank() || !after.isBlank())
       parts.add("方块 " + (before.isBlank() ? "?" : before) + "→" + (after.isBlank() ? "?" : after));
+    if (flag(evidence, "adjacent_block_changed")) {
+      String adjPos = text(evidence, "adjacent_position");
+      String adjAfter = text(evidence, "adjacent_block_after");
+      parts.add("邻格(" + adjPos + ")→" + adjAfter);
+    }
     for (JsonElement element : array(evidence, "inventory")) {
       JsonObject row = object(element);
       long delta = number(row, "delta");
@@ -85,6 +90,15 @@ final class InteractionReceipt {
       JsonObject row = object(element);
       long count = number(row, "count");
       if (count > 0 && !flag(row, "linked")) parts.add("附近掉落 " + text(row, "id") + "×" + count);
+    }
+    if (flag(evidence, "adjacent_block_changed")
+        && !flag(evidence, "block_changed")
+        && !flag(evidence, "machine_changed")) {
+      parts.add(
+          "相邻格 "
+              + text(evidence, "adjacent_position")
+              + " 变为 "
+              + text(evidence, "adjacent_block_after"));
     }
     return parts;
   }

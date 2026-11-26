@@ -101,4 +101,107 @@ class ExplorationGraphTest {
     assertEquals(9L, graph.edges().stream().filter(e -> e.from().y() == 70).findFirst().orElseThrow().last_seen());
     assertEquals(List.of(64, 70), graph.layers());
   }
+
+  @Test void compressesVerticalLadderShaftsRoutesAcrossLayersAndValidatesBeforeMutating() {
+    var graph = new ExplorationGraph();
+    // Invalid jump must fail BEFORE adding nodes.
+    assertThrows(IllegalArgumentException.class, () -> graph.walk(x(0), x(5), false, 1));
+    assertTrue(graph.nodes().isEmpty());
+
+    // Unverified vertical proof must also fail cleanly without polluting nodes.
+    var badProof = new ExplorationGraph.PassageProof(Passage.LADDER, true, false, 1, 1L);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> graph.walk(new Cell(0, 64, 0), new Cell(0, 65, 0), false, Passage.LADDER, badProof, 1));
+    assertTrue(graph.nodes().isEmpty());
+
+    // Walk ground corridor (0,64,0)->(3,64,0), climb vertical ladder shaft (3,64,0)->(3,70,0), then walk roof (3,70,0)->(5,70,0).
+    for (int ix = 0; ix < 3; ix++) graph.walk(new Cell(ix, 64, 0), new Cell(ix + 1, 64, 0), false, 2);
+    for (int iy = 64; iy < 70; iy++) {
+      var a = new Cell(3, iy, 0);
+      var b = new Cell(3, iy + 1, 0);
+      graph.walk(a, b, false, Passage.LADDER, new ExplorationGraph.PassageProof(Passage.LADDER, true, true, 1, 3L), 3);
+    }
+    for (int ix = 3; ix < 5; ix++) graph.walk(new Cell(ix, 70, 0), new Cell(ix + 1, 70, 0), false, 4);
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> graph.walk(new Cell(0, 64, 0), new Cell(1, 64, 0), false, Passage.LADDER, new ExplorationGraph.PassageProof(Passage.LADDER, true, true, 0, 1L), 1));
+
+    // Monotonic vertical shaft should compress into a single LADDER edge spanning y=64..70.
+    assertEquals(1, graph.edges().stream().filter(e -> e.passage() == Passage.LADDER).count());
+    var route = graph.route(new Cell(0, 64, 0), Set.of(new Cell(5, 70, 0)));
+    assertEquals(11, route.size());
+    assertEquals(new Cell(5, 70, 0), route.get(route.size() - 1).to());
+
+    var ladderStep = route.stream().filter(s -> s.edge().passage() == Passage.LADDER).findFirst().orElseThrow();
+    graph.update(ladderStep, State.BLOCKED, "blocked_ladder", 5L);
+    assertTrue(graph.edges().stream().anyMatch(e -> e.state() == State.BLOCKED && e.passage() == Passage.LADDER));
+  }
+
+  @Test void storeLoadsLegacySchemaOneAndIsolatesSingleMalformedEdge() throws Exception {
+    var key = new ExplorationStore.Key("world-legacy", "minecraft:overworld");
+    Path shardPath = ExplorationStore.path(root, key);
+    Files.createDirectories(shardPath.getParent());
+    String json =
+        """
+        {
+          "schema": 1,
+          "scope": "world-legacy",
+          "dimension": "minecraft:overworld",
+          "graph": {
+            "nodes": [
+              {"cell": {"x": 0, "y": 64, "z": 0}, "kind": "PATH", "name": "", "landmark_hints": [], "last_seen": 1},
+              {"cell": {"x": 1, "y": 64, "z": 0}, "kind": "PATH", "name": "", "landmark_hints": [], "last_seen": 1}
+            ],
+            "edges": [
+              {"from": {"x": 0, "y": 64, "z": 0}, "to": {"x": 1, "y": 64, "z": 0}, "destination_dimension": "", "kind": "BIDIRECTIONAL", "state": "VERIFIED", "cells": [{"x": 0, "y": 64, "z": 0}, {"x": 1, "y": 64, "z": 0}], "mined_segment": false, "last_seen": 1, "reason": ""},
+              {"from": {"x": 0, "y": 64, "z": 0}, "to": "corrupt_object"}
+            ]
+          }
+        }
+        """;
+    Files.writeString(shardPath, json);
+    var loaded = ExplorationStore.reloadReadOnly(root, key).get(5, TimeUnit.SECONDS);
+    assertFalse(loaded.failed());
+    assertEquals(2, loaded.graph().nodes().size());
+    assertEquals(1, loaded.graph().edges().size());
+    assertEquals(Passage.GROUND, loaded.graph().edges().iterator().next().passage());
+  }
+
+  @Test void skipsSingleMalformedNodeAndRejectsWrongVerticalProofDy() throws Exception {
+    var graph = new ExplorationGraph();
+    var mismatchDy = new ExplorationGraph.PassageProof(Passage.LADDER, true, true, -1, 1L);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> graph.walk(new Cell(0, 64, 0), new Cell(0, 65, 0), false, Passage.LADDER, mismatchDy, 1));
+    assertTrue(graph.nodes().isEmpty());
+
+    var key = new ExplorationStore.Key("world-badnode", "minecraft:overworld");
+    Path shardPath = ExplorationStore.path(root, key);
+    Files.createDirectories(shardPath.getParent());
+    String json =
+        """
+        {
+          "schema": 2,
+          "scope": "world-badnode",
+          "dimension": "minecraft:overworld",
+          "graph": {
+            "nodes": [
+              {"cell": {"x": 0, "y": 64, "z": 0}, "kind": "PATH", "name": "", "landmark_hints": [], "last_seen": 1},
+              {"cell": {"x": 1, "y": 64, "z": 0}, "kind": "PATH", "name": "", "landmark_hints": [], "last_seen": 1},
+              {"cell": {"x": 2, "y": 64, "z": 0}}
+            ],
+            "edges": [
+              {"from": {"x": 0, "y": 64, "z": 0}, "to": {"x": 1, "y": 64, "z": 0}, "destination_dimension": "", "kind": "BIDIRECTIONAL", "state": "VERIFIED", "cells": [{"x": 0, "y": 64, "z": 0}, {"x": 1, "y": 64, "z": 0}], "mined_segment": false, "last_seen": 1, "reason": ""}
+            ]
+          }
+        }
+        """;
+    Files.writeString(shardPath, json);
+    var loaded = ExplorationStore.reloadReadOnly(root, key).get(5, TimeUnit.SECONDS);
+    assertFalse(loaded.failed());
+    assertEquals(2, loaded.graph().nodes().size());
+    assertEquals(1, loaded.graph().edges().size());
+  }
 }

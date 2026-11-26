@@ -150,7 +150,7 @@ public final class RangedHuntJob extends Actions.Job {
                   return m != target && CombatPolicy.recent(now, CombatEvidence.attacker(m.getUUID()));
                 });
     if (!danger.isEmpty()) {
-      release();
+      cancelDraw();
       result(
           "近处有未适配威胁或近身攻击者 "
               + net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(danger.get(0).getType())
@@ -181,7 +181,7 @@ public final class RangedHuntJob extends Actions.Job {
         && attempt > 0
         && CombatPolicy.deathConfirmed(attempt, CombatEvidence.death(target.getUUID()))) {
       if (complete.add(target.getUUID())) confirmed++;
-      release();
+      cancelDraw();
       target = null;
       phase = 0;
       stance = null;
@@ -190,7 +190,7 @@ public final class RangedHuntJob extends Actions.Job {
     if (target != null
         && (!MeleeOps.eligible(target, type, allowCreeper)
             || target.blockPosition().distSqr(center) > radius * radius)) {
-      release();
+      cancelDraw();
       if (++wait < 25) return;
       skipped.add(target.getUUID());
       target = null;
@@ -280,7 +280,10 @@ public final class RangedHuntJob extends Actions.Job {
           mc().level
               .getEntitiesOfClass(AbstractArrow.class, mc().player.getBoundingBox().inflate(20)))
         projectiles.add(e.getUUID());
-      aim();
+      if (!aim(BowAim.chargeTicks())) {
+        result("当前弹道未命中有解，未进入拉弓");
+        return;
+      }
       mc().gameMode.useItem(mc().player, InteractionHand.MAIN_HAND);
       if (!mc().player.isUsingItem()) {
         result("弓未进入拉弓状态");
@@ -297,9 +300,15 @@ public final class RangedHuntJob extends Actions.Job {
         result("拉弓被中断，未再次激活");
         return;
       }
-      aim();
+      boolean solvable = aim(BowAim.chargeTicks());
       if (++delay < BowAim.chargeTicks()) return;
+      if (!solvable) {
+        cancelDraw();
+        result("释放前弹道解算失效或目标超出射程，未盲射");
+        return;
+      }
       if (!mc().player.hasLineOfSight(target)) {
+        cancelDraw();
         result("释放前目标被遮挡，停止；请重新观察");
         return;
       }
@@ -315,18 +324,27 @@ public final class RangedHuntJob extends Actions.Job {
     if (phase == 2 && ++delay >= 6) verify = new InventorySession(false);
   }
 
-  private void aim() {
+  private boolean aim(int chargeTicks) {
     var p = mc().player;
-    var eye = p.getEyePosition();
-    var b = target.getBoundingBox();
-    double distance = eye.distanceTo(b.getCenter());
-    var lead = target.getDeltaMovement().scale(Math.min(4, distance / 3));
-    var point = b.getCenter().add(lead);
-    var d = point.subtract(eye);
-    double horizontal = Math.sqrt(d.x * d.x + d.z * d.z),
-        angle = BowAim.elevation(horizontal, d.y, 3);
-    p.setYRot((float) Math.toDegrees(Math.atan2(-d.x, d.z)));
-    p.setXRot((float) -Math.toDegrees(angle));
+    var origin = new BowAim.V3(p.getX(), p.getEyeY() - (double) 0.1F, p.getZ());
+    var center = target.getBoundingBox().getCenter();
+    var vel = target.getDeltaMovement();
+    var targetVel = new BowAim.V3(vel.x, target.onGround() && vel.y < 0.0 ? 0.0 : vel.y, vel.z);
+    var res =
+        BowAim.solve(
+            origin,
+            new BowAim.V3(center.x, center.y, center.z),
+            targetVel,
+            chargeTicks,
+            BowAim.Arc.LOW,
+            120);
+    if (res.status() != BowAim.AimStatus.HIT || res.solution().isEmpty()) {
+      return false;
+    }
+    var sol = res.solution().get();
+    p.setYRot((float) Math.toDegrees(sol.yaw()));
+    p.setXRot((float) -Math.toDegrees(sol.elevation()));
+    return true;
   }
 
   private BlockPos bowStance() {
@@ -359,9 +377,16 @@ public final class RangedHuntJob extends Actions.Job {
     return best;
   }
 
-  private void release() {
-    if (drawing) {
-      mc().gameMode.releaseUsingItem(mc().player);
+  private void cancelDraw() {
+    if (drawing && mc().player != null) {
+      // Cancel bow draw safely without calling releaseUsingItem (which fires an arrow on vanilla client).
+      int cur = mc().player.getInventory().selected;
+      int other = (oldSlot >= 0 && oldSlot < 9 && oldSlot != cur) ? oldSlot : (cur + 1) % 9;
+      mc().player.getInventory().selected = other;
+      if (mc().getConnection() != null) {
+        mc().getConnection()
+            .send(new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(other));
+      }
       PlayerControls.release();
       drawing = false;
     }
@@ -383,7 +408,7 @@ public final class RangedHuntJob extends Actions.Job {
   }
 
   void stop() {
-    release();
+    cancelDraw();
     if (prepare != null) prepare.stop();
     if (verify != null) verify.close();
     if (mc().player != null) mc().player.getInventory().selected = oldSlot;

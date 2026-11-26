@@ -22,8 +22,21 @@ public final class ItemOnBlockJob extends Actions.Job {
       boolean sneak,
       int stanceRadius,
       Consumer<String> done) {
+    this(p, item, top ? "top" : "any", sneak, stanceRadius, null, null, "", done);
+  }
+
+  public ItemOnBlockJob(
+      BlockPos p,
+      String item,
+      String face,
+      boolean sneak,
+      int stanceRadius,
+      Double hitU,
+      Double hitV,
+      String subSlot,
+      Consumer<String> done) {
     super(done);
-    operation = new ItemOnBlockOperation(p, item, top, sneak, stanceRadius);
+    operation = new ItemOnBlockOperation(p, item, face, sneak, stanceRadius, hitU, hitV, subSlot);
   }
 
   void tick() {

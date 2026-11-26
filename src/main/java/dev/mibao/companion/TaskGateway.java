@@ -106,6 +106,10 @@ final class TaskGateway {
     return receipt(id);
   }
 
+  static boolean exists(String id) {
+    return id != null && !id.isBlank() && Store.data.checkpoints.containsKey("task:" + id);
+  }
+
   static JsonObject receipt(String id) {
     var r = Store.data.checkpoints.get("task:" + id);
     if (r == null) throw new IllegalArgumentException("[TASK_NOT_FOUND] 未找到本世界任务ID");

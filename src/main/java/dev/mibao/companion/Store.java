@@ -116,6 +116,7 @@ public final class Store {
     public boolean vision = true,
         web = true,
         publicReply = false,
+        allowGuestChat = false,
         allowMine = false,
         allowHunt = false,
         allowPlace = false,
@@ -141,6 +142,12 @@ public final class Store {
     public int hudWidth = 190, hudY = 42, hudOpacity = 85, hudMessages = 3, hudVersion = 0;
     public int perceptionRadius = 12;
     public int maxOutput = 2400, idleSeconds = 90, maxTurns = 24, mcpPort = 25579;
+    public boolean soundSense = true, soundReflex = true, environmentWatch = true;
+    public java.util.List<String> customLeftTapPrefixes = new java.util.ArrayList<>();
+    public java.util.List<String> customGeneratorBlocks = new java.util.ArrayList<>();
+    public java.util.List<String> customSoundWarn = new java.util.ArrayList<>();
+    public java.util.List<String> customSoundInfo = new java.util.ArrayList<>();
+    public java.util.List<String> customSoundIgnore = new java.util.ArrayList<>();
   }
 
   public static class Data {
@@ -170,6 +177,10 @@ public final class Store {
     public List<String> journal = new ArrayList<>();
     public long inputTokens, outputTokens, requests;
     public WorldMemory world = new WorldMemory();
+    public Map<String, GoalBoard.State> goalBoards = new LinkedHashMap<>();
+    public Map<String, RollbackJournal.Log> rollbackJournals = new LinkedHashMap<>();
+    public Map<String, JsonObject> blueprintCheckpoints = new LinkedHashMap<>();
+    public Map<String, JsonArray> scaffoldLedgers = new LinkedHashMap<>();
   }
 
   public static class Place {
@@ -380,6 +391,16 @@ public final class Store {
     }
     data.skills = sharedSkills;
     if (config.disabledPackages == null) config.disabledPackages = new java.util.ArrayList<>();
+    if (config.customLeftTapPrefixes == null) config.customLeftTapPrefixes = new java.util.ArrayList<>();
+    if (config.customGeneratorBlocks == null) config.customGeneratorBlocks = new java.util.ArrayList<>();
+    if (config.customSoundWarn == null) config.customSoundWarn = new java.util.ArrayList<>();
+    if (config.customSoundInfo == null) config.customSoundInfo = new java.util.ArrayList<>();
+    if (config.customSoundIgnore == null) config.customSoundIgnore = new java.util.ArrayList<>();
+    WhitelistPolicy.normalizeList(config.customLeftTapPrefixes, "left_tap");
+    WhitelistPolicy.normalizeList(config.customGeneratorBlocks, "generator_blocks");
+    WhitelistPolicy.normalizeList(config.customSoundWarn, "sound_warn");
+    WhitelistPolicy.normalizeList(config.customSoundInfo, "sound_info");
+    WhitelistPolicy.normalizeList(config.customSoundIgnore, "sound_ignore");
     SkillLibrary.refresh();
   }
 
@@ -565,6 +586,48 @@ public final class Store {
     if (d.workLedger == null) d.workLedger = new ArrayList<>();
     d.workLedger.removeIf(e -> e == null || e.text == null || e.dimension == null);
     if (d.workLedger.size() > 120) d.workLedger.subList(0, d.workLedger.size() - 120).clear();
+    if (d.goalBoards == null) d.goalBoards = new LinkedHashMap<>();
+    d.goalBoards.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null);
+    for (var s : d.goalBoards.values()) s.normalize();
+    while (d.goalBoards.size() > 16) d.goalBoards.remove(d.goalBoards.keySet().iterator().next());
+    if (d.rollbackJournals == null) d.rollbackJournals = new LinkedHashMap<>();
+    d.rollbackJournals.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null);
+    for (var l : d.rollbackJournals.values()) l.normalize();
+    while (d.rollbackJournals.size() > 16)
+      d.rollbackJournals.remove(d.rollbackJournals.keySet().iterator().next());
+    if (d.blueprintCheckpoints == null) d.blueprintCheckpoints = new LinkedHashMap<>();
+    d.blueprintCheckpoints.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null);
+    while (d.blueprintCheckpoints.size() > 24)
+      d.blueprintCheckpoints.remove(d.blueprintCheckpoints.keySet().iterator().next());
+    if (d.scaffoldLedgers == null) d.scaffoldLedgers = new LinkedHashMap<>();
+    d.scaffoldLedgers.entrySet().removeIf(e -> e.getKey() == null || e.getValue() == null);
+    while (d.scaffoldLedgers.size() > 24)
+      d.scaffoldLedgers.remove(d.scaffoldLedgers.keySet().iterator().next());
+  }
+
+  public static String worldDimKey() {
+    var lvl = Minecraft.getInstance().level;
+    return worldKey + "|" + (lvl == null ? "" : lvl.dimension().location().toString());
+  }
+
+  public static GoalBoard.State goalBoard() {
+    if (data.goalBoards == null) data.goalBoards = new LinkedHashMap<>();
+    var s = data.goalBoards.computeIfAbsent(worldDimKey(), k -> new GoalBoard.State());
+    s.normalize();
+    return s;
+  }
+
+  public static RollbackJournal.Log rollbackLog() {
+    if (data.rollbackJournals == null) data.rollbackJournals = new LinkedHashMap<>();
+    var log = data.rollbackJournals.computeIfAbsent(worldDimKey(), k -> new RollbackJournal.Log());
+    log.normalize();
+    return log;
+  }
+
+  public static JsonArray scaffoldLedger() {
+    if (data == null) return new JsonArray();
+    if (data.scaffoldLedgers == null) data.scaffoldLedgers = new LinkedHashMap<>();
+    return data.scaffoldLedgers.computeIfAbsent(worldDimKey(), k -> new JsonArray());
   }
 
   public static void disconnect() {
@@ -712,7 +775,11 @@ public final class Store {
         && d.inventoryMemories.isEmpty()
         && d.workLedger.isEmpty()
         && d.stockTargets.isEmpty()
-        && d.logisticsRecords.isEmpty();
+        && d.logisticsRecords.isEmpty()
+        && (d.goalBoards == null || d.goalBoards.isEmpty())
+        && (d.rollbackJournals == null || d.rollbackJournals.isEmpty())
+        && (d.blueprintCheckpoints == null || d.blueprintCheckpoints.isEmpty())
+        && (d.scaffoldLedgers == null || d.scaffoldLedgers.isEmpty());
   }
 
   public static void restoreLatest() throws Exception {

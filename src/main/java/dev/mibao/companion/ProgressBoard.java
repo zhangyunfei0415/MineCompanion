@@ -2,12 +2,21 @@ package dev.mibao.companion;
 
 import com.google.gson.JsonObject;
 
-/** User-facing declared plan, explicitly separate from actions and verified completion. */
+/**
+ * User-facing declared plan banner plus durable per-world GoalBoard projection. Transient clear
+ * wipes only the short-lived turn banner while preserving durable API-mode GoalBoard steps across
+ * reconnects and compactions.
+ */
 public final class ProgressBoard {
   private static long epoch = -1, at;
   private static String goal = "", current = "", next = "", tool = "";
 
   public static void clear() {
+    clearTransient();
+  }
+
+  /** Clears only the ephemeral per-turn banner; keeps Store.data GoalBoard intact across prompts. */
+  public static void clearTransient() {
     epoch = -1;
     at = 0;
     goal = current = next = tool = "";
@@ -33,6 +42,17 @@ public final class ProgressBoard {
   }
 
   public static JsonObject snapshot() {
+    try {
+      if (Store.data != null && Store.data.goalBoards != null) {
+        var gb = Store.goalBoard();
+        if (!gb.isEmpty()) {
+          var snap = GoalBoard.toSnapshot(gb);
+          if (!tool.isBlank() && epoch == Agent.epoch) snap.addProperty("last_action", tool);
+          return snap;
+        }
+      }
+    } catch (RuntimeException ignored) {
+    }
     var o = new JsonObject();
     if (epoch != Agent.epoch || System.currentTimeMillis() - at > 600_000) return o;
     o.addProperty("goal", goal);

@@ -209,13 +209,15 @@ public final class ProductionTask {
   }
 
   private List<RecipePlanner.Recipe> recipeData;
+  private RecipePlanner cachedPlanner;
 
   private RecipePlanner planner() {
-    if (recipeData != null) return new RecipePlanner(recipeData);
+    if (cachedPlanner != null) return cachedPlanner;
     var library = ClientRecipes.crafting();
     recipes.putAll(library.recipes());
     recipeData = library.plans();
-    return new RecipePlanner(recipeData);
+    cachedPlanner = new RecipePlanner(recipeData);
+    return cachedPlanner;
   }
 
   private static String key(net.minecraft.world.item.ItemStack s) {

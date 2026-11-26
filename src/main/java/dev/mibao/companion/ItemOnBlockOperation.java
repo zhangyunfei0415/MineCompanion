@@ -15,6 +15,9 @@ public final class ItemOnBlockOperation {
   private final boolean top;
   private final boolean sneak;
   private final boolean emptyHand;
+  private final net.minecraft.core.Direction explicitFace;
+  private final boolean explicitSubHit;
+  private final FaceHitMath.UV targetUv;
   private final SneakHold sneakHold = new SneakHold();
   private InteractionOutcome outcome;
   private final AimGate aim = new AimGate();
@@ -23,8 +26,8 @@ public final class ItemOnBlockOperation {
   private final InventorySession initial = new InventorySession(false),
       verify = new InventorySession(false);
   private final int oldSlot;
-  private int phase, ticks, delay, beforeCount, sneakWarmup;
-  private boolean sent, effect, menu;
+  private int phase, ticks, delay, beforeCount, sneakWarmup, velocitySettleTicks;
+  private boolean sent, effect, targetEffect, adjacentPlaced, menu;
   private ItemStack before;
   private BlockState blockBefore, aboveBefore, placedBefore;
   private BlockPos placedPos;
@@ -60,9 +63,36 @@ public final class ItemOnBlockOperation {
 
   public ItemOnBlockOperation(
       BlockPos target, String item, boolean top, boolean sneak, int stanceRadius) {
+    this(target, item, top ? "top" : "any", sneak, stanceRadius, null, null, "");
+  }
+
+  public ItemOnBlockOperation(
+      BlockPos target,
+      String item,
+      String face,
+      boolean sneak,
+      int stanceRadius,
+      Double hitU,
+      Double hitV,
+      String subSlot) {
     this.target = target.immutable();
     this.filter = item == null ? "" : item;
-    this.top = top;
+    this.explicitSubHit = FaceHitMath.hasExplicitSubHit(hitU, hitV, subSlot);
+    this.targetUv = FaceHitMath.resolveUV(hitU, hitV, subSlot);
+    String f = face == null || face.isBlank() ? "any" : face.strip().toLowerCase(java.util.Locale.ROOT);
+    if (f.equals("any")) {
+      this.top = false;
+      this.explicitFace = null;
+    } else if (f.equals("top") && !this.explicitSubHit) {
+      this.top = true;
+      this.explicitFace = null;
+    } else {
+      var parsed = net.minecraft.core.Direction.byName(f.equals("top") ? "up" : f);
+      if (parsed == null)
+        throw new IllegalArgumentException("[INVALID_ARGUMENT] face须为 any/top/up/down/north/south/east/west");
+      this.top = false;
+      this.explicitFace = parsed;
+    }
     this.sneak = sneak;
     this.emptyHand = this.filter.isBlank() || this.filter.equals("empty_hand");
     oldSlot = mc().player.getInventory().selected;
@@ -125,8 +155,11 @@ public final class ItemOnBlockOperation {
       before = mc().player.getMainHandItem().copy();
       if (emptyHand ? !before.isEmpty() : !Actions.match(before, filter))
         return fail("[ITEM_CHANGED] 手持物品变化");
-      if (top ? !nav.startForPlanting(target) : !nav.startForInteraction(target))
-        return fail(navFailure());
+      boolean started =
+          explicitFace != null
+              ? nav.startForFace(target, explicitFace)
+              : (top ? nav.startForPlanting(target) : nav.startForInteraction(target));
+      if (!started) return fail(navFailure());
       phase = 2;
       return 0;
     }
@@ -135,6 +168,14 @@ public final class ItemOnBlockOperation {
       if (r < 0) return fail(navFailure());
       if (r == 0) return 0;
       nav.stop();
+      if (mc().player.getDeltaMovement().horizontalDistanceSqr() > 0.0004
+          && ++velocitySettleTicks < 6) {
+        return 0;
+      }
+      if (sneak) {
+        sneakHold.hold();
+        if (++sneakWarmup < 2) return 0;
+      }
       if (mc().screen != null || mc().player.containerMenu != mc().player.inventoryMenu)
         return fail("[MENU_CHANGED] 使用前菜单变化");
       if (emptyHand
@@ -142,13 +183,19 @@ public final class ItemOnBlockOperation {
           : !WorldSense.fingerprint(before)
               .equals(WorldSense.fingerprint(mc().player.getMainHandItem())))
         return fail("[ITEM_CHANGED] 手持物品变化");
-      BlockHitResult hit = top ? Reach.top(target) : Reach.hit(target);
+      BlockHitResult hit =
+          explicitFace != null
+              ? (explicitSubHit
+                  ? Reach.faceAt(
+                      target,
+                      mc().player.getEyePosition(),
+                      explicitFace,
+                      targetUv.u(),
+                      targetUv.v())
+                  : Reach.faceFrom(target, mc().player.getEyePosition(), explicitFace))
+              : (top ? Reach.top(target) : Reach.hit(target));
       if (hit == null) return fail("[NO_VISIBLE_FACE] 没有可见且在距离内的交互面");
       if (!aim.ready(hit.getLocation())) return 0;
-      if (sneak) {
-        sneakHold.hold();
-        if (++sneakWarmup < 2) return 0;
-      }
       placedPos = hit.getBlockPos().relative(hit.getDirection());
       blockBefore = mc().level.getBlockState(target);
       aboveBefore = mc().level.getBlockState(target.above());
@@ -165,12 +212,19 @@ public final class ItemOnBlockOperation {
         bucketResult = Items.BUCKET;
       if (bucketResult != null) bucketResultBefore = itemCount(bucketResult);
       beforeCount = count();
-      outcome = InteractionOutcome.begin(target, target.above(), placedPos);
+      outcome = InteractionOutcome.begin(target, placedPos, target.above());
+      if (explicitSubHit) outcome.recordHitPoint(targetUv.u(), targetUv.v());
       PlayerEvidence.begin();
       PlayerEvidence.forget(target);
       PlayerEvidence.forget(target.above());
       PlayerEvidence.forget(placedPos);
       Actions.look(hit.getLocation());
+      mc().player.setYHeadRot(mc().player.getYRot());
+      if (mc().player.connection != null) {
+        mc().player.connection.send(
+            new net.minecraft.network.protocol.game.ServerboundMovePlayerPacket.Rot(
+                mc().player.getYRot(), mc().player.getXRot(), mc().player.onGround()));
+      }
       MenuContext.expect(target);
       sent = true;
       usedAt = System.nanoTime();
@@ -187,11 +241,14 @@ public final class ItemOnBlockOperation {
       if (sneak) sneakHold.maintain();
       outcome.tick();
       if (sneak && delay >= 8) sneakHold.release();
-      effect |=
+      boolean hitTargetNow =
           changed(target, blockBefore)
-              || changed(target.above(), aboveBefore)
-              || (placedPos != null && changed(placedPos, placedBefore))
               || MachineObservation.changed(target, machineBefore, machineRevision);
+      boolean adjNow =
+          placedPos != null && !placedPos.equals(target) && changed(placedPos, placedBefore);
+      targetEffect |= hitTargetNow;
+      adjacentPlaced |= adjNow;
+      effect |= hitTargetNow || changed(target.above(), aboveBefore) || adjNow;
       menu = mc().player.containerMenu != mc().player.inventoryMenu;
       if (menu) {
         if (!MenuContext.matches(target)) return fail("[MENU_CHANGED] 物品使用后出现来源不明的菜单");
@@ -209,13 +266,39 @@ public final class ItemOnBlockOperation {
     int r = verify.tick();
     if (r < 0) return fail("[USE_UNCONFIRMED] " + verify.error + "；不重复使用");
     if (r == 0) return 0;
-    effect |=
+    boolean hitTargetFinal =
         changed(target, blockBefore)
-            || changed(target.above(), aboveBefore)
-            || (placedPos != null && changed(placedPos, placedBefore))
             || MachineObservation.changed(target, machineBefore, machineRevision);
+    boolean adjFinal =
+        placedPos != null && !placedPos.equals(target) && changed(placedPos, placedBefore);
+    targetEffect |= hitTargetFinal;
+    adjacentPlaced |= adjFinal;
+    effect |= hitTargetFinal || changed(target.above(), aboveBefore) || adjFinal;
     int consumed = Math.max(0, beforeCount - count());
     verify.close();
+    boolean containerOrSubTarget = blockBefore.hasBlockEntity() || explicitSubHit;
+    if (containerOrSubTarget
+        && !sneak
+        && before.getItem() instanceof BlockItem
+        && !blockBefore.is(Blocks.FARMLAND)
+        && !targetEffect
+        && adjacentPlaced) {
+      String adjId =
+          net.minecraft.core.registries.BuiltInRegistries.BLOCK
+              .getKey(mc().level.getBlockState(placedPos).getBlock())
+              .toString();
+      return fail(
+          "[PLACED_ADJACENT_NOT_INSERTED] 目标方块("
+              + target.toShortString()
+              + ")未接收物品，方块被放置到相邻格 "
+              + placedPos.toShortString()
+              + "（变为 "
+              + adjId
+              + "）；不是入库成功，请核对朝向/面内坐标/抽屉状态，不自动重放；消耗="
+              + consumed
+              + "；"
+              + outcome.detail());
+    }
     if (bucketResult != null && consumed == 1 && itemCount(bucketResult) == bucketResultBefore + 1)
       return success("bucket_exchange_verified", consumed);
     if (blockBefore.is(Blocks.FARMLAND)

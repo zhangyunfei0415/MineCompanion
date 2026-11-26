@@ -104,6 +104,15 @@ public final class Hud {
     }
     // Live control mode and the real planner connection come first.
     if (!linked) lines.add(new Text(controlLine(), fg));
+    if (Store.config.hudAlerts && SoundReflex.active()) {
+      var sr = SoundReflex.observe();
+      wrap(lines, "避险 · " + sr.get("detail").getAsString(), w - 20, t.danger(), 2);
+    }
+    if (!linked && Store.config.hudAlerts) {
+      var env = EnvironmentWatch.observe();
+      if (env.has("alert"))
+        wrap(lines, "环境 · " + env.get("alert").getAsString(), w - 20, t.warning(), 2);
+    }
     if (Store.config.hudAlerts && v.attention != null && v.attention.text != null)
       wrap(
           lines,
@@ -144,8 +153,16 @@ public final class Hud {
       String goal = v.plan.get("goal").getAsString(),
           current = v.plan.get("current").getAsString(),
           next = v.plan.get("next").getAsString();
+      String stepRatio =
+          v.plan.has("steps_total") && v.plan.get("steps_total").getAsInt() > 0
+              ? " ["
+                  + v.plan.get("steps_done").getAsInt()
+                  + "/"
+                  + v.plan.get("steps_total").getAsInt()
+                  + "]"
+              : "";
       if (Agent.enabled || linked) {
-        if (!goal.isBlank()) wrap(lines, "计划 · " + goal, w - 20, fg, 2);
+        if (!goal.isBlank()) wrap(lines, "计划 · " + goal + stepRatio, w - 20, fg, 2);
         if (!current.isBlank()) wrap(lines, "当前计划 · " + current, w - 20, accent, 2);
         if (!next.isBlank() && !Store.config.hudCompact)
           wrap(lines, "下一步 · " + next, w - 20, muted, 2);

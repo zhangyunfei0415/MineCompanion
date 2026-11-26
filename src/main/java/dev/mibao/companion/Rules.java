@@ -16,6 +16,16 @@ public final class Rules {
           "explore_branch",
           "explore_roam",
           "explore_return",
+          "policy_whitelist",
+          "rollback_journal",
+          "blueprint_list",
+          "blueprint_inspect",
+          "blueprint_build",
+          "blueprint_status",
+          "scaffold_build",
+          "terraform_preview",
+          "terraform_run",
+          "terraform_control",
           "decision_select",
           "decision_status",
           "config_reload",
@@ -248,6 +258,12 @@ public final class Rules {
           "excavate_mine_route",
           "illuminate_area",
           "fish",
+          "policy_whitelist",
+          "rollback_journal",
+          "blueprint_build",
+          "scaffold_build",
+          "terraform_run",
+          "terraform_control",
           "vehicle_control",
           "vanilla_menu_select",
           "creative_clear_slot",
@@ -343,6 +359,8 @@ public final class Rules {
           "build_platform",
           "build_bridge",
           "build_shelter",
+          "blueprint_build",
+          "rollback_journal",
           "place_block",
           "use_item_on_block",
           "plant_crops",
@@ -363,6 +381,31 @@ public final class Rules {
       java.util.regex.Pattern.compile("[0-9.]+");
 
   public static String limitedDenial(String tool, boolean mine, boolean place, boolean hunt) {
+    return limitedDenial(tool, null, mine, place, hunt);
+  }
+
+  public static String limitedDenial(
+      String tool, JsonObject args, boolean mine, boolean place, boolean hunt) {
+    if ("terraform_preview".equals(tool)) return "";
+    if ("terraform_control".equals(tool)) {
+      String act =
+          args != null && args.has("action") && args.get("action").isJsonPrimitive()
+              ? args.get("action").getAsString().strip().toLowerCase(java.util.Locale.ROOT)
+              : "status";
+      if (act.isBlank() || "status".equals(act)) return "";
+      return (!mine && !place) ? "失败：[PERMISSION_REQUIRED] 有限模式未允许地形控制操作" : "";
+    }
+    if ("terraform_run".equals(tool)) {
+      if (args == null) return (!mine || !place) ? "失败：[PERMISSION_REQUIRED] 有限模式未允许地形写入" : "";
+      try {
+        var req = TerraformSpec.parse(args, true).requiredPermissions();
+        if (req.mine() && !mine) return "失败：当前禁止采集/切方；请在权限面板授权";
+        if (req.place() && !place) return "失败：[PERMISSION_REQUIRED] 有限模式未允许放置/造田";
+        return "";
+      } catch (IllegalArgumentException e) {
+        return "";
+      }
+    }
     if (tool.equals("illuminate_area") && !place) return "失败：照明需要放置权限";
     if (MINE_TOOLS.contains(tool) && !mine) return "失败：当前禁止采集；请在权限面板授权";
     if (tool.equals("harvest_replant") && !place) return "失败：补种需要放置权限，请先在权限面板授权";

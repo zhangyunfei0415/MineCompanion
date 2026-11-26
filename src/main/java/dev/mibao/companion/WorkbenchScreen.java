@@ -7,7 +7,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.*;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 
 /** G4Neon Studio Command Deck: unified Ledger & Settings workbench for single-player companion control. */
 public final class WorkbenchScreen extends Screen {
@@ -25,11 +24,9 @@ public final class WorkbenchScreen extends Screen {
 
   private record ScrollWidget(AbstractWidget widget, int baseY) {}
 
-  private static final ResourceLocation ART =
-      new ResourceLocation(Companion.ID, "textures/gui/logistics-desk-20261031.png");
   private static final String[] SETTINGS_NAV = {"模型与连接", "权限与安全", "输入与感知", "显示与陪伴", "数据与维护"};
   private static final String[] LEDGER_NAV = {
-      "当前任务", "基地与库存", "技能与流程", "知识与配方", "任务历史", "空间与地图", "跟随与陪同"
+      "当前任务", "基地与库存", "技能与知识", "蓝图与建造", "历史与回滚", "空间与地图", "跟随与陪同"
   };
 
   private final Screen previous;
@@ -37,8 +34,10 @@ public final class WorkbenchScreen extends Screen {
   private final WorkbenchPages pages = new WorkbenchPages(this);
   private final WorkbenchSettingsViews settingsViews = new WorkbenchSettingsViews(this);
   private final WorkbenchDutyView dutyView = new WorkbenchDutyView(this);
+  private final WorkbenchBlueprintView blueprintView = new WorkbenchBlueprintView(this);
+  private final WorkbenchRollbackView rollbackView = new WorkbenchRollbackView(this);
 
-  private boolean settings;
+  private boolean settings, knowledgeSubTab, historyTaskSubTab;
   private int page, scroll, y, maxY;
   private DeskLayout box;
   private int winX, winY, winW, winH, headerBottom, viewLeft, viewRight;
@@ -650,9 +649,10 @@ public final class WorkbenchScreen extends Screen {
     }
 
     String[] nav = settings ? SETTINGS_NAV : LEDGER_NAV;
-    boolean compactNav = !settings && nav.length >= 7 && winH < 280;
-    int navStep = compactNav ? 21 : 25;
-    int navItemH = compactNav ? 19 : 22;
+    int bottomBtnY = winY + winH - 28;
+    int availNavH = Math.max(nav.length * 17, bottomBtnY - navTop - 4);
+    int navStep = Math.min(25, availNavH / nav.length);
+    int navItemH = Math.max(15, navStep - 3);
     for (int i = 0; i < nav.length; i++) {
       int target = i;
       var b =
@@ -663,21 +663,39 @@ public final class WorkbenchScreen extends Screen {
       addChrome(b);
     }
 
-    // Bottom rail quick actions
-    int bottomBtnY = winY + winH - 28;
+    // Bottom rail quick actions: close + 1-click light/dark theme switcher
+    int themeBtnW = 28;
+    int closeW = Math.max(28, navInner - themeBtnW - 4);
+    String closeLabel = closeW >= 62 ? "返回游戏" : "返回";
     addChrome(
-        new DeskButton("返回游戏", navX, bottomBtnY, navInner, 20, this::onClose)
+        new DeskButton(closeLabel, navX, bottomBtnY, closeW, 20, this::onClose)
             .variant(DeskButton.Variant.DEFAULT));
+    addChrome(
+        new DeskButton(
+                theme().light() ? "暗" : "亮",
+                navX + closeW + 4,
+                bottomBtnY,
+                navInner - closeW - 4,
+                20,
+                () ->
+                    safe(
+                        () -> {
+                          Store.config.theme = theme().toggledLightDarkId();
+                          Store.saveSettingsOnly();
+                          rebuild();
+                        }))
+            .variant(DeskButton.Variant.SEGMENT));
 
-    // Top-right header quick action (Stop / AI Takeover)
-    int actionW = 76;
+    // Top-right global header quick controls (available on every tab)
+    int curRight = winX + winW - 10;
+    int stopW = box.width() >= 250 ? 60 : 66;
     var quickBtn =
         new DeskButton(
                 Agent.enabled ? "紧急停止" : "AI 接管",
-                winX + winW - actionW - 12,
-                winY + 14,
-                actionW,
-                20,
+                curRight - stopW,
+                winY + 10,
+                stopW,
+                18,
                 () ->
                     safe(
                         () -> {
@@ -687,6 +705,46 @@ public final class WorkbenchScreen extends Screen {
                         }))
             .variant(Agent.enabled ? DeskButton.Variant.DANGER : DeskButton.Variant.PRIMARY);
     addChrome(quickBtn);
+    curRight -= stopW + 4;
+    if (box.width() >= 250) {
+      if (Agent.enabled) {
+        int pauseW = 42;
+        var pauseBtn =
+            new DeskButton(
+                    Agent.paused ? "继续" : "暂停",
+                    curRight - pauseW,
+                    winY + 10,
+                    pauseW,
+                    18,
+                    () ->
+                        safe(
+                            () -> {
+                              Agent.pause(!Agent.paused);
+                              rebuild();
+                            }))
+                .variant(DeskButton.Variant.SEGMENT);
+        pauseBtn.selected = Agent.paused;
+        addChrome(pauseBtn);
+        curRight -= pauseW + 4;
+      }
+      int ecoW = 40;
+      var ecoBtn =
+          new DeskButton(
+                  "省电",
+                  curRight - ecoW,
+                  winY + 10,
+                  ecoW,
+                  18,
+                  () ->
+                      safe(
+                          () -> {
+                            WatchPowerSaver.toggleManual();
+                            rebuild();
+                          }))
+              .variant(DeskButton.Variant.SEGMENT);
+      ecoBtn.selected = WatchPowerSaver.active();
+      addChrome(ecoBtn);
+    }
 
     if (!status.isBlank()) {
       alertCard(
@@ -725,9 +783,9 @@ public final class WorkbenchScreen extends Screen {
       switch (page) {
         case 0 -> home();
         case 1 -> world();
-        case 2 -> library();
-        case 3 -> knowledge();
-        case 4 -> history();
+        case 2 -> skillsAndKnowledge();
+        case 3 -> blueprintView.render();
+        case 4 -> historyAndRollback();
         case 5 -> exploration();
         default -> dutyView.render();
       }
@@ -736,13 +794,70 @@ public final class WorkbenchScreen extends Screen {
     repositionContentWidgets();
   }
 
-  /** Home: Hero + urgent approvals + live plan/execution + local command + primary controls + collapsible modules. */
+  /** Home: theme-adaptive telemetry + approvals + persistent GoalBoard + local dispatch + streamlined controls. */
   private void home() {
     UiTheme t = theme();
-    if (status.isBlank()) {
-      y += 66;
-      maxY = Math.max(maxY, y);
+
+    // Theme-adaptive live telemetry strip (replaces hardcoded dark bitmap banner)
+    var telemetry = new ArrayList<BadgeItem>();
+    telemetry.add(
+        new BadgeItem(
+            "HARNESS".equals(Store.config.driver) ? "Harness 接入" : "API 模式",
+            t.accent()));
+    var env = EnvironmentWatch.observe();
+    if (env.size() > 0) {
+      String phaseLabel =
+          switch (env.get("phase").getAsString()) {
+            case "dawn" -> "黎明";
+            case "day" -> "白昼";
+            case "dusk" -> "黄昏预警";
+            default -> "夜间";
+          };
+      String weatherLabel =
+          switch (env.get("weather").getAsString()) {
+            case "thunder" -> "雷暴";
+            case "rain" -> "降雨";
+            default -> "晴";
+          };
+      boolean envWarn =
+          env.get("phantom_risk").getAsBoolean()
+              || env.get("night_danger").getAsBoolean()
+              || env.get("weather").getAsString().equals("thunder")
+              || env.get("phase").getAsString().equals("dusk");
+      telemetry.add(
+          new BadgeItem(
+              phaseLabel + "·" + weatherLabel + (env.get("phantom_risk").getAsBoolean() ? " 幻翼风险" : ""),
+              envWarn ? t.warning() : t.success()));
     }
+    var recentSounds = SoundSense.recentJson();
+    if (SoundReflex.active()) {
+      telemetry.add(new BadgeItem("声音避险撤离中!", t.danger()));
+    } else if (Store.config.soundSense) {
+      telemetry.add(
+          new BadgeItem(
+              recentSounds.size() > 0 ? "听觉感知 " + recentSounds.size() + " 条" : "听觉感知·开",
+              recentSounds.size() > 0 ? t.accentAlt() : t.success()));
+    } else {
+      telemetry.add(new BadgeItem("听觉感知·关", t.textMuted()));
+    }
+    var bpCp = BlueprintBuildJob.statusJson();
+    String bpState = bpCp.has("state") ? bpCp.get("state").getAsString() : "none";
+    if (!bpState.equals("none")) {
+      int bpDone = bpCp.has("placed") ? bpCp.get("placed").getAsInt() : 0;
+      int bpTotal = bpCp.has("total_steps") ? bpCp.get("total_steps").getAsInt() : 0;
+      telemetry.add(
+          new BadgeItem(
+              "蓝图 " + bpDone + "/" + bpTotal,
+              bpState.equals("running") ? t.success() : bpState.equals("complete") ? t.accent() : t.warning()));
+    }
+    int rbCount = Store.data == null ? 0 : Store.rollbackLog().entries.size();
+    if (rbCount > 0) telemetry.add(new BadgeItem("回滚记录 " + rbCount, t.warning()));
+
+    card(
+        "实时态势遥测",
+        DutyScheduler.duty().modeEnum().label,
+        t.accent(),
+        () -> badgeGrid(telemetry));
 
     if (!Agent.pendingTool.isBlank()) {
       alertCard(
@@ -787,14 +902,66 @@ public final class WorkbenchScreen extends Screen {
           });
     }
 
-    // Live Task Card
+    // Live Task + Persistent GoalBoard Card
     var p = ProgressBoard.snapshot();
+    boolean hasSteps = p.has("steps") && p.getAsJsonArray("steps").size() > 0;
+    String statusCardBadge =
+        hasSteps
+            ? "清单 " + p.get("steps_done").getAsInt() + "/" + p.get("steps_total").getAsInt()
+            : (Agent.enabled ? (Agent.paused ? "已暂停" : "运行中") : "待命");
+    int statusCardColor =
+        hasSteps
+            ? t.accent()
+            : (Agent.enabled ? (Agent.paused ? t.warning() : t.success()) : t.textMuted());
     card(
-        "当前运行状态",
-        Agent.enabled ? (Agent.paused ? "已暂停" : "运行中") : "待命",
-        Agent.enabled ? (Agent.paused ? t.warning() : t.success()) : t.textMuted(),
+        "当前运行状态与目标板",
+        statusCardBadge,
+        statusCardColor,
         () -> {
-          if (p.has("goal")) {
+          if (hasSteps) {
+            text("总目标 · " + p.get("goal").getAsString());
+            var stepsArr = p.getAsJsonArray("steps");
+            int shown = 0;
+            for (var el : stepsArr) {
+              if (++shown > 6) {
+                mutedText("… 其余 " + (stepsArr.size() - 6) + " 步已持久保存在当前世界");
+                break;
+              }
+              var so = el.getAsJsonObject();
+              String st = so.get("status").getAsString();
+              String glyph =
+                  switch (st) {
+                    case "done" -> "[✓]";
+                    case "in_progress" -> "[▶]";
+                    case "blocked" -> "[!]";
+                    case "skipped" -> "[-]";
+                    default -> "[ ]";
+                  };
+              int color =
+                  switch (st) {
+                    case "done" -> t.success();
+                    case "in_progress" -> t.accent();
+                    case "blocked" -> t.danger();
+                    case "skipped" -> t.textMuted();
+                    default -> t.textSecondary();
+                  };
+              String note = so.has("note") ? " · " + so.get("note").getAsString() : "";
+              coloredText(glyph + " " + so.get("title").getAsString() + note, color);
+            }
+            if (p.has("checkpoints")) {
+              mutedText("检查点 · " + p.getAsJsonObject("checkpoints"));
+            }
+            button(
+                "清空当前世界目标板",
+                () -> {
+                  GoalBoard.apply(
+                      Store.goalBoard(), "clear", new JsonObject(), System.currentTimeMillis());
+                  ProgressBoard.clearTransient();
+                  Store.saveSoon();
+                  status = "已清空当前世界持久目标板";
+                  rebuild();
+                });
+          } else if (p.has("goal")) {
             text("计划 · " + p.get("goal").getAsString());
             mutedText("当前 · " + p.get("current").getAsString());
             mutedText("下一步 · " + p.get("next").getAsString());
@@ -825,28 +992,17 @@ public final class WorkbenchScreen extends Screen {
               });
         });
 
-    // Primary Controls Card
+    // Streamlined Controls Card (no duplicate rail/header jumps)
+    int bpCount = BlueprintLibrary.discover().size();
     card(
-        "控制中心",
+        "工程与控制",
         Cooperation.active() ? "协同模式" : (Agent.enabled ? "AI 接管" : "人工"),
         Cooperation.active() ? t.accentAlt() : (Agent.enabled ? t.success() : t.textMuted()),
         () -> {
           row(
-              Agent.enabled ? "交还人工" : "AI 接管",
-              () -> {
-                if (Agent.enabled) Agent.stop("玩家交还人工");
-                else Agent.start();
-                rebuild();
-              },
-              Agent.paused ? "继续当前任务" : "暂停当前任务",
-              () -> {
-                Agent.pause(!Agent.paused);
-                rebuild();
-              });
-          row(
               "查看伙伴工作过程",
               () -> minecraft.setScreen(new TaskTimelineScreen(this)),
-              WatchMode.active() ? "退出观看" : "脱手观看",
+              WatchMode.active() ? "退出脱手观看" : "脱手观看 (F6)",
               () -> {
                 WatchMode.toggle();
                 rebuild();
@@ -858,21 +1014,11 @@ public final class WorkbenchScreen extends Screen {
                 else Cooperation.set(!Cooperation.active());
                 rebuild();
               },
-              "打开设置中心",
-              () -> go(true, 0));
-          row(
-              "空间与地图（三维探索）",
-              () -> go(false, 5),
+              "蓝图与建造（" + bpCount + " 份）",
+              () -> go(false, 3));
+          button(
               "全屏分层探索地图",
               () -> minecraft.setScreen(new ExplorationMapScreen(this)));
-          row(
-              "跟随与陪同（" + DutyScheduler.duty().modeEnum().label + "）",
-              () -> go(false, 6),
-              WatchPowerSaver.manualActive() ? "退出省电降占" : "一键省电降占",
-              () -> {
-                WatchPowerSaver.toggleManual();
-                rebuild();
-              });
           if (Cooperation.active()) {
             row(
                 "协同：交回 AI",
@@ -895,7 +1041,7 @@ public final class WorkbenchScreen extends Screen {
         "后勤委托与库存",
         "常用",
         t.accent(),
-        true,
+        winH >= 310,
         () -> {
           row("统一委托 / 自动交付", () -> section(19, false), "多人任务队列", () -> section(18, false));
           row("常备背包", () -> section(20, false), "持续库存维护", () -> section(21, false));
@@ -1026,6 +1172,58 @@ public final class WorkbenchScreen extends Screen {
             }
           });
     }
+  }
+
+  private void skillsAndKnowledge() {
+    if (selected.isBlank()) {
+      segmentRow(
+          List.of(
+              new SegmentOption(
+                  "技能与记忆包",
+                  !knowledgeSubTab,
+                  () -> {
+                    knowledgeSubTab = false;
+                    scroll = 0;
+                    rebuild();
+                  }),
+              new SegmentOption(
+                  "配方与参考资料",
+                  knowledgeSubTab,
+                  () -> {
+                    knowledgeSubTab = true;
+                    scroll = 0;
+                    rebuild();
+                  })));
+      if (knowledgeSubTab) {
+        knowledge();
+        return;
+      }
+    }
+    library();
+  }
+
+  private void historyAndRollback() {
+    int rbCount = Store.data == null ? 0 : Store.rollbackLog().entries.size();
+    segmentRow(
+        List.of(
+            new SegmentOption(
+                "破坏回滚日志 (" + rbCount + ")",
+                !historyTaskSubTab,
+                () -> {
+                  historyTaskSubTab = false;
+                  scroll = 0;
+                  rebuild();
+                }),
+            new SegmentOption(
+                "任务与对话历史",
+                historyTaskSubTab,
+                () -> {
+                  historyTaskSubTab = true;
+                  scroll = 0;
+                  rebuild();
+                })));
+    if (historyTaskSubTab) history();
+    else rollbackView.render();
   }
 
   private void library() {
@@ -2551,19 +2749,19 @@ public final class WorkbenchScreen extends Screen {
     g.fill(winX + 1, winY + 3, winX + box.nav(), winY + winH - 1, t.railBg());
     g.fill(winX + box.nav(), winY + 3, winX + box.nav() + 1, winY + winH - 1, t.border());
 
-    // Brand + Companion Name inside Rail
+    // Brand + Companion Name inside Rail (clean & non-clipped even at compact width)
     g.drawString(
         font,
         font.plainSubstrByWidth(Store.config.name, box.nav() - 16),
         winX + 10,
-        winY + 12,
+        winY + 10,
         t.text(),
         false);
     g.drawString(
         font,
-        font.plainSubstrByWidth(BuildInfo.VERSION + " · " + t.shortBadge(), box.nav() - 16),
+        font.plainSubstrByWidth("v" + BuildInfo.VERSION, box.nav() - 16),
         winX + 10,
-        winY + 23,
+        winY + 21,
         t.accent(),
         false);
 
@@ -2580,9 +2778,10 @@ public final class WorkbenchScreen extends Screen {
                 + " / "
                 + navTitle
                 + (section >= 0 ? " / " + DeskRoute.of(section, settings).title() : "");
+    int topBtnReserve = box.width() >= 250 ? (Agent.enabled ? 156 : 110) : 72;
     g.drawString(
         font,
-        font.plainSubstrByWidth(crumb, Math.max(40, box.width() - 96)),
+        font.plainSubstrByWidth(crumb, Math.max(40, box.width() - topBtnReserve)),
         box.left(),
         winY + 14,
         t.text(),
@@ -2595,9 +2794,9 @@ public final class WorkbenchScreen extends Screen {
                 + (Agent.enabled
                     ? ActionSummary.describe(Actions.job != null ? Actions.status : Agent.state)
                     : StatusFeed.restDetail(Agent.state)),
-            Math.max(40, box.width() - 96)),
+            Math.max(40, box.width() - 6)),
         box.left(),
-        winY + 30,
+        winY + 34,
         t.textSecondary(),
         false);
 
@@ -2611,39 +2810,6 @@ public final class WorkbenchScreen extends Screen {
     int contentMy = mouseInView ? my : -9999;
 
     g.enableScissor(viewLeft, box.top(), viewRight, box.bottom());
-
-    if (section < 0 && !settings && page == 0 && status.isBlank()) {
-      int artY = box.top() - scroll;
-      double artScale = Math.max(box.width() / 2172d, 58 / 724d);
-      int sw = (int) Math.round(box.width() / artScale), sh = (int) Math.round(58 / artScale);
-      g.blit(
-          ART,
-          box.left(),
-          artY,
-          box.width(),
-          58,
-          (2172 - sw) / 2f,
-          (724 - sh) / 2f,
-          sw,
-          sh,
-          2172,
-          724);
-      g.fill(box.left(), artY, box.left() + box.width(), artY + 58, t.light() ? 0x82081020 : 0x6a060b16);
-      UiDraw.fillRounded(g, box.left(), artY, box.width(), 58, 0, t.border());
-      g.drawString(font, "基地后勤 · 让重复工作交给伙伴", box.left() + 10, artY + 12, 0xfff4f7ff, false);
-      g.drawString(font, "目标明确 / 操作可查 / 结果核实", box.left() + 10, artY + 29, 0xffc6d4ea, false);
-      String badgeText = t.shortBadge();
-      int bw = UiDraw.badgeWidth(font, badgeText);
-      UiDraw.drawBadge(
-          g,
-          font,
-          box.left() + box.width() - bw - 8,
-          artY + 10,
-          badgeText,
-          t.textOnAccent(),
-          t.accent(),
-          t.accent());
-    }
 
     // Card backgrounds & card headers
     for (var c : cards) {
@@ -2763,6 +2929,18 @@ public final class WorkbenchScreen extends Screen {
         + "|"
         + WatchMode.active()
         + "|"
+        + WatchPowerSaver.active()
+        + "|"
+        + SoundReflex.active()
+        + "|"
+        + SoundSense.recentJson().size()
+        + "|"
+        + (Store.data == null ? 0 : Store.rollbackLog().entries.size())
+        + "|"
+        + (Store.data == null ? 0L : Store.goalBoard().updatedAt)
+        + "|"
+        + (Actions.job != null ? Actions.job.getClass().getSimpleName() + ":" + Actions.status : "")
+        + "|"
         + FollowControl.active()
         + "|"
         + (att != null ? att.level + ":" + att.at : "")
@@ -2776,7 +2954,8 @@ public final class WorkbenchScreen extends Screen {
     if (++ticks % 10 == 0
         && !(getFocused() instanceof EditBox)
         && section < 0
-        && ((!settings && page == 0) || (settings && page == 0))) {
+        && ((!settings && (page == 0 || page == 3 || page == 4))
+            || (settings && (page == 0 || page == 2)))) {
       String now = liveFingerprint();
       if (!now.equals(lastFingerprint)) {
         saveDrafts();

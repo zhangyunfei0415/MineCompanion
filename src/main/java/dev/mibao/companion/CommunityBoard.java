@@ -27,6 +27,8 @@ public final class CommunityBoard {
     public Map<String, Integer> requires = new LinkedHashMap<>();
     public boolean resume;
     public List<String> orders = new ArrayList<>();
+    public transient String mentionId = "", role = "MEMBER", runId = "";
+    public transient boolean ackSent, naturalReplySent;
   }
 
   public List<Task> tasks = new ArrayList<>();

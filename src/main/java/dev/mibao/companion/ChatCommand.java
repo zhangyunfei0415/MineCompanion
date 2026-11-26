@@ -37,6 +37,11 @@ public final class ChatCommand {
     return normalize(message.substring(match.end()));
   }
 
+  public static MentionPolicy.ExtractedMention extractMention(
+      String message, String configName, String playerName) {
+    return MentionPolicy.extractMention(message, configName, playerName);
+  }
+
   static String followMention(String message, String name) {
     String body = message.stripLeading();
     var match = mention(body, name);

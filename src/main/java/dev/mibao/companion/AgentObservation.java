@@ -37,6 +37,9 @@ final class AgentObservation {
     o.addProperty("screen", mc.screen == null ? "world" : mc.screen.getClass().getName());
     o.add("duty", DutyScheduler.status());
     o.add("owner_focus", OwnerContext.compact());
+    SoundSense.append(o);
+    var env = EnvironmentWatch.observe();
+    if (env.size() > 0) o.add("environment", env);
     o.add("recent_chat", ChatBuffer.recentJson(Store.scope(), 5));
     o.addProperty(
         "detail_tools",

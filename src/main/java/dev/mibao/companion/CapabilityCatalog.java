@@ -9,6 +9,9 @@ import java.util.*;
 public final class CapabilityCatalog {
   public static String family(String tool) {
     if (tool.startsWith("explore_")) return "exploration";
+    if (tool.startsWith("blueprint_") || tool.startsWith("terraform_") || tool.equals("rollback_journal"))
+      return "construction";
+    if (tool.equals("policy_whitelist")) return "logistics";
     if (tool.equals("fish")) return "gathering";
     if (tool.equals("illuminate_area")) return "construction";
     if (tool.equals("vehicle_control")) return "movement";
@@ -54,7 +57,16 @@ public final class CapabilityCatalog {
   }
 
   public static boolean mutates(String tool) {
-    return Set.of("run_order", "prepare_bag", "resume_order").contains(tool)
+    return Set.of(
+            "run_order",
+            "prepare_bag",
+            "resume_order",
+            "blueprint_build",
+            "terraform_run",
+            "terraform_control",
+            "rollback_journal",
+            "policy_whitelist")
+        .contains(tool)
         || Rules.WRITE.contains(tool)
         || Set.of(
                 "select_slot",

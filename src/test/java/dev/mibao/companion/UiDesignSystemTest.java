@@ -24,6 +24,9 @@ class UiDesignSystemTest {
       assertTrue(UiTheme.contrastRatio(t.accent(), t.cardBg()) >= 4.5, id + " accent/cardBg");
       int bg85 = t.hudBg(85);
       assertTrue(((bg85 >>> 24) & 0xff) >= 200);
+      UiTheme toggled = UiTheme.of(t.toggledLightDarkId());
+      assertTrue(UiTheme.ALL.contains(toggled.id()));
+      assertNotEquals(t.light(), toggled.light(), id + " toggle flips light/dark polarity");
     }
     assertTrue(UiTheme.of("霓虹").isAurora());
     assertTrue(UiTheme.of("霓虹亮").isAurora());
@@ -56,6 +59,10 @@ class UiDesignSystemTest {
     var navBreak = SettingsCatalog.search("导航 破坏");
     assertFalse(navBreak.isEmpty());
     assertTrue(navBreak.stream().anyMatch(e -> e.id().equals("navigation_terrain")));
+
+    for (String q : List.of("声音", "避险", "昼夜", "白名单", "蓝图", "回滚", "目标板")) {
+      assertFalse(SettingsCatalog.search(q).isEmpty(), "SettingsCatalog query: " + q);
+    }
 
     for (var entry : SettingsCatalog.ALL) {
       assertTrue(entry.page() >= 0 && entry.page() <= 4, entry.id());

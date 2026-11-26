@@ -17,4 +17,10 @@ public final class SurvivalPolicy {
   public static double combat(double maximum) {
     return Math.max(12, maximum * .5);
   }
+
+  public static boolean shouldPauseBuildWork(
+      double health, double maxHealth, int foodLevel, boolean creative, boolean testing) {
+    if (creative || testing) return false;
+    return health <= critical(maxHealth) || (foodLevel <= 0 && health < maxHealth);
+  }
 }

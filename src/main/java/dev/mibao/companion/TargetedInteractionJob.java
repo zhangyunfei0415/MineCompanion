@@ -13,12 +13,16 @@ public final class TargetedInteractionJob extends Actions.Job {
   private final String item;
   private final boolean left, sneak;
   private final InteractionHand hand;
+  private final boolean explicitSubHit;
+  private final FaceHitMath.UV targetUv;
+  private final String subSlotLabel;
   private final Navigator nav = new Navigator();
   private final AimGate aim = new AimGate();
   private final SneakHold sneakHold = new SneakHold();
   private InventoryMove prepare;
   private InteractionOutcome outcome;
-  private int stage, delay, sneakWarmup;
+  private int stage, delay, sneakWarmup, rotSettleTicks, velocitySettleTicks;
+  private boolean hadBlockItem, targetHadBlockEntity;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -32,7 +36,7 @@ public final class TargetedInteractionJob extends Actions.Job {
       boolean sneak,
       String hand,
       Consumer<String> done) {
-    this(pos, face, item, left, sneak, hand, 3, done);
+    this(pos, face, item, left, sneak, hand, 3, null, null, "", done);
   }
 
   public TargetedInteractionJob(
@@ -44,6 +48,21 @@ public final class TargetedInteractionJob extends Actions.Job {
       String hand,
       int stanceRadius,
       Consumer<String> done) {
+    this(pos, face, item, left, sneak, hand, stanceRadius, null, null, "", done);
+  }
+
+  public TargetedInteractionJob(
+      BlockPos pos,
+      String face,
+      String item,
+      boolean left,
+      boolean sneak,
+      String hand,
+      int stanceRadius,
+      Double hitU,
+      Double hitV,
+      String subSlot,
+      Consumer<String> done) {
     super(done);
     this.pos = pos;
     this.face = Direction.byName(face.equals("top") ? "up" : face);
@@ -54,6 +73,15 @@ public final class TargetedInteractionJob extends Actions.Job {
     if (!hand.equals("main") && !hand.equals("off"))
       throw new IllegalArgumentException("hand为main/off");
     this.hand = hand.equals("off") ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+    this.explicitSubHit = FaceHitMath.hasExplicitSubHit(hitU, hitV, subSlot);
+    this.targetUv = FaceHitMath.resolveUV(hitU, hitV, subSlot);
+    this.subSlotLabel =
+        subSlot != null && !subSlot.isBlank()
+            ? subSlot.strip().toLowerCase(java.util.Locale.ROOT)
+            : (explicitSubHit
+                ? String.format(
+                    java.util.Locale.ROOT, "(%.2f,%.2f)", targetUv.u(), targetUv.v())
+                : "");
     nav.exactStance(true).maxRadius(stanceRadius);
   }
 
@@ -106,12 +134,31 @@ public final class TargetedInteractionJob extends Actions.Job {
         return;
       }
       if (r == 0) return;
-      var hit = Reach.faceFrom(pos, mc().player.getEyePosition(), face);
-      if (hit == null) {
-        finish("失败：指定面不可见");
+      if (mc().player.getDeltaMovement().horizontalDistanceSqr() > 0.0004
+          && ++velocitySettleTicks < 6) {
         return;
       }
-      if (!aim.ready(hit.getLocation())) return;
+      if (sneak) {
+        sneakHold.hold();
+        if (++sneakWarmup < 2) return;
+      }
+      var hit =
+          explicitSubHit
+              ? Reach.faceAt(
+                  pos, mc().player.getEyePosition(), face, targetUv.u(), targetUv.v())
+              : Reach.faceFrom(pos, mc().player.getEyePosition(), face);
+      if (hit == null) {
+        finish(explicitSubHit ? "失败：指定面子区域(" + subSlotLabel + ")不可见或被遮挡" : "失败：指定面不可见");
+        return;
+      }
+      if (!aim.ready(hit.getLocation())) {
+        rotSettleTicks = 0;
+        return;
+      }
+      if (left && explicitSubHit && ++rotSettleTicks < 2) {
+        Actions.look(hit.getLocation());
+        return;
+      }
       var state = mc().level.getBlockState(pos);
       if (left
           && !InteractionPolicy.leftTap(
@@ -121,19 +168,28 @@ public final class TargetedInteractionJob extends Actions.Job {
               net.minecraft.core.registries.BuiltInRegistries.BLOCK
                   .getKey(state.getBlock())
                   .toString(),
-              state.getDestroyProgress(mc().player, mc().level, pos))) {
-        finish("失败：非破坏左键仅支持生存空主手Functional Storage抽屉");
+              state.getDestroyProgress(mc().player, mc().level, pos),
+              Store.config.customLeftTapPrefixes)) {
+        finish("失败：非破坏左键仅支持生存空主手抽屉（Functional Storage / Storage Drawers / 自定义左键白名单）");
         return;
       }
-      if (sneak) {
-        sneakHold.hold();
-        if (++sneakWarmup < 2) return;
-      }
+      hadBlockItem =
+          !mc().player.getItemInHand(hand).isEmpty()
+              && mc().player.getItemInHand(hand).getItem()
+                  instanceof net.minecraft.world.item.BlockItem;
+      targetHadBlockEntity = state.hasBlockEntity();
       BlockPos placedPos = pos.relative(face);
       outcome = InteractionOutcome.begin(pos, placedPos);
+      if (explicitSubHit) outcome.recordHitPoint(targetUv.u(), targetUv.v());
       PlayerEvidence.forget(pos);
       PlayerEvidence.forget(placedPos);
       Actions.look(hit.getLocation());
+      mc().player.setYHeadRot(mc().player.getYRot());
+      if (mc().player.connection != null) {
+        mc().player.connection.send(
+            new net.minecraft.network.protocol.game.ServerboundMovePlayerPacket.Rot(
+                mc().player.getYRot(), mc().player.getXRot(), mc().player.onGround()));
+      }
       MenuContext.expect(pos);
       if (left) {
         mc().gameMode.startDestroyBlock(pos, face);
@@ -166,6 +222,25 @@ public final class TargetedInteractionJob extends Actions.Job {
       outcome.tick();
     }
     if (!outcome.ready()) return;
+    if (!left
+        && !sneak
+        && hadBlockItem
+        && (targetHadBlockEntity || explicitSubHit)
+        && outcome.placedAdjacentWithoutTargetEffect()) {
+      finish(
+          "部分完成：[PLACED_ADJACENT_NOT_INSERTED] 目标="
+              + targetText()
+              + " 未接收物品，方块被放置到相邻格 "
+              + pos.relative(face).toShortString()
+              + "（"
+              + outcome.adjacentBlockAfter()
+              + "）；不是入库成功，请核对朝向/面内坐标/抽屉空满或锁定状态；"
+              + outcome.detail()
+              + "；"
+              + InteractionReceipt.readout(outcome.evidence())
+              + "；动作只发送一次，不重放");
+      return;
+    }
     String evidence = outcome.detail();
     finish(
         outcome.confirmed()
@@ -187,9 +262,12 @@ public final class TargetedInteractionJob extends Actions.Job {
                 + "；动作只发送一次，不重放");
   }
 
-  /** Target position plus the requested face, for receipts. */
+  /** Target position plus the requested face and optional sub-slot, for receipts. */
   private String targetText() {
-    return pos.toShortString() + "/" + face.getName();
+    return pos.toShortString()
+        + "/"
+        + face.getName()
+        + (subSlotLabel.isBlank() ? "" : "@" + subSlotLabel);
   }
 
   /** Actual held item after the interaction, for receipts. */

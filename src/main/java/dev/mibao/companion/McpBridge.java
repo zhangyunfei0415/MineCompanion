@@ -48,13 +48,30 @@ public final class McpBridge {
   }
 
   private static CompletableFuture<JsonObject> dispatch(JsonObject req) {
+    String method = Agent.str(req, "method", "");
+    if ("tools/call".equals(method)) {
+      var p = Agent.obj(req, "params");
+      if ("wait_events".equals(Agent.str(p, "name", ""))) {
+        return HarnessController.waitEventsAsync(Agent.obj(p, "arguments"))
+            .thenApply(
+                page -> {
+                  var o = new JsonObject();
+                  var content = new JsonArray();
+                  var item = new JsonObject();
+                  item.addProperty("type", "text");
+                  item.addProperty("text", page.toString());
+                  content.add(item);
+                  o.add("content", content);
+                  return o;
+                });
+      }
+    }
     var result = new CompletableFuture<JsonObject>();
     Minecraft.getInstance()
         .execute(
             () -> {
               if (result.isCancelled()) return;
               try {
-                String method = Agent.str(req, "method", "");
                 switch (method) {
                   case "initialize" -> {
                     var o = new JsonObject();
@@ -130,10 +147,47 @@ public final class McpBridge {
         "after:i");
     tool(
         a,
+        "wait_events",
+        "Async long-poll for Harness events such as player_mention without blocking HTTP or game thread",
+        "after:i",
+        "timeout_ms:i",
+        "kinds:s");
+    tool(
+        a,
+        "mentions",
+        "List pending or acknowledged multiplayer player_mention dialogues in current scope");
+    tool(
+        a,
         "reply",
         "Display a local-only assistant reply; never public chat",
         "lease:s!",
         "text:s!");
+    tool(
+        a,
+        "reply_to_mention",
+        "Safely reply to a verified multiplayer @mention or active community task through ChatOutbox",
+        "lease:s!",
+        "mention_id:s",
+        "task_id:s",
+        "text:s!",
+        "phase:s",
+        "resolve:b");
+    tool(
+        a,
+        "accept_mention_work",
+        "Promote an authorized player_mention into a queued CommunityBoard task",
+        "lease:s!",
+        "mention_id:s!",
+        "note:s");
+    tool(
+        a,
+        "complete_mention_task",
+        "Close the active CommunityBoard task with outcome/summary and optional public FINAL reply",
+        "lease:s!",
+        "task_id:s",
+        "outcome:s",
+        "summary:s",
+        "reply_text:s");
     tool(
         a,
         "record",
@@ -183,7 +237,8 @@ public final class McpBridge {
     for (String field : fields) {
       String[] f = field.split(":");
       var p = new JsonObject();
-      p.addProperty("type", f[1].startsWith("i") ? "integer" : "string");
+      p.addProperty(
+          "type", f[1].startsWith("i") ? "integer" : f[1].startsWith("b") ? "boolean" : "string");
       props.add(f[0], p);
       if (field.endsWith("!")) required.add(f[0]);
     }

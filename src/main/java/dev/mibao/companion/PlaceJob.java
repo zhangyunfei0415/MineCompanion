@@ -6,11 +6,13 @@ import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.*;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.*;
 import net.minecraft.world.phys.*;
 
 /** Place one real held block; never switches to empty hand or writes world state directly. */
@@ -42,10 +44,16 @@ public final class PlaceJob extends Actions.Job {
   private int phase, before, wait;
   private String fingerprint;
   private net.minecraft.world.level.block.Block block;
+  private net.minecraft.world.level.block.state.BlockState beforePlaceState;
   private boolean sneaking;
   private int sneakWarmup;
   private final SneakHold sneakHold = new SneakHold();
   private final boolean creative;
+  private BlockPos scaffoldingStackAnchor;
+  private Direction scaffoldingStackFace;
+  private int sneakReleaseTicks;
+  private int phase15Reapproaches;
+  private Vec3 aimAnchor;
 
   private static Minecraft mc() {
     return Minecraft.getInstance();
@@ -111,7 +119,11 @@ public final class PlaceJob extends Actions.Job {
       finish("部分完成：[PLACE_TIMEOUT] 放置超时，请核对现场，不自动重复。");
       return;
     }
-    Actions.status = "放置方块 · " + (phase == 0 ? "准备物品" : phase < 3 ? "寻找可见支撑面" : "核对方块与消耗");
+    Actions.status =
+        "放置方块 · "
+            + (phase == 0
+                ? "准备物品"
+                : phase == 1 ? "寻找可见支撑面" : phase == 15 ? "瞄准并校验朝向" : "核对方块与消耗");
     if (phase == 0) {
       if (creative) {
         int slot = -1;
@@ -183,16 +195,29 @@ public final class PlaceJob extends Actions.Job {
                 + "。");
         return;
       }
+      if (block instanceof net.minecraft.world.level.block.ScaffoldingBlock
+          && face == null
+          && mc().level.hasChunkAt(pos.below())
+          && mc().level.getBlockState(pos.below()).is(block)) {
+        for (BlockPos anchor : findScaffoldingColumnAnchors(pos, block)) {
+          for (Direction side : orderedHorizontalSides(anchor)) {
+            if (nav.startForFace(anchor, side)) {
+              scaffoldingStackAnchor = anchor;
+              scaffoldingStackFace = side;
+              phase = 1;
+              return;
+            }
+          }
+        }
+      }
       Direction look = intent.lookDirection(block);
       nav.placementIntent(
           eye ->
               look == null
-                  || Direction.fromYRot(
-                          Math.toDegrees(
-                                  Math.atan2(pos.getZ() + .5 - eye.z, pos.getX() + .5 - eye.x))
-                              - 90)
-                      == look,
-          intent::hitAllowed);
+                  || PlacementIntent.stanceInDirectionSector(
+                      eye.x, eye.z, pos.getX() + .5, pos.getZ() + .5, look, 0.2),
+          (eye, hit) ->
+              intent.hitAllowed(hit) && intent.hitDirectionAllowed(eye, hit, block));
       if (!nav.startForPlacement(pos, face)) {
         finish(unreachable());
         return;
@@ -207,33 +232,113 @@ public final class PlaceJob extends Actions.Job {
         return;
       }
       if (r == 0) return;
+      nav.stop();
+      aimAnchor = mc().player.position();
+      aim.reset();
+      sneakWarmup = 0;
+      phase = 15;
+      return;
+    }
+    if (phase == 15) {
+      if (aimAnchor != null && mc().player.position().distanceToSqr(aimAnchor) > 0.09) {
+        releaseSneak();
+        aim.reset();
+        if (!nav.startForPlacement(pos, face)) {
+          finish(unreachable());
+          return;
+        }
+        phase = 1;
+        return;
+      }
       if (!safe(pos)) {
         finish("失败：[PLACE_CHANGED] 放置位置已变化。");
         return;
       }
-      var hit = Reach.placementFrom(pos, mc().player.getEyePosition(), face, intent::hitAllowed);
       var stack = mc().player.getMainHandItem();
-      if (hit == null || !Actions.match(stack, fingerprint)) {
+      if (!Actions.match(stack, fingerprint)) {
         finish("失败：[PLACE_CHANGED] 物品或支撑面不可见。");
         return;
       }
-      var context = new BlockPlaceContext(mc().player, InteractionHand.MAIN_HAND, stack, hit);
-      if (!context.canPlace() || !context.getClickedPos().equals(pos)) {
+      BlockHitResult hit = resolvePlacementHit();
+      if (hit == null) {
+        if (sneaking && scaffoldingStackAnchor == null) {
+          releaseSneak();
+          BlockHitResult recovered = resolvePlacementHit();
+          if (recovered != null
+              && !requiresForceSneak(stack, recovered)
+              && !isInteractiveSupport(recovered.getBlockPos())) {
+            hit = recovered;
+          }
+        }
+        if (hit == null) {
+          if (reapproachInPhase15()) return;
+          finish("失败：[PLACE_CHANGED] 物品或支撑面不可见。");
+          return;
+        }
+      }
+      if (scaffoldingStackAnchor != null) {
+        sneakHold.release();
+        sneaking = false;
+        if (mc().player.isShiftKeyDown()) {
+          // Vanilla ScaffoldingBlockItem stacks upward only when NOT sneaking against an existing scaffold side face.
+          if (sneakReleaseTicks == 0) {
+            if (mc().getConnection() != null) {
+              mc()
+                  .getConnection()
+                  .send(
+                      new ServerboundPlayerCommandPacket(
+                          mc().player, ServerboundPlayerCommandPacket.Action.RELEASE_SHIFT_KEY));
+            }
+            mc().player.setShiftKeyDown(false);
+          }
+          if (++sneakReleaseTicks > 5) {
+            finish("失败：[SNEAK_CONFLICT] 玩家持续潜行中，无法进行脚手架垂直叠放。");
+            return;
+          }
+          return;
+        }
+        sneakReleaseTicks = 0;
+      } else {
+        boolean forceSneak = requiresForceSneak(stack, hit);
+        boolean needSneak = forceSneak || isInteractiveSupport(hit.getBlockPos());
+        if (needSneak) {
+          if (forceSneak || !mc().player.isShiftKeyDown()) {
+            sneakHold.hold();
+            sneaking = true;
+            if (forceSneak && ++sneakWarmup < 2) return;
+          }
+          var hitNow = resolvePlacementHit();
+          if (hitNow == null) {
+            if (reapproachInPhase15()) return;
+            finish("失败：[PLACE_CHANGED] 潜行稳定后支撑面不可见。");
+            return;
+          }
+          hit = hitNow;
+        } else if (sneaking) {
+          releaseSneak();
+        }
+      }
+      if (hit == null
+          || !intent.hitDirectionAllowed(mc().player.getEyePosition(), hit, block)) {
+        finish("失败：[PLACEMENT_STATE_UNAVAILABLE] 当前视角/命中点不在目标朝向扇区内，未发送放置");
+        return;
+      }
+      if (!aim.ready(hit.getLocation())) {
+        if (aim.timedOut()) {
+          finish("失败：[AIM_UNSTABLE] 瞄准未能在20tick内稳定收敛，未发送放置");
+        }
+        return;
+      }
+      var rawCtx = new BlockPlaceContext(mc().player, InteractionHand.MAIN_HAND, stack, hit);
+      var context =
+          (stack.getItem() instanceof BlockItem bi) ? bi.updatePlacementContext(rawCtx) : rawCtx;
+      if (context == null || !context.canPlace() || !context.getClickedPos().equals(pos)) {
         finish("失败：[PLACE_CONDITION] 位置不能正常放置该方块。");
         return;
       }
-      if (!aim.ready(hit.getLocation())) return;
-      String stackId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-      boolean forceSneak = BreakPolicy.requiresSneakToPlace(stackId) || stackId.contains("backpack");
-      if (forceSneak || !mc().player.isShiftKeyDown()) {
-        sneakHold.hold();
-        sneaking = true;
-        if (forceSneak && ++sneakWarmup < 2) return;
-      }
       PlayerEvidence.forget(pos);
-      var predicted =
-          block.getStateForPlacement(
-              new BlockPlaceContext(mc().player, InteractionHand.MAIN_HAND, stack, hit));
+      beforePlaceState = mc().level.getBlockState(pos);
+      var predicted = block.getStateForPlacement(context);
       if (predicted == null || !intent.matches(predicted)) {
         finish(
             "失败：[PLACEMENT_STATE_UNAVAILABLE] 当前正常站位/支撑面不能得到期望状态="
@@ -243,23 +348,31 @@ public final class PlaceJob extends Actions.Job {
                 + "，未发送放置");
         return;
       }
-      mc().gameMode.useItemOn(mc().player, InteractionHand.MAIN_HAND, hit);
-      mc().player.swing(InteractionHand.MAIN_HAND);
+      var player = mc().player;
+      if (player.connection != null) {
+        player.connection.send(
+            new ServerboundMovePlayerPacket.Rot(
+                player.getYRot(), player.getXRot(), player.onGround()));
+      }
+      mc().gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+      player.swing(InteractionHand.MAIN_HAND);
       phase = 2;
       wait = 0;
       return;
     }
     if (sneaking) sneakHold.maintain();
     var server = PlayerEvidence.block(pos);
+    var live = mc().level.getBlockState(pos);
     boolean matched =
         server != null
             && placedMatches(server)
-            && mc().level.getBlockState(pos).equals(server)
+            && live.equals(server)
             && counterpartMatches(server);
     if (phase == 2 && matched && SignEditor.active()) {
       lastPlaced = pos;
       WorldSense.record(pos, server);
-      Store.save();
+      RollbackJob.recordPlace(pos, beforePlaceState, server, "PlaceJob");
+      Store.saveSoon();
       finish("部分完成：[PLACED_EDITOR_OPEN] 告示牌方块已由服务器确认；当前编辑界面可用write_sign写字或close_screen关闭，物品消耗待核实");
       return;
     }
@@ -267,6 +380,17 @@ public final class PlaceJob extends Actions.Job {
       if (matched) {
         releaseSneak();
         phase = 3;
+      } else if (server != null
+          && server.is(block)
+          && live.equals(server)
+          && !intent.matches(server)) {
+        releaseSneak();
+        finish(
+            "部分完成：[PLACED_WRONG_STATE] 目标已放置但朝向/属性不符：期望="
+                + desired
+                + "，实际="
+                + server
+                + "；已保留现场不自动重放。");
       } else if (++wait > 100) {
         finish("部分完成：[PLACE_UNCONFIRMED] 没有匹配的服务器方块更新，未计作成功；请核对现场。");
       }
@@ -281,7 +405,8 @@ public final class PlaceJob extends Actions.Job {
       }
       lastPlaced = pos;
       WorldSense.record(pos, mc().level.getBlockState(pos));
-      Store.save();
+      RollbackJob.recordPlace(pos, beforePlaceState, mc().level.getBlockState(pos), "PlaceJob");
+      Store.saveSoon();
       finish(
           "成功：创造模式服务器确认放置 "
               + BuiltInRegistries.BLOCK.getKey(block)
@@ -305,7 +430,8 @@ public final class PlaceJob extends Actions.Job {
         PlayerEvidence.total(PlayerEvidence.confirmed(fingerprint)))) {
       lastPlaced = pos;
       WorldSense.record(pos, mc().level.getBlockState(pos));
-      Store.save();
+      RollbackJob.recordPlace(pos, beforePlaceState, mc().level.getBlockState(pos), "PlaceJob");
+      Store.saveSoon();
       verify.close();
       finish(
           "成功：服务器确认放置 "
@@ -392,6 +518,7 @@ public final class PlaceJob extends Actions.Job {
   @Override
   void stop() {
     releaseSneak();
+    verify.close();
     nav.stop();
     if (prepare != null) prepare.stop();
     super.stop();
@@ -400,5 +527,114 @@ public final class PlaceJob extends Actions.Job {
   @Override
   String interrupted() {
     return "放置已停止；已发出的放置可能生效，请核对当前位置和物品，避免重复放置。";
+  }
+
+  private List<BlockPos> findScaffoldingColumnAnchors(
+      BlockPos target, net.minecraft.world.level.block.Block scafBlock) {
+    int playerY = mc().player.blockPosition().getY();
+    List<BlockPos> rungs = new ArrayList<>();
+    BlockPos cur = target.below();
+    for (int steps = 0; steps < 64 && mc().level.hasChunkAt(cur); steps++, cur = cur.below()) {
+      if (!mc().level.getBlockState(cur).is(scafBlock)) break;
+      rungs.add(cur.immutable());
+    }
+    rungs.sort(java.util.Comparator.comparingInt(c -> Math.abs(c.getY() - playerY)));
+    return rungs.size() > 4 ? rungs.subList(0, 4) : rungs;
+  }
+
+  private List<Direction> orderedHorizontalSides(BlockPos anchor) {
+    List<Direction> sides =
+        new ArrayList<>(
+            List.of(Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST));
+    Vec3 eye = mc().player.getEyePosition();
+    sides.sort(
+        java.util.Comparator.comparingDouble(
+            d -> {
+              Vec3 c = Vec3.atCenterOf(anchor).add(d.getStepX() * 0.5, 0, d.getStepZ() * 0.5);
+              return eye.distanceToSqr(c);
+            }));
+    return sides;
+  }
+
+  private BlockHitResult resolvePlacementHit() {
+    Vec3 eye = mc().player.getEyePosition();
+    if (scaffoldingStackAnchor != null) {
+      if (!mc().level.hasChunkAt(scaffoldingStackAnchor)
+          || !mc().level.getBlockState(scaffoldingStackAnchor).is(block)) {
+        return null;
+      }
+      if (scaffoldingStackFace != null) {
+        BlockHitResult h = Reach.faceFrom(scaffoldingStackAnchor, eye, scaffoldingStackFace);
+        if (h != null) return h;
+      }
+      for (Direction side : orderedHorizontalSides(scaffoldingStackAnchor)) {
+        BlockHitResult h = Reach.faceFrom(scaffoldingStackAnchor, eye, side);
+        if (h != null) {
+          scaffoldingStackFace = side;
+          return h;
+        }
+      }
+      return null;
+    }
+    return Reach.placementFrom(
+        pos, eye, face, hit -> intent.hitAllowed(hit) && intent.hitDirectionAllowed(eye, hit, block));
+  }
+
+  private boolean requiresForceSneak(ItemStack stack, BlockHitResult hit) {
+    String stackId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    boolean scaffoldingOnScaffolding =
+        block instanceof ScaffoldingBlock
+            && hit != null
+            && mc().level.hasChunkAt(hit.getBlockPos())
+            && mc().level.getBlockState(hit.getBlockPos()).is(block);
+    return BreakPolicy.requiresSneakToPlace(stackId)
+        || stackId.contains("backpack")
+        || scaffoldingOnScaffolding;
+  }
+
+  private static boolean isInteractiveSupport(BlockPos supportPos) {
+    if (mc().level == null || supportPos == null || !mc().level.hasChunkAt(supportPos)) return false;
+    var state = mc().level.getBlockState(supportPos);
+    if (state.hasBlockEntity()) return true;
+    Block b = state.getBlock();
+    return b instanceof DoorBlock
+        || b instanceof TrapDoorBlock
+        || b instanceof FenceGateBlock
+        || b instanceof ButtonBlock
+        || b instanceof LeverBlock
+        || b instanceof CraftingTableBlock
+        || b instanceof AnvilBlock
+        || b instanceof BedBlock
+        || b instanceof NoteBlock
+        || b instanceof DiodeBlock
+        || b instanceof AbstractCauldronBlock
+        || b instanceof ComposterBlock
+        || b instanceof BellBlock
+        || b instanceof LecternBlock
+        || b instanceof LoomBlock
+        || b instanceof StonecutterBlock
+        || b instanceof GrindstoneBlock
+        || b instanceof CartographyTableBlock
+        || b instanceof SmithingTableBlock
+        || b instanceof JukeboxBlock
+        || b instanceof ScaffoldingBlock
+        || b instanceof CakeBlock
+        || b instanceof FlowerPotBlock
+        || b instanceof DragonEggBlock
+        || b instanceof AbstractCandleBlock;
+  }
+
+  private boolean reapproachInPhase15() {
+    if (phase15Reapproaches >= 2) return false;
+    phase15Reapproaches++;
+    releaseSneak();
+    aim.reset();
+    nav.exactStance(true);
+    if (!nav.startForPlacement(pos, face)) {
+      finish(unreachable());
+      return true;
+    }
+    phase = 1;
+    return true;
   }
 }

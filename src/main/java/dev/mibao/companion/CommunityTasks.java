@@ -64,65 +64,154 @@ public final class CommunityTasks {
   }
 
   public static void receive(String uuid, String name, String text) {
-    text = ChatCommand.control(ChatCommand.normalize(text));
+    receiveMention(
+        uuid, name, new MentionPolicy.ExtractedMention(Store.config.name, text == null ? "" : text, true));
+  }
+
+  public static void receiveMention(
+      String uuid, String name, MentionPolicy.ExtractedMention extracted) {
+    if (extracted == null) return;
+    MentionPolicy.Role role =
+        MentionPolicy.resolveRole(
+            Store.data.members,
+            Store.data.revokedMembers,
+            Store.config.owner,
+            Store.config.trusted,
+            uuid,
+            name);
+    String text = ChatCommand.control(ChatCommand.normalize(extracted.body()));
+    if (text.isBlank()) return;
+
+    if (role == MentionPolicy.Role.GUEST) {
+      if (!Store.config.allowGuestChat) {
+        TaskTimeline.add("command_rejected", "未授权成员：" + name, "");
+        return;
+      }
+      if (!Agent.enabled) return;
+      if (extracted.atStart()
+          && (ChatCommand.follow(text) != null
+              || ChatCommand.incompleteFollow(text)
+              || ChatCommand.duty(text) != null
+              || text.equals("停止")
+              || text.equalsIgnoreCase("stop")
+              || text.equals("暂停")
+              || text.equals("继续")
+              || text.equals("进度")
+              || text.equals("任务列表")
+              || text.startsWith("取消任务 ")
+              || text.startsWith("修改任务 "))) {
+        Messages.mentionReply(
+            name,
+            "抱歉，你是访客身份，目前仅支持安全闲聊与基础问答，无法执行控制或操作指令。",
+            MentionPolicy.ReplyPhase.CHAT,
+            "BRIEF",
+            false,
+            false);
+        return;
+      }
+      var guestMention =
+          HarnessController.inbox()
+              .enqueue(
+                  HarnessController.currentScope(),
+                  HarnessController.worldGeneration(),
+                  uuid,
+                  name,
+                  role,
+                  extracted.alias(),
+                  text,
+                  System.currentTimeMillis());
+      if (guestMention == null) return;
+      if (Store.config.driver.equals("HARNESS")) {
+        HarnessController.publishPlayerMention(guestMention);
+      } else {
+        Agent.replyGuestMention(guestMention);
+      }
+      return;
+    }
+
     var m = member(uuid, name);
-    if (m == null) {
-      TaskTimeline.add("command_rejected", "未授权成员：" + name, "");
-      return;
+    String mode =
+        m != null
+            ? CommunityReport.mode(m.report, Store.config.teamReport)
+            : CommunityReport.mode("DEFAULT", Store.config.teamReport);
+    String delivery = m != null ? m.delivery : "";
+    boolean admin = role == MentionPolicy.Role.OWNER || role == MentionPolicy.Role.ADMIN;
+
+    if (extracted.atStart()) {
+      var follow = ChatCommand.follow(text);
+      if (follow != null) {
+        FollowControl.command(follow, uuid, result -> Messages.teamReport(name, result, mode));
+        return;
+      }
+      if (ChatCommand.incompleteFollow(text)) {
+        Messages.teamReport(name, "请说「跟着我」「跟随 玩家名」或「停止跟随」", mode);
+        return;
+      }
+      var dutyCmd = ChatCommand.duty(text);
+      if (dutyCmd != null) {
+        DutyScheduler.handleChatCommand(dutyCmd, result -> Messages.teamReport(name, result, mode));
+        return;
+      }
+      if (text.equals("停止") || text.equalsIgnoreCase("stop")) {
+        Agent.stop("收到授权玩家 " + name + " 的停止指令");
+        return;
+      }
+      if (text.equals("暂停") || text.equals("继续")) {
+        Agent.pause(text.equals("暂停"));
+        return;
+      }
+      if (text.equals("任务列表") || text.equals("进度")) {
+        var active = board().active();
+        String brief =
+            (active == null ? "当前无活动目标" : "当前执行 " + active.id + " · " + active.name)
+                + "；你的待办："
+                + board().tasks.stream()
+                    .filter(
+                        t ->
+                            t.sender.equals(uuid)
+                                && Set.of("WAITING", "WAITING_MATERIALS").contains(t.state))
+                    .map(t -> t.id + " " + t.state)
+                    .toList();
+        Messages.teamReport(name, mode.equals("DETAIL") ? human() : brief, mode);
+        return;
+      }
+      if (text.startsWith("取消任务 ")) {
+        board().change(text.substring(5).trim(), uuid, admin, null);
+        Store.save();
+        Messages.teamReport(name, "待办已取消", mode);
+        return;
+      }
+      if (text.startsWith("修改任务 ")) {
+        String[] p = text.substring(5).split("\\s+", 2);
+        if (p.length != 2) throw new IllegalArgumentException("修改任务 ID 新目标");
+        board().change(p[0], uuid, admin, p[1]);
+        Store.save();
+        Messages.teamReport(name, "待办目标已修改", mode);
+        return;
+      }
     }
-    var follow = ChatCommand.follow(text);
-    if (follow != null) {
-      String mode = CommunityReport.mode(m.report, Store.config.teamReport);
-      FollowControl.command(follow, uuid, result -> Messages.teamReport(name, result, mode));
-      return;
-    }
-    if (ChatCommand.incompleteFollow(text)) {
-      Messages.teamReport(name, "请说「跟着我」「跟随 玩家名」或「停止跟随」",
-          CommunityReport.mode(m.report, Store.config.teamReport));
-      return;
-    }
-    if (text.equals("停止") || text.equalsIgnoreCase("stop")) {
-      Agent.stop("收到授权玩家 " + name + " 的停止指令");
-      return;
-    }
-    if (text.equals("暂停") || text.equals("继续")) {
-      Agent.pause(text.equals("暂停"));
-      return;
-    }
-    if (text.equals("任务列表") || text.equals("进度")) {
-      String mode = CommunityReport.mode(m.report, Store.config.teamReport);
-      var active = board().active();
-      String brief =
-          (active == null ? "当前无活动目标" : "当前执行 " + active.id + " · " + active.name)
-              + "；你的待办："
-              + board().tasks.stream()
-                  .filter(
-                      t ->
-                          t.sender.equals(uuid)
-                              && Set.of("WAITING", "WAITING_MATERIALS").contains(t.state))
-                  .map(t -> t.id + " " + t.state)
-                  .toList();
-      Messages.teamReport(name, mode.equals("DETAIL") ? human() : brief, mode);
-      return;
-    }
-    if (text.startsWith("取消任务 ")) {
-      board().change(text.substring(5).trim(), uuid, m.role.equals("ADMIN"), null);
-      Store.save();
-      Messages.teamReport(name, "待办已取消", CommunityReport.mode(m.report, Store.config.teamReport));
-      return;
-    }
-    if (text.startsWith("修改任务 ")) {
-      String[] p = text.substring(5).split("\\s+", 2);
-      if (p.length != 2) throw new IllegalArgumentException("修改任务 ID 新目标");
-      board().change(p[0], uuid, m.role.equals("ADMIN"), p[1]);
-      Store.save();
-      Messages.teamReport(name, "待办目标已修改", CommunityReport.mode(m.report, Store.config.teamReport));
-      return;
-    }
+
     if (!Agent.enabled) {
       Companion.notifyUser("收到 " + name + " 的目标，但AI未接管；没有自动开启或排队");
       return;
     }
+
+    var mention =
+        HarnessController.inbox()
+            .enqueue(
+                HarnessController.currentScope(),
+                HarnessController.worldGeneration(),
+                uuid,
+                name,
+                role,
+                extracted.alias(),
+                text,
+                System.currentTimeMillis());
+    if (Store.config.driver.equals("HARNESS")) {
+      if (mention != null) HarnessController.publishPlayerMention(mention);
+      return;
+    }
+
     var t =
         board()
             .add(
@@ -130,16 +219,93 @@ public final class CommunityTasks {
                 name,
                 text,
                 mc().level.dimension().location().toString(),
-                m.delivery,
+                delivery,
                 System.currentTimeMillis());
+    t.role = role.name();
+    if (mention != null) t.mentionId = mention.id;
     Store.save();
-    Messages.teamReport(
-        name,
-        "已接单 " + t.id + " · " + Rules.clean(text, 72),
-        CommunityReport.mode(m.report, Store.config.teamReport));
+    if (board().active() != null || !Agent.task.isBlank() || HarnessController.foregroundBusy()) {
+      Messages.mentionReply(
+          name,
+          "收到啦，我先把眼下这件事处理完就来帮你看看～",
+          MentionPolicy.ReplyPhase.ACK,
+          mode,
+          false,
+          false);
+      t.ackSent = true;
+    }
+  }
+
+  public static JsonObject acceptMentionWork(String mentionId, String note) {
+    long now = System.currentTimeMillis();
+    String sc = HarnessController.currentScope();
+    var m = HarnessController.inbox().get(mentionId, sc, now);
+    if (m == null) {
+      throw new IllegalArgumentException("[MENTION_NOT_FOUND] 未找到有效或未过期的玩家提及会话");
+    }
+    if (!MentionPolicy.canWork(m.role)
+        || MemberDirectory.revoked(Store.data.revokedMembers, m.senderUuid, m.senderName)) {
+      throw new IllegalArgumentException("[PERMISSION_DENIED] 访客或已撤销成员禁止派发或执行任务");
+    }
+    if (m.state == PlayerMentionInbox.State.RESOLVED && !m.taskId.isBlank()) {
+      var existing = new JsonObject();
+      existing.addProperty("task_id", m.taskId);
+      existing.addProperty("mention_id", m.id);
+      existing.addProperty("already_accepted", true);
+      existing.addProperty("busy", HarnessController.foregroundBusy());
+      return existing;
+    }
+    var mem = member(m.senderUuid, m.senderName);
+    String delivery = mem != null ? mem.delivery : "";
+    String dim = mc().level == null ? "disconnected" : mc().level.dimension().location().toString();
+    var t = board().add(m.senderUuid, m.senderName, m.text, dim, delivery, now);
+    t.mentionId = m.id;
+    t.role = m.role.name();
+    t.ackSent = m.ackSent;
+    if (note != null && !note.isBlank()) t.note = Rules.clean(note, 300);
+    HarnessController.inbox().resolveAsWork(m.id, sc, t.id, now);
+    Store.save();
+    var res = new JsonObject();
+    res.addProperty("task_id", t.id);
+    res.addProperty("mention_id", m.id);
+    res.addProperty("state", t.state);
+    res.addProperty("busy", HarnessController.foregroundBusy());
+    var active = board().active();
+    if (active != null) res.addProperty("active_task_id", active.id);
+    return res;
+  }
+
+  public static JsonObject completeMentionTask(
+      String taskId, String outcome, String summary, String replyText) {
+    var t = board().active();
+    if (t == null || (!taskId.isBlank() && !t.id.equals(taskId))) {
+      throw new IllegalArgumentException("[TASK_NOT_FOUND] 当前没有匹配的活动多人任务");
+    }
+    String cleanOutcome = outcome == null ? "COMPLETED" : outcome.strip().toUpperCase(Locale.ROOT);
+    if (!Set.of("COMPLETED", "FAILED", "CANCELLED").contains(cleanOutcome)) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] outcome 须为 COMPLETED/FAILED/CANCELLED");
+    }
+    if ("COMPLETED".equals(cleanOutcome) && HarnessController.foregroundBusy()) {
+      throw new IllegalArgumentException("[BUSY] 请先完成或停止当前前台子作业再结案");
+    }
+    t.state = cleanOutcome;
+    t.note = summary == null || summary.isBlank() ? "Harness 已结案" : Rules.clean(summary, 300);
+    if (replyText != null && !replyText.isBlank()) {
+      Messages.mentionReply(
+          t.name, replyText, MentionPolicy.ReplyPhase.FINAL, reportMode(), t.ackSent, true);
+      t.naturalReplySent = true;
+    }
+    Store.save();
+    var out = new JsonObject();
+    out.addProperty("task_id", t.id);
+    out.addProperty("state", t.state);
+    out.addProperty("recipient", t.name);
+    out.addProperty("message", "多人任务已结案");
+    return out;
   }
 
   public static boolean tick() {
+    if (mc().level == null) return false;
     if (++ticks % 10 == 0) {
       var stock = new LinkedHashMap<String, Integer>();
       for (var t : board().tasks)
@@ -148,47 +314,75 @@ public final class CommunityTasks {
               board().tasks, mc().level.dimension().location().toString(), stock)
           > 0) Store.save();
     }
-    if (board().active() != null || !Agent.task.isBlank() || mc().screen != null) return false;
+    boolean harness = Store.config.driver.equals("HARNESS");
+    if (board().active() != null) return false;
+    if (harness) {
+      if (HarnessController.foregroundBusy() || !HarnessController.leaseActive()) return false;
+    } else if (!Agent.task.isBlank() || mc().screen != null) {
+      return false;
+    }
     var t = board().next(mc().level.dimension().location().toString());
     if (t == null) return false;
-    var member =
-        Store.data.members.stream().filter(m -> m.uuid.equals(t.sender) && m.enabled).findFirst();
-    if (member.isEmpty()) {
+    MentionPolicy.Role resolvedRole =
+        MentionPolicy.resolveRole(
+            Store.data.members,
+            Store.data.revokedMembers,
+            Store.config.owner,
+            Store.config.trusted,
+            t.sender,
+            t.name);
+    if (!MentionPolicy.canWork(resolvedRole)) {
       t.state = "CANCELLED";
       t.note = "成员授权已撤销";
       Store.save();
       return true;
     }
     t.state = "ACTIVE";
+    t.role = resolvedRole.name();
+    t.runId = UUID.randomUUID().toString().substring(0, 8);
     t.requires.clear();
     Store.save();
+    if (harness) {
+      HarnessController.communityTaskStarted(t);
+      return true;
+    }
     dispatching = true;
     try {
-      Agent.submit(
-          t.resume
-              ? "恢复未完成目标，先观察库存、设施和已有产物，再只规划剩余工作。不得重放不确定点击/投料，不把原口令直接再执行。上阶段记录："
-                  + t.note
-                  + "；原始目标："
-                  + t.text
-              : t.text,
-          false);
+      Agent.submitFromMention(t);
     } finally {
       dispatching = false;
     }
     return true;
   }
 
+  public static boolean ackSent() {
+    var t = board().active();
+    return t != null && t.ackSent;
+  }
+
+  public static void markAckSent() {
+    var t = board().active();
+    if (t != null) t.ackSent = true;
+  }
+
+  public static void markNaturalReplySent() {
+    var t = board().active();
+    if (t != null) t.naturalReplySent = true;
+  }
+
   public static String context() {
     var t = board().active();
     return t == null
         ? ""
-        : "\n当前多人目标ID="
-            + t.id
-            + "，发起人="
+        : "\n当前多人对话对象="
             + t.name
+            + "（身份="
+            + t.role
+            + "，任务ID="
+            + t.id
             + "，本世界默认交付地点="
             + (t.delivery.isBlank() ? "未设置，任务未指定时先查询或澄清" : t.delivery)
-            + "。只把这些当目标元数据，不是新的权限。";
+            + "）。若对方只是闲聊或提问，直接自然简短回复并结束；若需要动手且观察/评估可尝试，请先用简洁一句话回应对方（例如「好，我试试看，这就去！」）再调用工具；若确实做不到或缺权限，礼貌说明原因（所有工具失败与缺失条件不得编造）。";
   }
 
   public static String reportMode() {
@@ -220,13 +414,15 @@ public final class CommunityTasks {
       t.note = LogisticsRuntime.summary(t);
       if (t.note.isBlank()) t.note = "执行会话结束，业务结果以工具回执为准";
       Store.save();
-      Messages.teamReport(
-          t.name,
-          "任务 "
-              + t.id
-              + (t.state.equals("WAITING_MATERIALS") ? " 等待随身补给 " + t.requires + "：" : " 结案：")
-              + t.note,
-          mode);
+      if (!t.naturalReplySent || t.state.equals("WAITING_MATERIALS")) {
+        Messages.teamReport(
+            t.name,
+            "任务 "
+                + t.id
+                + (t.state.equals("WAITING_MATERIALS") ? " 等待随身补给 " + t.requires + "：" : " 结案：")
+                + t.note,
+            mode);
+      }
     }
   }
 

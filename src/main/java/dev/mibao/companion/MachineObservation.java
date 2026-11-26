@@ -42,12 +42,31 @@ public final class MachineObservation {
     return o == null ? null : o.toString();
   }
 
+  public static boolean isCustomPacketSyncedDrawer(BlockPos pos) {
+    var mc = Minecraft.getInstance();
+    if (mc.level == null || !mc.level.hasChunkAt(pos)) return false;
+    var be = mc.level.getBlockEntity(pos);
+    if (be == null) return false;
+    String type = be.getClass().getName();
+    return type.startsWith("com.jaquadro.minecraft.storagedrawers.block.tile.")
+        || type.startsWith("com.buuz135.functionalstorage.");
+  }
+
   public static boolean changed(BlockPos pos, String before, long since) {
+    if (before == null) return false;
     var r = receipts.get(pos);
-    // Serialize only after a newer block-entity receipt that differs from the baseline.
-    if (before == null || r == null || r.revision <= since || before.equals(r.state)) return false;
-    var now = sampled(pos, r.revision);
-    return Objects.equals(r.state, now) && !before.equals(now);
+    // Standard vanilla ClientboundBlockEntityDataPacket path
+    if (r != null && r.revision > since && !before.equals(r.state)) {
+      var now = sampled(pos, r.revision);
+      if (Objects.equals(r.state, now) && !before.equals(now)) return true;
+    }
+    // StorageDrawers updates slot counts via custom CountUpdateMessage packets rather than
+    // vanilla ClientboundBlockEntityDataPacket, so compare its stable client inventory NBT directly.
+    if (isCustomPacketSyncedDrawer(pos)) {
+      String now = state(pos);
+      return now != null && !before.equals(now);
+    }
+    return false;
   }
 
   /** {@link #state} cached per position, receipt revision and client game tick. */
@@ -117,6 +136,20 @@ public final class MachineObservation {
         if (parts == null) return null;
         out.addProperty("kind", "ae2_client_part_host");
         out.add("parts", parts);
+      } else if (type.startsWith("com.jaquadro.minecraft.storagedrawers.block.tile.")) {
+        out.addProperty("kind", "storagedrawers_drawer");
+        out.addProperty(
+            "block_id",
+            net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                .getKey(mc.level.getBlockState(pos).getBlock())
+                .toString());
+        var tag = be.saveWithoutMetadata();
+        if (tag.contains("Drawers"))
+          out.addProperty("Drawers", Rules.clean(tag.get("Drawers").toString(), 6000));
+        if (tag.contains("Upgrades"))
+          out.addProperty("Upgrades", Rules.clean(tag.get("Upgrades").toString(), 1500));
+        out.addProperty("inventory_authoritative", false);
+        out.addProperty("availability", "client_synced_drawer_nbt");
       } else if (type.startsWith("com.simibubi.create.")
           || type.startsWith("mekanism.common.tile.")
           || type.startsWith("com.buuz135.functionalstorage.")) {

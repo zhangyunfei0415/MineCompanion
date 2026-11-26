@@ -53,6 +53,47 @@ final class PlacementIntent {
     return block instanceof HorizontalDirectionalBlock ? facing.getOpposite() : null;
   }
 
+  /**
+   * Ensures eye (x, z) lies strictly within the required horizontal direction sector looking
+   * toward target (x, z) with a diagonal margin to prevent 45-degree boundary flips on stairs,
+   * doors, chests, or furnaces.
+   */
+  static boolean stanceInDirectionSector(
+      double eyeX,
+      double eyeZ,
+      double targetX,
+      double targetZ,
+      Direction requiredLook,
+      double diagonalMargin) {
+    if (requiredLook == null) return true;
+    double dx = targetX - eyeX;
+    double dz = targetZ - eyeZ;
+    if (Math.hypot(dx, dz) < 0.15) return false;
+    Direction actual = Direction.fromYRot(Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+    if (actual != requiredLook) return false;
+    return switch (requiredLook) {
+      case NORTH -> -dz >= Math.abs(dx) + diagonalMargin;
+      case SOUTH -> dz >= Math.abs(dx) + diagonalMargin;
+      case WEST -> -dx >= Math.abs(dz) + diagonalMargin;
+      case EAST -> dx >= Math.abs(dz) + diagonalMargin;
+      default -> true;
+    };
+  }
+
+  static boolean hitPointInDirectionSector(
+      double eyeX, double eyeZ, double hitX, double hitZ, Direction requiredLook) {
+    if (requiredLook == null) return true;
+    return FaceHitMath.hitPointInLookSector(
+        eyeX, eyeZ, hitX, hitZ, requiredLook.getName());
+  }
+
+  boolean hitDirectionAllowed(
+      net.minecraft.world.phys.Vec3 eye, BlockHitResult hit, Block block) {
+    if (hit == null) return false;
+    return hitPointInDirectionSector(
+        eye.x, eye.z, hit.getLocation().x, hit.getLocation().z, lookDirection(block));
+  }
+
   boolean hitAllowed(BlockHitResult hit) {
     String axis = values.get("axis");
     if (axis != null && !hit.getDirection().getAxis().getName().equals(axis)) return false;

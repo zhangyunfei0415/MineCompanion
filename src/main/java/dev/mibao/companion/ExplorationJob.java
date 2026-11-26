@@ -219,7 +219,23 @@ final class ExplorationJob extends Actions.Job {
       }
       steps++;
       visited.add(target);
-      if (clear(from, target) && clear(target, from)) map.walk(from, target, false, now());
+      Passage stepPassage =
+          (routeStep != null && routeStep.edge().passage() != Passage.GROUND)
+              ? routeStep.edge().passage()
+              : (from.x() == target.x() && from.z() == target.z() && Math.abs(from.y() - target.y()) == 1
+                  ? ExplorationMemory.verticalPassageType(pos(from), pos(target))
+                  : Passage.GROUND);
+      boolean stepClear =
+          stepPassage == Passage.GROUND
+              ? (clear(from, target) && clear(target, from))
+              : (clearVertical(from, target) && clearVertical(target, from));
+      if (stepClear) {
+        ExplorationGraph.PassageProof proof =
+            stepPassage == Passage.GROUND
+                ? null
+                : new ExplorationGraph.PassageProof(stepPassage, true, true, target.y() - from.y(), now());
+        map.walk(from, target, false, stepPassage, proof, now());
+      }
       target = null;
       routeStep = null;
       return;
@@ -347,7 +363,14 @@ final class ExplorationJob extends Actions.Job {
       obstructed(State.STALE, "目标格未加载");
       return;
     }
-    if (!clear(here, next) || !clear(next, here)) {
+    boolean verticalStep =
+        (step != null && step.edge().passage() != Passage.GROUND)
+            || (here.x() == next.x() && here.z() == next.z() && Math.abs(here.y() - next.y()) == 1);
+    boolean stepOk =
+        verticalStep
+            ? (clearVertical(here, next) && clearVertical(next, here))
+            : (clear(here, next) && clear(next, here));
+    if (!stepOk) {
       obstructed(State.BLOCKED, "下一段支撑、开口或碰撞条件已变化");
       return;
     }

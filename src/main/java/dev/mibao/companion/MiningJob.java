@@ -22,7 +22,17 @@ public final class MiningJob extends Actions.Job {
       List<BlockPos> positions,
       int gained,
       boolean capacityBlocked,
-      boolean toolBlocked) {}
+      boolean toolBlocked,
+      Set<BlockPos> terminalRejects) {
+    public MiningReceipt(
+        long epoch,
+        List<BlockPos> positions,
+        int gained,
+        boolean capacityBlocked,
+        boolean toolBlocked) {
+      this(epoch, positions, gained, capacityBlocked, toolBlocked, Set.of());
+    }
+  }
 
   public static MiningReceipt lastReceipt;
   private final List<BlockPos> broken = new ArrayList<>();
@@ -91,6 +101,7 @@ public final class MiningJob extends Actions.Job {
   private final WorkPlan plan;
   private final BlockPos exactTarget;
   private final boolean confirm, creative;
+  private boolean targetedAuth;
   private String lastDenial = "";
   private final Map<String, Integer> denials = new TreeMap<>();
   private BlockPos center;
@@ -118,7 +129,15 @@ public final class MiningJob extends Actions.Job {
   private final Block block;
   private final List<BlockPos> candidates = new ArrayList<>();
   private final Set<BlockPos> rejectedTargets = new HashSet<>();
+  private final Set<BlockPos> terminalRejects = new LinkedHashSet<>();
+  private boolean scaffoldTeardown;
   private final Map<String, Integer> before;
+
+  MiningJob scaffoldTeardown(boolean value) {
+    scaffoldTeardown = value;
+    if (value) nav.interactionDy(-6, 3).allowScaffoldingColumnMine(true);
+    return this;
+  }
   private Map<Long, Boolean> treeColumns = new HashMap<>();
 
   private boolean naturalColumn(BlockPos pos) {
@@ -187,6 +206,7 @@ public final class MiningJob extends Actions.Job {
     if (stanceRadius > 0) nav.exactStance(true).maxRadius(stanceRadius);
     this.exactTarget = exactTarget;
     this.confirm = confirm;
+    this.targetedAuth = exactTarget != null;
     creative = mc().gameMode.getPlayerMode() == GameType.CREATIVE;
     lastReceipt = null;
     this.filter = filter;
@@ -220,12 +240,17 @@ public final class MiningJob extends Actions.Job {
     return tag == null ? state.is(block) : state.is(tag);
   }
 
+  MiningJob bulkAuthority() {
+    this.targetedAuth = false;
+    return this;
+  }
+
   private String breakDenial(BlockPos pos, BlockState state) {
-    boolean emptyStorage = state.hasBlockEntity() && exactTarget != null && freshEmpty(pos);
+    boolean emptyStorage = state.hasBlockEntity() && targetedAuth && freshEmpty(pos);
     return BreakPolicy.denial(
         BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
         state.hasBlockEntity(),
-        exactTarget != null,
+        targetedAuth,
         confirm,
         emptyStorage,
         emptyStorage && isObservedGenericStorage(pos));
@@ -268,6 +293,7 @@ public final class MiningJob extends Actions.Job {
   }
 
   private boolean safe(BlockPos pos, BlockState state) {
+    lastDenial = "";
     if (targetGuard != null && !targetGuard.test(pos)) {
       lastDenial = "[HARVEST_TARGET_CHANGED] 作物或根部状态已改变";
       return false;
@@ -276,8 +302,10 @@ public final class MiningJob extends Actions.Job {
       lastDenial = "[ROUTE_GUARD] 矿道的权限、站位或挖掘范围已改变";
       return false;
     }
-    if (naturalTree && (!state.is(net.minecraft.tags.BlockTags.LOGS) || !naturalColumn(pos)))
+    if (naturalTree && (!state.is(net.minecraft.tags.BlockTags.LOGS) || !naturalColumn(pos))) {
+      lastDenial = "[NOT_NATURAL_TREE] 非完整自然树原木";
       return false;
+    }
     lastDenial = breakDenial(pos, state);
     if (!lastDenial.isBlank()) return false;
     if (!mc().level.hasChunkAt(pos)) {
@@ -293,16 +321,21 @@ public final class MiningJob extends Actions.Job {
       return false;
     }
     var feet = mc().player.blockPosition();
+    boolean scaffoldHeadTop =
+        scaffoldTeardown
+            && pos.equals(feet.above())
+            && state.getBlock() instanceof ScaffoldingBlock;
     if (pos.equals(feet.below())
-        || (pos.equals(feet) || pos.equals(feet.above()))
-            && !state.getCollisionShape(mc().level, pos).isEmpty()) {
+        || ((pos.equals(feet) || (pos.equals(feet.above()) && !scaffoldHeadTop))
+            && !state.getCollisionShape(mc().level, pos).isEmpty())) {
       lastDenial = "[PLAYER_SUPPORT] 不拆当前脚下支撑/玩家碰撞格";
       return false;
     }
     boolean exposed = false;
     neighborFalling = false;
     boolean fluidOrFireAbove = false;
-    boolean hasHorizontalFluidOrFire = false;
+    boolean hasHorizontalFluid = false;
+    boolean hasHorizontalFire = false;
     for (var d : Direction.values()) {
       BlockPos n = pos.relative(d);
       if (!mc().level.hasChunkAt(n)) {
@@ -310,19 +343,25 @@ public final class MiningJob extends Actions.Job {
         return false;
       }
       var s = mc().level.getBlockState(n);
-      if (!s.getFluidState().isEmpty() || s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE)) {
+      var fs = s.getFluidState();
+      boolean isFire = s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE);
+      if (!fs.isEmpty() || isFire) {
         if (d == Direction.UP) {
           fluidOrFireAbove = true;
         } else if (d == Direction.DOWN) {
-          if (s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE) || !s.getFluidState().is(FluidTags.WATER)) {
+          if (isFire || !fs.is(FluidTags.WATER)) {
             fluidOrFireAbove = true;
           }
+        } else if (isFire) {
+          hasHorizontalFire = true;
+        } else if (fs.is(FluidTags.WATER) || fs.is(FluidTags.LAVA)) {
+          hasHorizontalFluid = true;
         } else {
-          hasHorizontalFluidOrFire = true;
+          fluidOrFireAbove = true;
         }
       }
       if (s.getBlock() instanceof FallingBlock) neighborFalling = true;
-      if (s.isAir() || !s.getFluidState().isEmpty()) exposed = true;
+      if (s.isAir() || !fs.isEmpty()) exposed = true;
     }
     String targetBlockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
     boolean playerDryAndSafe =
@@ -330,14 +369,25 @@ public final class MiningJob extends Actions.Job {
             && !mc().player.isOnFire()
             && mc().level.hasChunkAt(feet)
             && mc().level.getBlockState(feet).getFluidState().isEmpty();
-    if (!GeneratorPolicy.allowFluidNeighbor(
-        targetBlockId,
-        exactTarget != null,
-        allowFluidNeighbor,
-        fluidOrFireAbove,
-        hasHorizontalFluidOrFire,
-        playerDryAndSafe)) {
-      lastDenial = "[NEIGHBOR_HAZARD] 邻格有流体或火";
+    var fluidVerdict =
+        GeneratorPolicy.verdict(
+            targetBlockId,
+            targetedAuth,
+            allowFluidNeighbor,
+            fluidOrFireAbove,
+            hasHorizontalFluid,
+            hasHorizontalFire,
+            playerDryAndSafe,
+            Store.config.customGeneratorBlocks);
+    if (fluidVerdict != GeneratorPolicy.FluidVerdict.OK) {
+      lastDenial =
+          switch (fluidVerdict) {
+            case PLAYER_UNSAFE -> "[PLAYER_UNSAFE] 玩家处于流体或火焰中";
+            case ABOVE_HAZARD -> "[ABOVE_HAZARD] 上方或下方存在流体或火焰";
+            case HORIZONTAL_FIRE -> "[HORIZONTAL_FIRE] 邻格存在火焰";
+            case BULK_FLUID, NOT_GENERATOR -> "[NEIGHBOR_HAZARD] 邻格有流体";
+            case OK -> "";
+          };
       return false;
     }
     fallingTarget = state.getBlock() instanceof FallingBlock;
@@ -358,7 +408,13 @@ public final class MiningJob extends Actions.Job {
             ? 0
             : DeltaProof.gained(before, PlayerEvidence.actual("*"), PlayerEvidence.confirmed("*"));
     lastReceipt =
-        new MiningReceipt(epoch, List.copyOf(broken), gained, capacityBlocked, toolBlocked);
+        new MiningReceipt(
+            epoch,
+            List.copyOf(broken),
+            gained,
+            capacityBlocked,
+            toolBlocked,
+            Set.copyOf(terminalRejects));
     String result =
         (plan.isDone() ? "成功：" : "部分完成：")
             + (plan.isDone()
@@ -382,7 +438,7 @@ public final class MiningJob extends Actions.Job {
       finish("成功：创造模式已取得服务器方块挖除确认，不要求掉落物或工具消耗；位置 " + exactTarget.toShortString());
       return;
     }
-    if (exactTarget != null && plan.isDone() && routeGuard == null) {
+    if (exactTarget != null && plan.isDone() && routeGuard == null && !managed) {
       if (groundDrops && !roomFor(original)) {
         finish(
             "成功：服务器确认定点挖除；[DROPS_MAY_REMAIN_ON_GROUND] 背包无容量，若产生掉落则留地待回收，掉落数量未核实；位置 "
@@ -527,20 +583,56 @@ public final class MiningJob extends Actions.Job {
         }
       }
       if (cursor < volume) return;
-      candidates.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
+      if (!fixedTargets && candidates.size() > 1) {
+        var byCell = new LinkedHashMap<MiningRoute.Cell, BlockPos>(candidates.size() * 2);
+        var rawCells = new ArrayList<MiningRoute.Cell>(candidates.size());
+        for (BlockPos p : candidates) {
+          var mcCell = new MiningRoute.Cell(p.getX(), p.getY(), p.getZ());
+          byCell.put(mcCell, p);
+          rawCells.add(mcCell);
+        }
+        var clusters = MiningSearch.cluster(rawCells, 2);
+        var orderedClusters =
+            MiningSearch.visitOrder(
+                new MiningRoute.Cell(center.getX(), center.getY(), center.getZ()), clusters, null);
+        candidates.clear();
+        for (var cl : orderedClusters) {
+          var members = new ArrayList<BlockPos>(cl.cells().size());
+          for (var cCell : cl.cells()) members.add(byCell.get(cCell));
+          members.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
+          candidates.addAll(members);
+        }
+      } else {
+        candidates.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
+      }
       scanned = true;
       return;
     }
     if (target == null) {
       while (!candidates.isEmpty()) {
         BlockPos p = candidates.remove(0);
-        if (!mc().level.hasChunkAt(p)) continue;
-        var state = mc().level.getBlockState(p);
-        if (matches(state) && safe(p, state)) {
-          target = p;
-          original = state;
-          break;
+        if (!mc().level.hasChunkAt(p)) {
+          unknown++;
+          continue;
         }
+        var state = mc().level.getBlockState(p);
+        if (!matches(state)) {
+          skipped++;
+          denials.merge("[TARGET_CHANGED]", 1, Integer::sum);
+          terminalRejects.add(p.immutable());
+          continue;
+        }
+        if (!safe(p, state)) {
+          rejectedSafety++;
+          if (!lastDenial.isBlank()) denials.merge(lastDenial, 1, Integer::sum);
+          if (!lastDenial.startsWith("[PLAYER_UNSAFE]") && !lastDenial.startsWith("[UNLOADED_")) {
+            terminalRejects.add(p.immutable());
+          }
+          continue;
+        }
+        target = p;
+        original = state;
+        break;
       }
       if (target == null) {
         if (!fixedTargets && observed > lastRescanObserved && rescans < 2) {
@@ -594,6 +686,7 @@ public final class MiningJob extends Actions.Job {
         observed++;
         broken.add(target.immutable());
       }
+      RollbackJob.recordBreak(target, original, "MiningJob");
       WorldSense.record(target, state);
       nav.stop();
       mc().gameMode.stopDestroyBlock();
@@ -614,7 +707,15 @@ public final class MiningJob extends Actions.Job {
       return;
     }
     if (!safe(target, state)) {
-      result("目标附近出现流体、落块或不安全站位。");
+      if (!lastDenial.isBlank()) denials.merge(lastDenial, 1, Integer::sum);
+      if (issued || lastDenial.startsWith("[PLAYER_UNSAFE]")) {
+        mc().gameMode.stopDestroyBlock();
+        result("目标附近出现流体、落块或不安全站位：" + lastDenial);
+      } else {
+        rejectedSafety++;
+        terminalRejects.add(target.immutable());
+        skip();
+      }
       return;
     }
     if (phase == 0) {
@@ -668,7 +769,7 @@ public final class MiningJob extends Actions.Job {
       result("单个方块15秒内未获确认，请检查领地权限、工具或延迟。");
       return;
     }
-    var hit = Reach.hit(target);
+    var hit = scaffoldTeardown ? Reach.mine(target) : Reach.hit(target);
     if (hit == null) {
       result("目标被遮挡或超出交互距离。");
       return;
@@ -711,7 +812,10 @@ public final class MiningJob extends Actions.Job {
   private void skip() {
     nav.stop();
     mc().gameMode.stopDestroyBlock();
-    if (target != null) rejectedTargets.add(target);
+    if (target != null) {
+      rejectedTargets.add(target);
+      terminalRejects.add(target.immutable());
+    }
     target = null;
     if (++skipped >= 12) result("12个候选不可达或发生变化，请协助调整通道。");
   }

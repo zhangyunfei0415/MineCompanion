@@ -1,6 +1,6 @@
 package dev.mibao.companion;
 
-import com.google.gson.Gson;
+import com.google.gson.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
@@ -8,15 +8,14 @@ import java.nio.channels.FileLock;
 import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 
 /** Serial IO keeps a leave/re-enter load ordered behind the last write of that same shard. */
 final class ExplorationStore {
   private static final System.Logger LOG = System.getLogger(ExplorationStore.class.getName());
   private static final Gson GSON = new Gson();
+  private static final int SCHEMA_VERSION = 2;
   private static final long MAX_BYTES = 32L * 1024 * 1024;
   private static final Map<Path, FileLock> LEASES = new HashMap<>();
   private static final ExecutorService IO = Executors.newSingleThreadExecutor(run -> {
@@ -64,12 +63,7 @@ final class ExplorationStore {
         reading = true;
         if (Files.notExists(path)) return new Loaded(new ExplorationGraph(), writable);
         if (Files.size(path) > MAX_BYTES) throw new IOException("Exploration shard too large");
-        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-          Shard shard = GSON.fromJson(reader, Shard.class);
-          if (shard == null || shard.schema != 1 || !key.scope.equals(shard.scope)
-              || !key.dimension.equals(shard.dimension)) throw new IOException("Wrong shard header");
-          return new Loaded(ExplorationGraph.from(shard.graph), writable);
-        }
+        return new Loaded(decodeShard(path, key), writable);
       } catch (IOException | RuntimeException e) {
         if (!reading && onlyIfClaimed) return null;
         LOG.log(System.Logger.Level.WARNING, "Exploration shard could not be loaded: " + path, e);
@@ -79,6 +73,63 @@ final class ExplorationStore {
         return new Loaded(new ExplorationGraph(), false, true);
       }
     }, IO);
+  }
+
+  private static ExplorationGraph decodeShard(Path path, Key key) throws IOException {
+    try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+      JsonElement parsed = JsonParser.parseReader(reader);
+      if (parsed == null || !parsed.isJsonObject()) throw new IOException("Wrong shard header");
+      JsonObject rootObj = parsed.getAsJsonObject();
+      int schema = rootObj.has("schema") ? rootObj.get("schema").getAsInt() : -1;
+      String scope = rootObj.has("scope") && !rootObj.get("scope").isJsonNull() ? rootObj.get("scope").getAsString() : null;
+      String dim = rootObj.has("dimension") && !rootObj.get("dimension").isJsonNull() ? rootObj.get("dimension").getAsString() : null;
+      if ((schema != 1 && schema != SCHEMA_VERSION)
+          || !key.scope.equals(scope)
+          || !key.dimension.equals(dim)) {
+        throw new IOException("Wrong shard header");
+      }
+      JsonObject graphObj = rootObj.has("graph") && rootObj.get("graph").isJsonObject()
+          ? rootObj.getAsJsonObject("graph") : null;
+      if (graphObj == null
+          || !graphObj.has("nodes") || !graphObj.get("nodes").isJsonArray()
+          || !graphObj.has("edges") || !graphObj.get("edges").isJsonArray()) {
+        throw new IOException("Wrong shard header");
+      }
+
+      var nodes = new ArrayList<ExplorationGraph.Node>();
+      for (JsonElement el : graphObj.getAsJsonArray("nodes")) {
+        try {
+          var n = GSON.fromJson(el, ExplorationGraph.Node.class);
+          if (n != null
+              && n.cell() != null
+              && n.kind() != null
+              && n.name() != null
+              && n.name().length() <= 64
+              && n.landmark_hints() != null
+              && n.landmark_hints().size() <= 4) {
+            nodes.add(n);
+          } else {
+            LOG.log(System.Logger.Level.WARNING, "Skipped malformed node in exploration shard " + path);
+          }
+        } catch (RuntimeException ex) {
+          LOG.log(System.Logger.Level.WARNING, "Skipped malformed node in exploration shard " + path, ex);
+        }
+      }
+      var edges = new ArrayList<ExplorationGraph.Edge>();
+      for (JsonElement el : graphObj.getAsJsonArray("edges")) {
+        try {
+          var e = GSON.fromJson(el, ExplorationGraph.Edge.class);
+          if (e != null && e.from() != null && e.to() != null && e.kind() != null && e.state() != null) {
+            edges.add(e);
+          }
+        } catch (RuntimeException ex) {
+          LOG.log(System.Logger.Level.WARNING, "Skipped malformed edge in exploration shard " + path, ex);
+        }
+      }
+      return ExplorationGraph.from(new ExplorationGraph.Snapshot(nodes, edges));
+    } catch (JsonParseException e) {
+      throw new IOException("Malformed exploration shard JSON", e);
+    }
   }
 
   private static void unlock(Path path) {
@@ -128,7 +179,7 @@ final class ExplorationStore {
         Files.createDirectories(path.getParent());
         temp = Files.createTempFile(path.getParent(), "graph-", ".tmp");
         try (var writer = Files.newBufferedWriter(temp, StandardCharsets.UTF_8)) {
-          GSON.toJson(new Shard(1, key.scope, key.dimension, snapshot), writer);
+          GSON.toJson(new Shard(SCHEMA_VERSION, key.scope, key.dimension, snapshot), writer);
         }
         try {
           Files.move(temp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -156,12 +207,7 @@ final class ExplorationStore {
       try {
         if (Files.notExists(path)) return new Loaded(new ExplorationGraph(), false);
         if (Files.size(path) > MAX_BYTES) throw new IOException("Exploration shard too large");
-        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-          Shard shard = GSON.fromJson(reader, Shard.class);
-          if (shard == null || shard.schema != 1 || !key.scope.equals(shard.scope)
-              || !key.dimension.equals(shard.dimension)) throw new IOException("Wrong shard header");
-          return new Loaded(ExplorationGraph.from(shard.graph), false);
-        }
+        return new Loaded(decodeShard(path, key), false);
       } catch (IOException | RuntimeException e) {
         LOG.log(System.Logger.Level.WARNING, "Exploration shard could not be read: " + path, e);
         return new Loaded(new ExplorationGraph(), false, true);

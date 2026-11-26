@@ -68,4 +68,15 @@ class ToolSchemasTest {
     assertFalse(PickupCapacity.sweepClear(1, false, false));
     assertFalse(PickupCapacity.sweepClear(0, true, false));
   }
+
+  @Test
+  void terraformToolsAreRegisteredWithExpectedWriteFlags() {
+    assertTrue(Rules.TOOLS.contains("terraform_preview"));
+    assertTrue(Rules.TOOLS.contains("terraform_run"));
+    assertTrue(Rules.TOOLS.contains("terraform_control"));
+    assertFalse(Rules.WRITE.contains("terraform_preview"));
+    assertTrue(Rules.WRITE.contains("terraform_run"));
+    assertTrue(Rules.WRITE.contains("terraform_control"));
+    assertTrue(SessionPlan.TOOLS.contains("terraform_run"));
+  }
 }

@@ -50,6 +50,36 @@ final class ExplorationMemory {
   static BlockPos pos(Cell c) { return new BlockPos(c.x(), c.y(), c.z()); }
   static long now() { return System.currentTimeMillis(); }
 
+  static boolean isVerticalShaftCandidate(BlockPos p) {
+    var mc = Minecraft.getInstance();
+    if (mc.level == null || !loaded(p)) return false;
+    boolean autoDoors = Store.config.autoOpenDoors;
+    return Navigator.isClimbable(p, autoDoors)
+        || Navigator.isClimbable(p.above(), autoDoors)
+        || Navigator.isClimbable(p.below(), autoDoors);
+  }
+
+  static Passage verticalPassageType(BlockPos a, BlockPos b) {
+    var mc = Minecraft.getInstance();
+    if (mc.level == null) return Passage.LADDER;
+    if (mc.level.getBlockState(a).getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock
+        || mc.level.getBlockState(b).getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock) {
+      return Passage.SCAFFOLD;
+    }
+    boolean autoDoors = Store.config.autoOpenDoors;
+    if (Navigator.isClimbable(a, autoDoors) || Navigator.isClimbable(b, autoDoors)) {
+      return Passage.LADDER;
+    }
+    return Passage.WATER_SHAFT;
+  }
+
+  static boolean clearVertical(Cell a, Cell b) {
+    BlockPos pa = pos(a), pb = pos(b);
+    return loaded(pa) && loaded(pb) && loaded(pa.above()) && loaded(pb.above())
+        && !portal(pa) && !portal(pa.above()) && !portal(pb) && !portal(pb.above())
+        && Navigator.openClimbStep(pa, pb);
+  }
+
   static void tick() {
     var mc = Minecraft.getInstance();
     tick++;
@@ -158,10 +188,11 @@ final class ExplorationMemory {
     }
 
     BlockPos feet = mc.player.blockPosition();
-    usedClimbable |= mc.player.onClimbable();
-    if (!mc.player.onGround()) return;
+    boolean climbing = Store.config.allowClimb && mc.player.onClimbable();
+    usedClimbable |= climbing;
+    if (!mc.player.onGround() && !climbing) return;
     // Local support probes are only needed on movement or when the current evidence is due for refresh.
-    if (last != null && last.equals(cell(feet)) && Math.abs(position.y - lastGroundY) < .05
+    if (last != null && last.equals(cell(feet)) && Math.abs(position.y - lastGroundY) < (climbing ? .35 : .05)
         && tick - lastObservation < 20) return;
     Cell here = current();
     if (here == null) {
@@ -176,8 +207,18 @@ final class ExplorationMemory {
       crossedFrom = null;
     } else if (changed && last != null) {
       int dx = Math.abs(last.x() - here.x()), dz = Math.abs(last.z() - here.z());
+      int dyStep = here.y() - last.y();
       double deltaY = position.y - lastGroundY;
-      if (deltaY < -1.25 && dx + dz <= 4) {
+      if (dx == 0 && dz == 0 && Math.abs(dyStep) == 1 && (climbing || isVerticalShaftCandidate(pos(last)) || isVerticalShaftCandidate(pos(here)))) {
+        Passage pMode = verticalPassageType(pos(last), pos(here));
+        boolean clearUpDown = clearVertical(last, here) && clearVertical(here, last);
+        var proof = new ExplorationGraph.PassageProof(pMode, clearUpDown, clearUpDown, dyStep, now);
+        if (clearUpDown) {
+          graph.walk(last, here, false, pMode, proof, now);
+        } else if (loaded(pos(last)) && loaded(pos(here)) && clearVertical(last, here)) {
+          graph.transition(last, here, "", EdgeKind.ONE_WAY_MECHANISM, pMode, now);
+        }
+      } else if (deltaY < -1.25 && dx + dz <= 4) {
         graph.transition(last, here, "",
             usedClimbable ? EdgeKind.ONE_WAY_MECHANISM : EdgeKind.ONE_WAY_DROP, now);
       } else if (usedClimbable && deltaY > 1.25 && dx + dz <= 4) {
@@ -267,10 +308,15 @@ final class ExplorationMemory {
           for (Cell c : cells) {
             if (!loaded(pos(c))) return false;
           }
+          boolean verticalEdge = edge.passage() != Passage.GROUND;
           for (int i = 1; i < cells.size(); i++) {
             Cell a = cells.get(i - 1);
             Cell b = cells.get(i);
-            if (!clear(a, b) || !clear(b, a)) return false;
+            boolean ok =
+                verticalEdge
+                    ? (clearVertical(a, b) && clearVertical(b, a))
+                    : (clear(a, b) && clear(b, a));
+            if (!ok) return false;
           }
           return true;
         },
@@ -295,13 +341,21 @@ final class ExplorationMemory {
   }
 
   static List<Cell> adjacent(Cell from) {
-    List<Cell> out = new ArrayList<>(4);
+    List<Cell> out = new ArrayList<>(6);
     for (int[] d : DIRECTIONS) {
       for (int dy : new int[]{0, 1, -1}) {
         Cell to = new Cell(from.x() + d[0], from.y() + dy, from.z() + d[1]);
         if (clear(from, to) && clear(to, from)) {
           out.add(to);
           break;
+        }
+      }
+    }
+    if (Store.config.allowClimb) {
+      for (int dy : new int[]{1, -1}) {
+        Cell to = new Cell(from.x(), from.y() + dy, from.z());
+        if (clearVertical(from, to) && clearVertical(to, from)) {
+          out.add(to);
         }
       }
     }
@@ -348,7 +402,14 @@ final class ExplorationMemory {
           graph.mark(here, kind, null, hints, now);
       }
     }
-    for (Cell to : open) if (!graph.walked(to) && visible(pos(to))) graph.opening(here, to, now);
+    for (Cell to : open) {
+      if (!graph.walked(to) && visible(pos(to))) {
+        boolean vertical =
+            to.x() == here.x() && to.z() == here.z() && Math.abs(to.y() - here.y()) == 1;
+        Passage mode = vertical ? verticalPassageType(pos(here), pos(to)) : Passage.GROUND;
+        graph.opening(here, to, mode, now);
+      }
+    }
   }
 
   private static long distSq(Cell at, int x, int y, int z) {

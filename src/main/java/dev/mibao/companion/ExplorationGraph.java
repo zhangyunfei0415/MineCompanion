@@ -8,6 +8,9 @@ final class ExplorationGraph {
   enum Kind { PATH, ENTRY, SAFE_POINT, JUNCTION, STAIRS, WORK_FACE, HAZARD, FRONTIER }
   enum EdgeKind { BIDIRECTIONAL, ONE_WAY_DROP, ONE_WAY_MECHANISM, WARP_TRANSITION }
   enum State { OBSERVED, VERIFIED, STALE, BLOCKED }
+  enum Passage { GROUND, LADDER, SCAFFOLD, WATER_SHAFT }
+
+  record PassageProof(Passage passage, boolean supported, boolean topClear, int dy, long verifiedAt) {}
 
   record Cell(int x, int y, int z) {
     String id() { return x + "," + y + "," + z; }
@@ -23,8 +26,15 @@ final class ExplorationGraph {
   }
 
   record Edge(Cell from, Cell to, String destination_dimension, EdgeKind kind, State state,
-              List<Cell> cells, boolean mined_segment, long last_seen, String reason) {
-    Edge { cells = List.copyOf(cells); }
+              List<Cell> cells, boolean mined_segment, long last_seen, String reason, Passage passage) {
+    Edge(Cell from, Cell to, String destination_dimension, EdgeKind kind, State state,
+        List<Cell> cells, boolean mined_segment, long last_seen, String reason) {
+      this(from, to, destination_dimension, kind, state, cells, mined_segment, last_seen, reason, Passage.GROUND);
+    }
+    Edge {
+      cells = List.copyOf(cells);
+      if (passage == null) passage = Passage.GROUND;
+    }
     boolean returnable() { return kind == EdgeKind.BIDIRECTIONAL && state == State.VERIFIED; }
   }
 
@@ -39,10 +49,22 @@ final class ExplorationGraph {
 
   record Step(Edge edge, Cell from, Cell to) {}
   private record Key(Cell from, Cell to, String dimension, EdgeKind kind) {}
-  private record Pending(Cell cell, int cost) {}
-  private record Leg(Edge edge, int from, int to) {
+  private record RouteState(Cell cell, Passage mode) {}
+  private record Pending(RouteState state, int cost) {}
+  private record Leg(Edge edge, int from, int to, Passage prevMode) {
     int cost() {
-      return Math.abs(to - from) + Math.abs(edge.cells.get(to).y - edge.cells.get(from).y);
+      int steps = Math.abs(to - from);
+      int perStep =
+          switch (edge.passage) {
+            case GROUND -> 10;
+            case LADDER, SCAFFOLD -> 14;
+            case WATER_SHAFT -> 16;
+          };
+      int dyPenalty = edge.passage == Passage.GROUND
+          ? Math.abs(edge.cells.get(to).y - edge.cells.get(from).y) * 5
+          : 0;
+      int switchPenalty = (prevMode != null && prevMode != edge.passage) ? 3 : 0;
+      return steps * perStep + dyPenalty + switchPenalty;
     }
   }
 
@@ -95,15 +117,24 @@ final class ExplorationGraph {
     return graph;
   }
 
+  private static boolean validUnit(Cell a, Cell b, Passage passage) {
+    if (a == null || b == null) return false;
+    long dx = Math.abs((long) a.x - b.x);
+    long dy = Math.abs((long) a.y - b.y);
+    long dz = Math.abs((long) a.z - b.z);
+    if (passage != null && passage != Passage.GROUND) {
+      return dx == 0 && dz == 0 && dy == 1;
+    }
+    return dx + dz == 1 && dy <= 1;
+  }
+
   private static boolean validGeometry(Edge edge) {
     if (edge.kind != EdgeKind.BIDIRECTIONAL) return edge.cells.isEmpty();
     var cells = edge.cells;
     if (!edge.destination_dimension.isEmpty() || cells.size() < 2
         || !cells.get(0).equals(edge.from) || !cells.get(cells.size() - 1).equals(edge.to)) return false;
     for (int i = 1; i < cells.size(); i++) {
-      Cell a = cells.get(i - 1), b = cells.get(i);
-      if (Math.abs((long) a.x - b.x) + Math.abs((long) a.z - b.z) != 1
-          || Math.abs((long) a.y - b.y) > 1) return false;
+      if (!validUnit(cells.get(i - 1), cells.get(i), edge.passage)) return false;
     }
     return true;
   }
@@ -125,23 +156,40 @@ final class ExplorationGraph {
   }
 
   void walk(Cell from, Cell to, boolean mined, long now) {
+    walk(from, to, mined, Passage.GROUND, null, now);
+  }
+
+  void walk(Cell from, Cell to, boolean mined, Passage passage, PassageProof proof, long now) {
     if (from.equals(to)) return;
+    Passage mode = passage == null ? Passage.GROUND : passage;
+    if (mode != Passage.GROUND) {
+      if (proof == null
+          || !proof.supported()
+          || !proof.topClear()
+          || proof.passage() != mode
+          || proof.dy() != to.y() - from.y()) {
+        throw new IllegalArgumentException("Unverified passage proof for " + from.id() + " -> " + to.id());
+      }
+    } else if (proof != null && (!proof.supported() || !proof.topClear() || proof.passage() != mode)) {
+      throw new IllegalArgumentException("Unverified passage proof for " + from.id() + " -> " + to.id());
+    }
+    var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.VERIFIED, List.of(from, to), mined, now, "", mode);
+    if (!validGeometry(edge)) throw new IllegalArgumentException("Expected contiguous walking step");
+
     // Rewalking an interior step keeps its corridor compressed.
     for (Key key : touching(from)) {
-      Edge edge = edges.get(key);
-      int i = edge.cells.indexOf(from), j = edge.cells.indexOf(to);
-      if (edge.returnable() && Math.abs(i - j) == 1 && j >= 0 && (!mined || edge.mined_segment)) return;
+      Edge existing = edges.get(key);
+      int i = existing.cells.indexOf(from), j = existing.cells.indexOf(to);
+      if (existing.returnable() && existing.passage == mode && Math.abs(i - j) == 1 && j >= 0 && (!mined || existing.mined_segment)) return;
     }
     pinned.add(from);
     pinned.add(to);
     try {
       ensure(from, now);
       ensure(to, now);
-      var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.VERIFIED, List.of(from, to), mined, now, "");
-      if (!validGeometry(edge)) throw new IllegalArgumentException("Expected contiguous walking step");
       if (node(from) == null || node(to) == null) return;
       Edge current = edges.get(key(edge));
-      if (current == null || !current.returnable() || mined && !current.mined_segment) put(edge);
+      if (current == null || !current.returnable() || mined && !current.mined_segment || current.passage != mode) put(edge);
     } finally {
       pinned.clear();
     }
@@ -151,10 +199,15 @@ final class ExplorationGraph {
   }
 
   void opening(Cell from, Cell to, long now) {
+    opening(from, to, Passage.GROUND, now);
+  }
+
+  void opening(Cell from, Cell to, Passage passage, long now) {
     if (!walked(from) || interiors.containsKey(to)) return;
     Node existingTo = node(to);
     if (existingTo != null && existingTo.kind() != Kind.FRONTIER) return;
-    var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.OBSERVED, List.of(from, to), false, now, "");
+    Passage mode = passage == null ? Passage.GROUND : passage;
+    var edge = new Edge(from, to, "", EdgeKind.BIDIRECTIONAL, State.OBSERVED, List.of(from, to), false, now, "", mode);
     if (!validGeometry(edge)) return;
     if (existingTo != null && edges.containsKey(key(edge))) return;
     splitAt(from);
@@ -164,13 +217,17 @@ final class ExplorationGraph {
   }
 
   void transition(Cell from, Cell to, String destinationDimension, EdgeKind kind, long now) {
+    transition(from, to, destinationDimension, kind, Passage.GROUND, now);
+  }
+
+  void transition(Cell from, Cell to, String destinationDimension, EdgeKind kind, Passage passage, long now) {
     pinned.add(from);
     if (destinationDimension.isEmpty()) pinned.add(to);
     try {
       ensure(from, now);
       if (destinationDimension.isEmpty()) ensure(to, now);
       if (node(from) == null || destinationDimension.isEmpty() && node(to) == null) return;
-      put(new Edge(from, to, destinationDimension, kind, State.OBSERVED, List.of(), false, now, ""));
+      put(new Edge(from, to, destinationDimension, kind, State.OBSERVED, List.of(), false, now, "", passage));
     } finally {
       pinned.clear();
     }
@@ -190,7 +247,7 @@ final class ExplorationGraph {
         splitAt(neighbor);
         var link = edges.get(key(slice(edge, List.of(cell, neighbor))));
         if (link != null && link.returnable())
-          put(new Edge(link.from, link.to, "", link.kind, link.state, link.cells, true, now, ""));
+          put(new Edge(link.from, link.to, "", link.kind, link.state, link.cells, true, now, "", link.passage));
       }
     }
     trim();
@@ -239,7 +296,7 @@ final class ExplorationGraph {
 
   private static Edge slice(Edge e, List<Cell> cells) {
     return new Edge(cells.get(0), cells.get(cells.size() - 1), "", e.kind, e.state, cells,
-        e.mined_segment, e.last_seen, e.reason);
+        e.mined_segment, e.last_seen, e.reason, e.passage);
   }
 
   private void compress(Cell midpoint) {
@@ -249,13 +306,18 @@ final class ExplorationGraph {
     var iterator = incidentKeys.iterator();
     Key ka = iterator.next(), kb = iterator.next();
     Edge a = edges.get(ka), b = edges.get(kb);
-    if (!a.returnable() || !b.returnable() || a.mined_segment != b.mined_segment) return;
+    if (!a.returnable() || !b.returnable() || a.mined_segment != b.mined_segment || a.passage != b.passage) return;
     var left = ordered(a, a.to.equals(midpoint));
     var right = ordered(b, b.from.equals(midpoint));
     if (left.size() + right.size() - 1 > MAX_CELLS) return;
     Cell before = left.get(left.size() - 2), after = right.get(1);
-    if (before.y != midpoint.y || after.y != midpoint.y
-        || before.x + after.x != midpoint.x * 2 || before.z + after.z != midpoint.z * 2) return;
+    boolean horizontalLine = before.y == midpoint.y && after.y == midpoint.y
+        && before.x + after.x == midpoint.x * 2 && before.z + after.z == midpoint.z * 2;
+    boolean verticalShaft = a.passage != Passage.GROUND
+        && before.x == midpoint.x && after.x == midpoint.x
+        && before.z == midpoint.z && after.z == midpoint.z
+        && before.y + after.y == midpoint.y * 2 && Math.abs(after.y - midpoint.y) == 1;
+    if (!horizontalLine && !verticalShaft) return;
     var cells = new ArrayList<>(left);
     cells.addAll(right.subList(1, right.size()));
     long seen = Math.max(a.last_seen, b.last_seen);
@@ -263,7 +325,7 @@ final class ExplorationGraph {
     remove(kb);
     nodes.remove(midpoint);
     put(new Edge(cells.get(0), cells.get(cells.size() - 1), "", b.kind, b.state, cells,
-        b.mined_segment, seen, b.reason));
+        b.mined_segment, seen, b.reason, b.passage));
   }
 
   private static List<Cell> ordered(Edge edge, boolean forward) {
@@ -295,7 +357,7 @@ final class ExplorationGraph {
       if (edge == null) return;
     }
     put(new Edge(edge.from, edge.to, edge.destination_dimension, edge.kind, state, edge.cells,
-        edge.mined_segment, now, reason));
+        edge.mined_segment, now, reason, edge.passage));
     trim();
   }
 
@@ -309,27 +371,31 @@ final class ExplorationGraph {
   List<Step> route(Cell start, Set<Cell> goals) {
     if (goals.isEmpty() || !walked(start)) return List.of();
     var queue = new PriorityQueue<Pending>(Comparator.comparingInt(Pending::cost));
-    Map<Cell, Integer> best = new HashMap<>();
-    Map<Cell, Leg> previous = new HashMap<>();
+    Map<RouteState, Integer> best = new HashMap<>();
+    Map<RouteState, Leg> previous = new HashMap<>();
     Map<Key, List<Integer>> interiorGoals = new HashMap<>();
     for (Cell goal : goals) {
       for (Key key : interiors.getOrDefault(goal, Set.of())) {
         interiorGoals.computeIfAbsent(key, ignored -> new ArrayList<>()).add(edges.get(key).cells.indexOf(goal));
       }
     }
-    best.put(start, 0);
-    queue.add(new Pending(start, 0));
+    var initState = new RouteState(start, null);
+    best.put(initState, 0);
+    queue.add(new Pending(initState, 0));
     while (!queue.isEmpty()) {
       var current = queue.remove();
-      Cell cell = current.cell;
-      if (current.cost != best.get(cell)) continue;
+      RouteState curState = current.state;
+      Cell cell = curState.cell;
+      if (current.cost != best.getOrDefault(curState, Integer.MAX_VALUE)) continue;
       if (goals.contains(cell)) {
         List<Step> path = new ArrayList<>();
-        for (Leg leg = previous.get(cell); leg != null; leg = previous.get(leg.edge.cells.get(leg.from))) {
+        RouteState trace = curState;
+        for (Leg leg = previous.get(trace); leg != null; leg = previous.get(trace)) {
           int delta = Integer.signum(leg.to - leg.from);
           for (int i = leg.to; i != leg.from; i -= delta) {
             path.add(new Step(leg.edge, leg.edge.cells.get(i - delta), leg.edge.cells.get(i)));
           }
+          trace = new RouteState(leg.edge.cells.get(leg.from), leg.prevMode);
         }
         Collections.reverse(path);
         return path;
@@ -344,12 +410,13 @@ final class ExplorationGraph {
         for (int next : exits) {
           if (next == at) continue;
           Cell to = edge.cells.get(next);
-          var leg = new Leg(edge, at, next);
+          var leg = new Leg(edge, at, next, curState.mode);
+          var nextState = new RouteState(to, edge.passage);
           int cost = current.cost + leg.cost();
-          if (cost < best.getOrDefault(to, Integer.MAX_VALUE)) {
-            best.put(to, cost);
-            previous.put(to, leg);
-            queue.add(new Pending(to, cost));
+          if (cost < best.getOrDefault(nextState, Integer.MAX_VALUE)) {
+            best.put(nextState, cost);
+            previous.put(nextState, leg);
+            queue.add(new Pending(nextState, cost));
           }
         }
       }
@@ -401,7 +468,8 @@ final class ExplorationGraph {
               e.cells,
               e.mined_segment,
               now,
-              ""));
+              "",
+              e.passage));
       healed++;
     }
     if (healed > 0) trim();

@@ -89,6 +89,14 @@ public final class ReasonCodes {
           alternatives.add("use dedicated break_block / hunt_mobs / use_hand tools");
       case "FLUID_TARGET", "NEIGHBOR_HAZARD" ->
           alternatives.add("auto_action(mode=MINE_HOLD) for cobblestone/basalt generators");
+      case "PROTECTED_BLOCK_ENTITY" ->
+          alternatives.add("inspect_block target; choose generator_blocks block outside containers");
+      case "PLACED_ADJACENT_NOT_INSERTED" ->
+          alternatives.add("inspect_block and interact_block/use_item_on_block with verified face and sub_slot");
+      case "BLUEPRINT_HASH_MISMATCH" ->
+          alternatives.add("blueprint_status(action=abort) then start a fresh blueprint_build");
+      case "NEED_SCAFFOLD" ->
+          alternatives.add("provide minecraft:scaffolding or dirt/cobblestone, or pass scaffold_block/scaffold_mode");
       default -> {}
     }
     o.add("suggested_alternatives", alternatives);

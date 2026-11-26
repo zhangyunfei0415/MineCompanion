@@ -3,8 +3,8 @@ plugins {
     id 'net.minecraftforge.gradle' version '6.0.54'
 }
 group = 'dev.mibao'
-version = '0.8.7'
-def buildId = 'release-0.8.7-20261124-01'
+version = '0.8.8'
+def buildId = 'release-0.8.8-20261127-01'
 def buildValues = [modVersion: project.version.toString(), buildId: buildId]
 base { archivesName = 'logistics-companion' }
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; withSourcesJar() }

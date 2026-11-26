@@ -2,6 +2,236 @@
 
 这里记录公开发行和影响下一版的重要开发节点。贡献按可核对的工程、测试和产品决策分工记录。自动化测试和实机验收在各版本内分别说明。
 
+## 0.8.8 · 2026-11-27
+
+- 构建标识：`release-0.8.8-20261127-01`（`logistics-companion-0.8.8.jar`，`16,842,005` 字节，SHA-256 `99C4176D2AC852C2B07B96B38388CB72CD6FFBFC64485E6C4C973AC3495A263C`）
+- 贡献记录：
+  - **项目维护者**：主导 `0.8.7 → 0.8.8rc1..rc17 → 0.8.8` 大更新规划，拍板长程目标板、自维护兼容白名单、自动 3D 脚手架/拆架、亮色工作台方案 A 重构，以及平地/填充/大规模灌溉开垦统一扁平参数引擎（含创造与 `/fly` 落地安全）。
+  - **Muse**：确立声音事件感知、0ms 客户端避险与白名单分级核心架构。
+  - **Hydrogen**：反馈抽屉多格精细点击、局部 UV 命中参数（`hit_u`/`hit_v`/`sub_slot`）与压缩抽屉左键取物需求。
+  - **Codex / Carbon / Neon / DeepSeek**：完成 `rc2`/`rc4`/`rc5` 多轮 1.20.1 实机验收与根因定位，提出高层屋檐站位、固体坡道退步 LIFO 拆架与独立 `scaffold_build` 原语架构并落地实机对照反馈。
+  - **Astra (`gpt-6.2-astra`) & Claude Opus**：产出弹道/合成/3D 探索图/脚手架 0-1 BFS 核心算法方案与全仓审阅，并完成多人 `@` 收件箱、`rc9/rc10` 边界审计及统一三维整地/筑造/开垦架构两轮深度收敛。
+  - **Gemini**：完成 `0.8.8rc1`–`0.8.8rc17` 全模块 Java 工程实现、工作台方案 A 重构、算法 Wave 1/2 落地、JUnit 5 回归单测扩充、`rc13`–`rc17` 实机全链路调试及零代码改动正式打包发布。
+- 核心改动（汇总 `0.8.8rc1`–`0.8.8rc17`）：
+  1. **统一三维整地、筑造与大规模灌溉农田引擎（`TerraformSpec`, `TerraformPlanner`, `TerraformJob`, `FixedStanceOp`, `SkillCatalog` v10）**：扁平参数 Schema 支持 `flatten`（`cut_only`/`cut_and_fill` + `FALLING_COLUMN_ABOVE` 落砂柱与方块实体防护）、`fill`（`solid`/`hollow`/`walls`/`replace_air` + 活体占格礼让与自底向上填充）及 `farm_grid`（9×9 分段水格、含水上半砖封盖、`pool_2x2`/`inventory` 取水循环、防困退后叶序单轮开垦即播）；支持创造及 `/fly`/模组飞行自动 `LAND` 安全降落、`Navigator.startKnownWalk(..., allowedEdge)` 严禁越边踩踏耕地、托管背包换槽闭环、满背包堆叠空桶（`INVENTORY_FULL`）守卫及检查点 `pause`/`resume`/`abort`（保留 `expected_plan_hash` 与重采样 ID 去碰撞）。
+  2. **纯 Java 蓝图施工、多模式 3D 脚手架与诚实回滚日志（`BlueprintFormat`, `BlueprintPlanner`, `BlueprintLibrary`, `BlueprintBuildJob`, `BlueprintScaffoldPlanner`, `ScaffoldJob`, `TeardownReachPlanner`, `RollbackJournal`, `RollbackJob`）**：零 MC 依赖解析 `.nbt`/`.litematic`，支持 BOM 核算、旋转镜像、Forge 1.20.1 脚手架 0-1 BFS 校验、`solid_ramp`/`pillar` 中继、严格 LIFO 逆序退步拆架与掉落物自动回收（`CollectionJob`）、低生命/饥饿扣血自动暂停（`SurvivalPolicy`）及 500 条环形破坏回滚日志（`rollback_coverage` 真实统计 `retained_now`/`evicted`）。
+  3. **寻路、攀爬、探索图与战斗/合成/采矿核心算法升级（`GridSearch`, `Navigator`, `ClimbRules`, `MovementPolicy`, `ExplorationGraph`, `BowAim`, `CraftAllocation`, `RecipePlanner`, `MiningSearch`, `MiningJob`）**：零 GC 开放寻址寻路、`ExplorationGraph` v2 竖井梯子/脚手架立体探索图、木活板门自动开门与居中滞回攀爬（`ClimbRules`）、脚手架防潜行下穿及跑酷 180° 防打转护栏、弹道双弧提前量求解、`RecipePlanner` 同构多重集防爆炸与 3D 聚类采矿；拆分 `MiningJob` 的 `BULK` 与 `EXPLICIT_TARGET` 保护授权。
+  4. **声音感知、0ms 客户端避险、白名单与抽屉精细交互（`SoundSense`, `SoundReflex`, `SoundPolicy`, `EnvironmentWatch`, `WhitelistPolicy`, `InteractionPolicy`, `FaceHitMath`）**：主音量静音前监听危险音效并 0ms 急停/避险；新增昼夜/雷雨/幻翼监视、`policy_whitelist` 五类自维护白名单、Storage Drawers 多盒内凹射线防误触边框与 `CountUpdateMessage` 计数感知。
+  5. **工作台方案 A 重构、`GoalBoard` 长程目标板与多人 `@` 收件箱（`WorkbenchScreen`, `WorkbenchBlueprintView`, `WorkbenchRollbackView`, `GoalBoard`, `MentionPolicy`, `PlayerMentionInbox`, `HarnessEventHub`, `HarnessHttp`）**：去除硬编码横幅替换为自适应态势遥测、亮/暗一键切换与独立蓝图/回滚账本页；接入跨模式持久化 `GoalBoard`、`player_mention` 两阶段 `@` 收件箱、非阻塞 `wait_events` 长轮询与 `GUEST` 只读硬沙箱。
+- 自动化验证与实机验收：
+  - 基于实机全过版本 `0.8.8rc17` **零 Java 源码改动**转正构建。
+  - `.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 799 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.045s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+  - 实机多阶段验证通过：`rc17` 完成 6/6 全套扫测（`flatten` 9/9、`fill hollow` 66/66、`fill replace_air` 16/16、`9×9 farm_grid` 暂停/续传 163/163 与中心含水石砖上半砖、80/80 小麦、`10×3 farm_grid + pool_2x2` 双轮自动取水 60/60 与 28/28 小麦，另附 108 格全格方块状态复核及白昼航拍截图）；此前 `rc1`–`rc12` 并完成 Storage Drawers 精准存取、`.litematic`/`.nbt` 蓝图搭拆、梯井活板门上下行与多人 `@`/访客沙箱实机校验。
+
+## 0.8.8rc17 · 2026-11-27
+
+- 构建标识：`rc17-0.8.8-20261127-01`（`logistics-companion-0.8.8rc17.jar`，`16,842,004` 字节，SHA-256 `E522938866D0AC2D71029A4CDE966D23205F1CC2A24AF48D6923B02170C832D1`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc16` 实机验收（`TEST 1`、`TEST 2a`、`TEST 2b` 与无 `SCREEN_OPEN` 的换槽闭环全过；`TEST 3` 在 `terraform_control(resume)` 暴露检查点重解析拦截及重采样 ID 碰撞隐患，`TEST 4` 在 `36/36` 满背包堆叠空桶舀水时因掉落地面而误报水池枯竭），完成全链路修复与 JUnit 5 回归测试补充。
+- 核心改动：
+  1. **断点续接 `resume` 允许保留 `expected_plan_hash` 与重采样 ID 去碰撞（`TerraformJob`, `TerraformExecutionPolicyTest`）**：`resumeFromCheckpoint` 改用 `TerraformSpec.parse(..., true)` 解析持久化规格，构造恢复作业时不沿用旧计划数字 `doneOps` ID（改以 `priorVerifiedOps` / `priorConfirmedJournalable` / `verifiedByPhase` 累加统计，`tickSample()` 替换 `plan` 时清空 `doneOps`），防止重采样生成的新工单被旧 ID 误跳过。
+  2. **农田重采样跳过已耕格与退路防割点/未耕播种护栏（`TerraformPlanner.planFarmGrid`, `TerraformJob`, `TerraformPlannerTest`）**：重采样时将 `FARMLAND` 与未耕土层分离，已耕未播格直接生成 `SEED` 且不再纳入退路踩踏路径，无未耕土层时不再误报 `NO_SAFE_EXIT`；`Priority 1`/`Priority 2` 与 `canActFromEye` 在土块未变耕地前不抢先派发 `SEED`，并在 `Priority 2` 通过 `preservesFarmExitOnHoeFrom(op, null)` 过滤会切断剩余退路的割点耕作目标。
+  3. **2×2 取水池满背包堆叠空桶识别与状态收敛（`FixedStanceOp.Use`, `TerraformJob.tickRefillWait`）**：`REFILL_BUCKET` 在生存模式下遇空桶堆叠且 `getFreeSlot() < 0` 时返回 `DENIED("INVENTORY_FULL")`，`tickRefillWait` 分别透传 `INVENTORY_FULL` / `MISSING_EMPTY_BUCKET` 而不再误归类为 `WATER_POOL_DEPLETED`，退出时兜底关闭托管换槽界面。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 799 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.049s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc16 · 2026-11-27
+
+- 构建标识：`rc16-0.8.8-20261127-01`（`logistics-companion-0.8.8rc16.jar`，`16,840,965` 字节，SHA-256 `008B9ED30DCBC20F8AAA0B69BCE6E8CC1FA3F4CF4CE016229A63FE9F278793BF`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc15` 实机验收（`TEST 1` 9/9、`TEST 2a` 66/66 及 `TEST 2b` 16/16 均已全过），定位 `TEST 3` 在 `op 3` 取用背包石砖台阶时于 `hotbarSlot` 换槽第 2 tick 提前绕过 `prepare` 同步收口的精确根因并完成修复与单包部署。
+- 核心改动：
+  1. **`FixedStanceOp` 托管换槽状态优先闭环（`FixedStanceOp.Break/Place/Use`, `TerraformJob`）**：在三类微执行器每次 tick 扫描快捷栏或选工具前优先推进 `if (prepare != null)`，确保 `InventoryMove` 完整走完第 2~4 tick 服务器背包同步与 `closeManagedInventoryIfOpen()`（`closeContainer()` + `setScreen(null)`）收口后才清理 `prepare` 并允许进入下一步；并在 `TerraformJob.tickWork()` 退出活跃 `activeOp` 时兜底清理仍处于 `isManagingScreen()` 态的子操作。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 797 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.046s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc15 · 2026-11-27
+
+- 构建标识：`rc15-0.8.8-20261127-01`（`logistics-companion-0.8.8rc15.jar`，`16,840,380` 字节，SHA-256 `F27B42E6733A32220993EDAADC555EBD85325F0CF014D3053AC7704E65185EE6`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc14` 实机扫测（`TEST 1` 与 `TEST 2b` 全过，同时在 `TEST 3` 与 `TEST 2a` 暴露出背包换槽误判开屏及游荡蜜蜂占格/拒放自愈问题），完成 `rc15` 根治修复、纯 Java 单测补充及单包部署。
+- 核心改动：
+  1. **托管背包换槽界面免误停（`TerraformPlanner.shouldPauseForScreen`, `TerraformJob`, `FixedStanceOp`, `TerraformExecutionPolicyTest`）**：新增 `FixedStanceOp.isManagingScreen()` 与纯 Java 策略方法 `TerraformPlanner.shouldPauseForScreen(...)`；仅当非托管的 `InventoryMove` 界面打开时才触发 `SCREEN_OPEN` 暂停，避免 `9..35` 格取料/取种时 `InventorySession` 自开 `InventoryScreen` 导致任务自掐断并遗留界面；并在 `FixedStanceOp.cancel()` 安全释放/关闭托管界面，且为创造模式补充 `9..35` 格 `handlePickItem` 支持。
+  2. **非玩家活体生物占格礼让与服务端/客户端拒放快速恢复（`FixedStanceOp.Place`, `FixedStanceOp.Use`）**：放置前检查目标格非玩家、非掉落物的活体生物占用（如游荡蜜蜂）并礼让最多 `30` tick，超时则切 `ENTITY_OBSTRUCTED` 换位；将玩家防蹭盒略微外扩 `+0.08`；捕获 `useItemOn` / `useItem` 的 `InteractionResult` 以及等待 `>=10` tick 后服务器仍退回空位且未耗料的回执，返回 `NEED_STANCE` 换位重试而非卡满 5 秒触发 `PLACE_UNCONFIRMED`。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 797 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.046s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc14 · 2026-11-27
+
+- 构建标识：`rc14-0.8.8-20261127-01`（`logistics-companion-0.8.8rc14.jar`，`16,838,427` 字节，SHA-256 `143FD553B9B0865277963DA6C06B00C685279DEFCED8865B03B9C21DF114FA60`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc13` 实机 `TEST 1` 在 `6/56` 处触发的 `stance_moves=782` 选站死循环现场，联动审计并根治 3 项执行器与取水/放置回归隐患，补充 JUnit 5 回归单测并完成 `0.8.8rc14` 构建。
+- 核心改动：
+  1. **站位选择复用真实视线与触达判定并阻断零进度原地循环（`TerraformJob`, `TerraformPlanner`, `TerraformExecutionPolicyTest`）**：`Priority 2` 的 `canAct` 从纯欧氏距离改为调用 `canActFromEye(op, targetBp, hypEye)` 真实射线/打击面校验，显式排除当前脚下站位（`curStand`）与已触发零进度的站位（`noProgressStances`）；到站后若 `verifiedOps == opsAtLastArrival` 则拉黑该站位并在重试超限后标记 `STANCE_NO_PROGRESS` 跳过目标，防止墙角/遮挡原地选站死循环；任意工单核实通过即清空站位黑名单以释放新视线。
+  2. **2×2 取水池寻路期间保持 `REFILL_WAIT` 状态机并增加水面视线预检（`TerraformJob`, `FixedStanceOp`）**：`startRefillFromPool` 优先选取距离最近的安全干燥池边站位并直接切入 `EnginePhase.REFILL_WAIT` 追踪 `refillStandGoal` 行走与到站后接续取水，不再误留在 `WORK` 导致走到水池后立即折返；`FixedStanceOp.Use(REFILL_BUCKET)` 瞄准水面 `y+0.8` 并以 `ClipContext.Fluid.SOURCE_ONLY` 校验池边无遮挡，被挡时触发换贴边站位重试。
+  3. **方块放置幂等预检（`FixedStanceOp.Place`）**：当目标格已存在期望方块且满足 `PlacementIntent`（以及可选的源水保留要求）时直接返回 `Status.VERIFIED` 并记录 `afterState`，防止断点续传或部分重复派发误报 `TARGET_OCCUPIED`。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 796 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.042s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc13 · 2026-11-27
+
+- 构建标识：`rc13-0.8.8-20261127-01`（`logistics-companion-0.8.8rc13.jar`，`16,836,627` 字节，SHA-256 `E37A9992FDD73054008B23C7D39FB702A4193F1828997A4F4B98865BC1030EC9`）
+- 贡献记录：
+  - User：提出将平地、三维填充与大规模耕地内化为统一算法与技能预设，并明确涵盖服务器 `/fly` / 模组飞行与低心智负担扁平参数需求。
+  - Astra (`gpt-6.2-astra`)、Claude Opus（2 轮深度架构收敛） & Gemini：协同设计统一三维整地/筑造/开垦架构及护栏协议；由 Gemini 完成全量 Java 实现、JUnit 5 单测覆盖与 `0.8.8rc13` 构建部署。
+- 核心改动：
+  1. **统一三维地形整改系统（`TerraformSpec`, `TerraformPlanner`, `TerraformJob`, `FixedStanceOp`）**：提供扁平参数 Schema（`min_x..max_z`、`mode`、共享 `block` 与可选 `cover_slab`），支持 `flatten`（`cut_only`/`cut_and_fill`，严格自顶向下挖掘 + `[FALLING_COLUMN_ABOVE]` 柱级保护 + 自然方块白名单与箱子保护）、`fill`（`solid`/`hollow`/`walls`/`replace_air` 严格自底向上填充）及 `farm_grid`（9×9 分段水格网格 + 上半砖封盖 + `pool_2x2`/`inventory` 取水 + 退后叶序单轮开垦即播）。
+  2. **定站微执行与无践踏寻路护栏（`FixedStanceOp`, `TerraformJob`, `Navigator`, `MiningJob`）**：每次至多 1 个在途 `FixedStanceOp`（`Break`/`Place`/`Use`），优先耗尽当前站位可达工单；拆分 `MiningJob` 的 `BULK` 与 `EXPLICIT_TARGET` 挖掘授权；为 `Navigator.startKnownWalk` 增加 `allowedEdge` 边约束防踩踏新耕地；接入 `RollbackJournal` 500 条环形日志与诚实 `rollback_coverage` 留存统计。
+  3. **飞行无差别降落守卫与断点续接（`TerraformJob`, `Actions`, `Cooperation`）**：按 `abilities.flying` 状态无差别触发 `LAND` 潜行安全降落，适配创造模式与服务器 `/fly`/模组飞行环境；外部干预触发 `MANUAL_FLIGHT_INTERRUPTED` 暂停锁并落盘 `Store.data.checkpoints`。
+  4. **工具注册与技能预设（`ToolSchemas`, `Rules`, `SkillCatalog`, `CapabilityCatalog`, `TaskActions`, `SessionPlan`, `ToolMenu`, `HarnessCapabilities`, `HarnessController`, `Agent`）**：新增 `terraform_preview`、`terraform_run`、`terraform_control` 工具及 `SkillCatalog`（`VERSION = "10"`）三项预设（`terraform_flatten`、`terraform_fill`、`terraform_farm_grid`）。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**160 个测试套件 / 794 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.045s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc12` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc13.jar` 至实机 `mods\` 目录，待重启客户端执行 `rc13` 实机联调后转正 `0.8.8`。
+
+## 0.8.8rc12 · 2026-11-26
+
+- 构建标识：`rc12-0.8.8-20261126-01`（`logistics-companion-0.8.8rc12.jar`，`16,721,955` 字节，SHA-256 `EDE8F14454C5AB75871DF04789FED5D2AF7F76D74C2DFC5A96EB6F19783A207B`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc11` 实机 `QA-2` 在脚手架顶部原地上下跳动及饥饿掉血现场（`(87.5, -58.08 <-> -57.92, 119.7)`）定位 5 项组合根因并完成修复、JUnit 5 单测补充与离线校验。
+- 核心改动：
+  1. **脚手架顶部禁用悬崖潜行下沉循环（`MovementPolicy`, `Navigator`, `MovementAndPowerSaverTest`）**：新增 `MovementPolicy.shouldLedgeSneak`；处于脚手架支撑上时禁用 `highLedge` 自动潜行（保持非冲刺与转角保护），彻底消除原版潜行穿落脚手架到 `-58.08` 触发 `climbExitJump` 拉回 `-57.92` 的往复死循环。
+  2. **非脚手架限定攀爬防滑潜行（`ClimbRules`, `Navigator`, `ClimbRulesTest`）**：扩展 `ClimbRules.shouldSneakToStabilizeClimb(onClimbable, onGround, isScaffolding)`（保留 2 参重载兼容）并更新 `Navigator` 全部 4 处调用；仅梯子/活板门在停稳/搜索/重规划时潜行防滑，脚手架不再触发潜行下穿。
+  3. **横向步进拒把垂直上下抖动当有效位移（`MovementPolicy`, `Navigator`, `MovementAndPowerSaverTest`）**：新增 `MovementPolicy.madeHorizontalWalkProgress`；非垂直爬梯而需跨越 X/Z 格边界时仅计水平位移 `>= 0.015`，防止 0.16 格上下抖动每 tick 将 `stuck` 归零、拖满 120s 超时并耗尽饱食度。
+  4. **交互与拾取状态不误拒脚手架悬梯到站（`Navigator`）**：`safelyStanding` 仅对非交互/非拾取的普通寻路启用 `ClimbRules.canAcceptClimbableArrival` 实心落地限制，`PlaceJob`/`MiningJob`/`CollectionJob` 允许直接站在脚手架上完成放置或挖掘。
+  5. **蓝图施工生存低生命/饥饿扣血自动断点暂停（`SurvivalPolicy`, `BlueprintBuildJob`, `MovementAndPowerSaverTest`）**：新增 `SurvivalPolicy.shouldPauseBuildWork`；在生存模式生命跌至危急线或饱食度 `<= 0` 且处于掉血态时自动中止子任务并保存 `paused` 断点等待补给。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**158 个测试套件 / 784 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.048s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc11 · 2026-11-26
+
+- 构建标识：`rc11-0.8.8-20261126-01`（`logistics-companion-0.8.8rc11.jar`，`16,720,641` 字节，SHA-256 `F01197C510EEC60A9FD3EA3CEDE8C4106D0914C10FD6A54D43976380B8DB77D8`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc10` 全套实机 `QA-3a / P0-1 / P0-3` 实测反馈与用户关于“拆架掉落物未主动回收”的发现，完成梯井非精确到达防早停滑落、与蓝图/独立脚手架拆架后自动掉落物清理，及对应 JUnit 5 单测与离线构建校验。
+- 核心改动：
+  1. **非精确 `go_to` 悬梯到达防早停滑落（`ClimbRules`, `Navigator`, `ClimbRulesTest`）**：新增 `ClimbRules.canAcceptClimbableArrival` 并在 `Navigator` 到达判断接入；当目标格本身非可攀爬实块时，处于梯子/活板门上且未真正踏实地面（`!onGround`）不允许提前判定到达松手，确保顺畅走上实心楼板后再结束导航。
+  2. **蓝图与独立脚手架拆架后自动收集掉落物（`CollectionJob`, `TeardownReachPlanner`, `BlueprintBuildJob`, `ScaffoldJob`, `TeardownReachPlannerTest`）**：为 `CollectionJob` 新增可配置 `maxTicks` 预算控制；`BlueprintBuildJob` 与 `ScaffoldJob` 在生存/冒险模式完成 LIFO 拆架且存在已拆材料类型时，通过 `TeardownReachPlanner.shouldCollectTeardownDrops` 扫描周边未拾取的已拆方块 `ItemEntity`，以托管后台 `CollectionJob`（不闪烁背包、超时安全跳过、计入 `scaffolds_collected`）自动巡回收集散落的竹脚手架/圆石。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**158 个测试套件 / 783 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.044s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc10` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc11.jar` 至实机 `mods\` 目录。
+
+## 0.8.8rc10 · 2026-11-26
+
+- 构建标识：`rc10-0.8.8-20261126-01`（`logistics-companion-0.8.8rc10.jar`，`16,716,978` 字节，SHA-256 `026230C36180C7D5C488790CC15DAC8F50F296FCECE4F9AF212BFFF3BCF51BB1`）
+- 贡献记录：
+  - Astra（`gpt-6.2-astra`，Codex CLI 只读评审）+ Claude Opus（`claude -p --model opus` 只读评审）+ Gemini：完成 `rc9/rc10` 改动审计与四大域预设场景风险复核，并核验确认 4 项 P0 硬边界问题。
+  - Gemini：完成 `QA-3a` 梯井横向居中与滞回修复、4 项方案 A P0 边界修补及对应 JUnit 5 单测、离线全量验证与 `rc9 -> rc10` 备份部署。
+- 核心改动：
+  1. **`QA-3a` 梯井横向居中与滞回防抖（`ClimbRules`, `Navigator`, `ClimbRulesTest`）**：在 `0.8.8rc9` 实机确认活板门打开（`open=true`）后角色在 `z=60.26` 挂肩卡于邻格 `y=-55` 天花板底面；`guideClimb` 在 `onClimbable && goingUp` 引入 `ClimbHysteresis`（上爬偏心 `> 0.13` 进入、`<= 0.08` 退出），合成为贴墙 + 居中斜向航向角，下降居中滞回 `> 0.20 / <= 0.14`；`Navigator` 持有并在 `begin/stop/replan/非垂直爬梯` 时重置滞回状态，同时统一要求 `steering.forward()` 转向对准后再推进入梯方向。
+  2. **P0-1 · 直线跳点不得跳过跑酷落点（`MovementPolicy`, `Navigator`, `MovementAndPowerSaverTest`）**：新增 `MovementPolicy.canSkipCollinearWaypoint`，`Navigator` 平滑跳点循环检查 `pathActions[index]` 与 `pathActions[index + 1]`，遇跑酷边（`action == 3`）或其他非普通平走边立即停跳，避免短跳落点后紧接直道时直接吞掉起跳。
+  3. **P0-2 · 高空拆架步离硬排除架体与到站二次核验（`ScaffoldJob`, `TeardownReachPlanner`, `BlueprintBuildJob`, `TeardownReachPlannerTest`）**：`ScaffoldJob.findSolidStepOffCell` 直接跳过可攀爬格、流体、无有限承托面、脚手架及账本支撑格（不再仅加 `+1000` 惩罚分）；`BlueprintBuildJob` 步离导航完成准备开挖前通过 `TeardownReachPlanner.stepOffVerified` 复核已着地、不在脚手架、未踩在待拆支撑柱且脱离邻接限制，否则保栈停拆。
+  4. **P0-3 · 显式 `mention_id` 失效/已结案闭环拒绝（`MentionPolicy`, `HarnessController`, `MentionPolicyAndInboxTest`）**：新增 `MentionPolicy.evaluateActionMention`；`HarnessController` 收到非空 `mention_id` 时若会话已过期、被挤出、非当前作用域或已无工作任务地结案，直接返回 `[MENTION_EXPIRED]` 拒绝回执，绝不静默降级为普通租约动作或丢失访客只读沙盒。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**158 个测试套件 / 783 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.040s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc9` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc10.jar` 至实机 `mods\` 目录。
+
+## 0.8.8rc9 · 2026-11-26
+
+- 构建标识：`rc9-0.8.8-20261126-01`（`logistics-companion-0.8.8rc9.jar`，`16,712,440` 字节，SHA-256 `69BC2BFE4124A1433914F8F0FF21A406622712940FC76DB437478F4647338E37`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc8` 实机 QA 与打转现场定位修复 `Navigator` 跑酷 180° 助跑死循环、脚手架顶部原版 `CollisionContext` 误阻断 3 格孤岛及悬空脚手架 LIFO 拆架卡死（含 `ScaffoldJob.findSolidStepOffCell` 高度域与脚手架本体排斥加固）、以及 `QA-3a` 梯井闭门木活板门稳定/寻路边界。
+- 核心改动：
+  1. **跑酷 180° 打转根治（`MovementPolicy`, `Navigator`）**：新增 `parkourExecutionAllowed` 与 `parkourTimedOut`，非规划跑酷边遇横向偏离直接重规划而不再误入跑酷状态机；修正 `parkourPhase == 1` 先前向转角再后向转角导致的同 tick 180° 对扯，`ALIGN <-> SPRINT` 循环限 2 次 / 60 tick 超时即封边重规划；在 `createSearch` 与 `addParkourSteps` 中禁止从脚手架上起跳或落到脚手架/梯子格，且 `replan()` 支持直接拉黑多格跑酷失败边。
+  2. **脚手架 3 格孤岛与悬空拆架阻塞修复（`ClimbRules`, `NavigationPassage`, `BlueprintBuildJob`, `ScaffoldJob`）**：`ClimbRules.isScaffoldingCollisionPassable` 接入 `NavigationPassage.clear`，在 `allowClimb` 开启时跳过 `ScaffoldingBlock` 碰撞判定，消除站在脚手架顶部 `CollisionContext.of(player)` 将下方脚手架误判为实心堵路（仅展开 `3/20000`）导致的建筑末尾 `NOT_REACHABLE` 与零拆架；`BlueprintBuildJob.tickTeardown` 在 `climbExit` 返回 `BLOCKED` 时自动调用 `ScaffoldJob.findSolidStepOffCell` 先步离至安全实体落脚格后再继续 LIFO 拆架；同时将 `findSolidStepOffCell` 垂直搜索域扩展至覆盖 `groundY`（`[-8..-2, 1]`）并排除脚手架所在格与脚手架顶面。
+  3. **`QA-3a` 闭门木活板门与梯井防坠收敛（`Navigator`）**：在 `search != null` 与 `replan()` 期间若处于梯子上未落地则保持潜行稳住位置（不再 `release()` 跌回底层）；上升穿越 `verticalClimb` 门廊时将 `climbCorridor` 向上扩展 `0.25` 格提前触发 `passage.prepare` 开门；水平切换格采用 `stand(next, !strictWalk)` 与 `passage.prepare` 保持规划态一致。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**158 个测试套件 / 783 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.044s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc8` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc9.jar` 至实机 `mods\` 目录。
+
+## 0.8.8rc8 · 2026-11-26
+
+- 构建标识：`rc8-0.8.8-20261126-01`（`logistics-companion-0.8.8rc8.jar`，`16,711,333` 字节 / 约 `15.94 MiB`，SHA-256 `B18EEE0CD2F999A69EA91331130A11D78A2D4DC079C5BD88FDF54AFD6B80A3A2`）
+- 贡献记录：
+  - Gemini：基于 `0.8.8rc7` 实机 QA 报告定位并修复 `QA-3a`（闭门活板门自动开门攀爬）、`QA-2`（潜行压低视线误判 `PLACE_CHANGED`、屋檐站位眼高不足、固体坡道栈顶阻断 LIFO 拆架）全部 4 项问题并补充 JUnit 5 单测。
+- 核心改动：
+  1. **`QA-3a` 梯井闭门木活板门自动开门上/下行（`ClimbRules`, `Navigator`, `NavigationPassage`）**：`Navigator.begin()` 与 `collectFallbackGoals()` 在非严格行走时采用规划态站位与高度判定；等待自动开门时不释放移动改按上跳顶门（不潜行），到站悬梯防滑按潜行；禁止关闭活板门向正上方空气攀爬以引导水平走上二楼，且防止梯井单次滑脱封死唯一竖井边；`NavigationPassage.prepare` 补充 `Reach.mineFrom` 仰视仰面命中兜底。
+  2. **`QA-2` `[PLACE_CHANGED]` 潜行/重接近收敛（`PlaceJob`）**：仅在放置需要潜行的方块或依赖可交互支撑面时按住潜行，避免普通墙体/楼梯施工无谓潜行压低 0.35 格视线遮挡；并在 `phase 15` 支撑面丢失时先尝试站直恢复及至多 2 次重寻位。
+  3. **`QA-2` 屋檐高差搭架站位校正（`BlueprintScaffoldPlanner`, `BlueprintBuildJob`）**：`planCluster` 与 `planReachesStep` 要求屋檐斜向支撑施工站位眼高严格高于目标底部，消除 1 格偏低脚手架导致屋檐角不可达的问题。
+  4. **`QA-2` 固体坡道 LIFO 自动离位拆架（`TeardownReachPlanner`, `BlueprintBuildJob`, `ScaffoldJob`）**：拆除账本栈顶固体脚手架前若人物站在或重叠该格，自动先步离至邻接安全落地格再继续 LIFO 拆除。
+- 自动化验证：`.\build-local.ps1 -Tasks @('test','build','--offline','--console=plain')` 全绿（**158 个测试套件 / 783 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.047s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。
+
+## 0.8.8rc7 · 2026-11-26
+
+- 构建标识：`rc7-0.8.8-20261126-01`（`logistics-companion-0.8.8rc7.jar`，`16,707,645` 字节 / 约 `15.93 MiB`，SHA-256 `F5CF37216180AA0A3F58B21FC7EFFAF85564780945E1C50EC40EDC6F66CF3185`）
+- 贡献记录：
+  - Claude Opus（`claude --model opus`）+ Astra（`gpt-6.2-astra`，Codex CLI）+ Gemini：完成多人 `@` 触发触发机制、异步长轮询、双模式安全公屏回复与 `GUEST` 只读硬沙箱方案的只读联合架构评审并对齐落地方案。
+  - Gemini：实现两阶段 `@` 收件箱、`wait_events` 非阻塞长轮询、HARNESS 任务结案接口、API/HARNESS 双模式自然应答、独立 `GUEST_IO` 隔离通道及 `HarnessController.currentScope()` 作用域统一，补充 2 套离线单测、完成构建及 `rc6` 备份 / `rc7` 部署。
+- 核心改动：
+  1. **符号 `@` 识别、UUID 身份分级与 `GUEST` 硬沙箱**：新增 [MentionPolicy.java](file:///D:/Companion%20mod/companion-mod/src/main/java/dev/mibao/companion/MentionPolicy.java) 与 [PlayerMentionInbox.java](file:///D:/Companion%20mod/companion-mod/src/main/java/dev/mibao/companion/PlayerMentionInbox.java)，支持 `@配置名` / `@游戏账号ID` 与全角 `＠`，按真实 UUID 严格区分 `OWNER / ADMIN / MEMBER / GUEST`（防同名冒充与撤销成员）；授权成员句首硬指令（含新增 `duty` 值守口令）秒级直行，其余请求走两阶段 `player_mention` 对话收件箱，避免空闲聊天占死 `CommunityBoard`。新增默认关闭配置 `allowGuestChat`（`Store` / `PermissionView` / `WorkbenchSettingsViews` / `SettingsCatalog`），开启后未授权访客仅走只读安全聊天，`GUEST_READONLY_TOOLS` 严禁一切世界写入/持久化/执行命令副作用。
+  2. **非阻塞 `wait_events` 长轮询与 HARNESS 队列闭环**：新增 [HarnessEventHub.java](file:///D:/Companion%20mod/companion-mod/src/main/java/dev/mibao/companion/HarnessEventHub.java)，升级 [HarnessHttp.java](file:///D:/Companion%20mod/companion-mod/src/main/java/dev/mibao/companion/HarnessHttp.java) 异步写回通道，使 `wait_events`（支持 `kinds=["player_mention"]`、最长 20 秒、上限 4 路并发）挂起时不占用主请求线程池与游戏主线程；新增 `mentions`、`reply_to_mention`、`accept_mention_work`、`complete_mention_task` MCP 工具，彻底解决 HARNESS 模式下 `CommunityBoard` `ACTIVE` 永不结案的卡死问题；统一 `HarnessController.currentScope()`（`world|dimension`）保证收件箱/事件/工作接收作用域严格一致。
+  3. **双模式自然应答与公屏防注入**：升级 `ChatOutbox.offerSafe` 与 `Messages.mentionReply`（硬拦截 `/` 开头指令、`BRIEF` 模式允许每单 1 次 `ACK` 与 `FINAL`、`publicReply` 关闭时立即停发），修复原 `reply` 工具误泄公屏问题；`Agent` 在 API 模式下支持调用工具前先发自然开场应答（`ACK`）、跳过多人入口的 `local()` 快捷口令，并为 `GUEST` 提供隔离 `GUEST_IO` 零工具闲聊通道（零历史/记忆/录制持久化）。
+  4. **新增离线 JUnit 5 测试**：`MentionPolicyAndInboxTest`（4 用例）与 `HarnessEventHubAndHttpTest`（2 用例，含真实本地回环 `HarnessHttp` 挂满 4 路 `wait_events` 时 `status`/`heartbeat` 无阻塞并发实测）。
+- 自动化验证：`.\build-local.ps1 -Tasks @('build','--offline','--console=plain')` 全绿（**158 个测试套件 / 783 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.042s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc6` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc7.jar` 至实机 `mods\` 目录。
+
+## 0.8.8rc6 · 2026-11-26
+
+- 构建标识：`rc6-0.8.8-20261126-01`（`logistics-companion-0.8.8rc6.jar`，`16,671,511` 字节 / 约 `15.90 MiB`，SHA-256 `AA44E349D1AA5A1B2F0EEEA9E5622E95192ADFD6F6B46348870C0B0C65C23048`）
+- 贡献记录：
+  - Claude Opus 5.5（`claude-opus-5-5-high`，Antigravity CLI `agy`）+ Astra（`gpt-6.2-astra`，Codex CLI）+ Gemini：在动工前完成两轮三方只读架构/根因/边界研讨，定位并对齐 `0.8.8rc5` 两轮实机 QA 暴露的 P0–P2 全量修复方案。
+  - Gemini：落地全部 6 个模块修复、4 项收尾边界修补与 5 个离线 JUnit 5 测试套件，完成离线构建验证、`rc5` 备份及 `rc6` 实机部署。
+- 核心改动：
+  1. **P0 · `mine_expedition` 干燥矿点批量漏采修复**：`GeneratorPolicy.FluidVerdict` 与 `verdict(...)` 将 `PLAYER_UNSAFE -> ABOVE_HAZARD -> HORIZONTAL_FIRE -> !hasHorizontalFluid -> !targeted(BULK_FLUID)` 分层判定；`MiningJob` 显式拆分横向火焰 `hasHorizontalFire`、计数 `rejectedSafety`/`denials`/`terminalRejects`，并区分 `issued`/`PLAYER_UNSAFE` 停机与局部拒绝 `skip()`；`MiningExpedition` 仅拉黑终局拒绝点，避免连坐未尝试矿块；同步更新 `AutoActionJob`。
+  2. **P0/P1 · 梯子/活板门通行与防漂移（`ClimbRules`, `Navigator`, `ExplorationMemory`）**：`Navigator.isClimbable(pos, planning)` 接入 Forge `IForgeBlock#makesOpenTrapdoorAboveClimbable` 并扩展 `foot(cell, planning)` / `traversable`；禁止直落进入关闭活板门（`ClimbRules.canDescendVerticallyInto`）；使用 `ClimbRules.guideClimb` 与定量 `madeProgress` 杜绝离梯侧漂和跳跳卡死；修复 `Navigator.createSearch` 中 `[LADDER_TOP_GAP]` 不可达悬空判断，仅在图搜索无解时提示梯顶纯空气断档。
+  3. **P1 · 脚手架退出、超距拆解与半径越界修复**：`TeardownReachPlanner` 分级规划 `<=18` / `18..96`（`APPROACH_THEN_MINE`）/ `>96`（`TOO_FAR`）与 `evaluateClimbExit`/`descentBudgetTicks`；`ScaffoldJob` 与 `BlueprintBuildJob` 修正站在 `ScaffoldingBlock` 顶面时的退出判定并接入 `Navigator().interactionDy(-6, 3).allowScaffoldingColumnMine(true).maxRadius(5)` + 完整 `teardownApproachNav` 生命周期与 `stopChild()` 清理；`Reach.mine` 支持多面体描边射线，允许 `scaffoldTeardown(true)` 拆除头顶 `ScaffoldingBlock`。
+  4. **P1/P2 · 蓝图朝向扇区放置与脚手架扇区校验**：`FaceHitMath` / `AimGate` / `PlacementIntent` 补充角度收敛、20 tick 超时与命中点朝向扇区校验；`PlaceJob` 将 `phase 1 -> 15` 停稳、`>0.3` 漂移重寻路、`nav.placementIntent` 与 `resolvePlacementHit()` 命中扇区约束、预测放置与即时 `[PLACED_WRONG_STATE]` 收敛到位；`BlueprintScaffoldPlanner.planCluster` 保留 `primaryTarget` 并执行朝向扇区过滤，`BlueprintBuildJob` 延后 `elevationPlannedBands` 锁定并排除 `[PLACED_WRONG_STATE]` 瞬时重试。
+  5. **P2 · `task_cancel` 路由与 `release` 保留 F8 接管**：新增 `TaskCancelPolicy` 与 `TaskGateway.exists`，`HarnessSession` 新增前台运行态 `inflight` 绑定，`Agent` 按 `GATEWAY_CANCEL > CANCEL_INFLIGHT_REQUEST > 类型别名 > active > NOT_FOUND` 路由；`HarnessController.release` 改走 `Agent.harnessDisconnected` 保留 F8 接管开关。
+  6. **新增离线 JUnit 5 测试套件**：`GeneratorPolicyVerdictTest`（3 用例）、`TeardownReachPlannerTest`（2 用例）、`TaskCancelPolicyTest`（2 用例）、`ClimbRulesTest`（2 用例）、`PlacementAndBlueprintSectorTest`（2 用例）。
+- 自动化验证：`.\build-local.ps1 -Tasks @('build','--offline','--console=plain')` 全绿（**156 个测试套件 / 777 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**（`0.042s`）；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc5` 备份至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc6.jar` 至实机 `mods\` 目录。
+
+## 0.8.8rc5 · 2026-11-26
+
+- 构建标识：`rc5-0.8.8-20261126-01`（`logistics-companion-0.8.8rc5.jar`，`16,645,159` 字节 / 约 `15.87 MiB`，SHA-256 `B538C2C67CC8F6D39CAB26990C67B8CB828D02259FE40AF3195956390D7ECC7C`）
+- 贡献记录：
+  - DeepSeek + Neon：完成 `0.8.8rc4` 全套实机 QA 验收并锁定 B2–B7（脚手架多格叠加失效、屋顶悬空漏层、拆架死锁、abort 清理、`task_cancel` 失效、护箱回执）等阻塞项。
+  - Astra（`gpt-6.2-astra`）：提供 3D 立体寻路/探索图/脚手架 0-1 BFS 与弓箭/合成/采矿优化方案设计（`ASTRA-OPT-A-NAV-3D.md` / `ASTRA-OPT-B-CRAFT-MINE-BOW.md`），并在 RC5 发布前完成全量只读走查，拦截并协助闭环 `P0-1`（8 槽多木板组合爆炸）及 `P1-1..P1-11` 多项实战与接线隐患。
+  - Gemini：完成 B2–B7 闭环修复、全部 6 大算法核心升级及业务任务全量接线（Wave 1 + Wave 2）、联合审阅 P0/P1/P2 修复回归、全量构建、备份部署与文档更新。
+- 核心改动：
+  1. **修复 `0.8.8rc4` B2–B7 实机阻塞项**：修正 `MiningJob` 非托管守卫、`HarnessController`/`Agent` Busy 下的 `scaffold_build(abort)` 与 `task_cancel` 优先级、`PlaceJob` 脚手架多格爬升垫脚与潜行冲突释放、`ScaffoldJob` 与 `BlueprintBuildJob` 严格 LIFO 逆序拆架、内伸栈道 `planHollowPerimeterRamp` 及断点恢复一致性。
+  2. **算法 Wave 1（弹道 / 合成 / 采矿与平台）**：`BowAim` 按 Forge 1.20.1 `0.99F` 阻力与 `0.05F` 重力精确求解高低双弧及移动提前量，接入 `RangedHuntJob` 并分离安全取消蓄力（切槽撤弓绝不盲射）；`CraftAllocation` 引入最大流可行性剪枝；`RecipePlanner` 新增逆向闭包前向状态 Dijkstra、`Use` 余料跟踪、多木板槽位同构多重集分组预算防卡死与 MRV + 失败记忆，并缓存至 `ProductionTask`；新增 `MiningSearch` 3D 聚类/有向 2-opt/无支配约束重连并接入 `MiningJob`；`PlatformPlan` 与 `PlatformJob` 切换单次 BFS 支撑优先调度。
+  3. **算法 Wave 2（零 GC 寻路 / 立体探索图 / 脚手架 0-1 BFS）**：`GridSearch` 新增开放寻址代际哈希 + 索引最小堆 `weightedPacked`（含重开与工作区独占隔离），接入 `Navigator` 并消费动作字节修复跑酷高悬崖契约冲突，新增弱引用 `TickProbeCache`、5 点 `surfaceY` 探测、梯子中段 `foot(goal).y` 精确到达与 `verticalClimb` 前置 `passage.prepare` 开门；`ExplorationGraph`/`Store`/`Memory`/`RoamPolicy`/`RoamExplorationJob`/`ExplorationJob` 全链路支持梯子/脚手架竖井、攀爬逐格采样、前沿不丢弃、竖井压段、`(cell, incomingMode)` 成本、schema 1/2 与坏节点/坏边隔离；`BlueprintScaffoldPlanner` 与 `BlueprintBuildJob` 落地 Forge 1.20.1 脚手架 0-1 BFS 校验、`planCluster` 内部地面生根中继柱与共享平台规划，并在每步搭架前实时核对背包余料绝不挪用主体蓝图材料。
+- 自动化验证：`.\build-local.ps1 -Tasks @('build','--offline','--console=plain')` 全绿（**151 个测试套件 / 766 项测试**，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` **28 项全部通过**；`coremods/companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变。已完成 `rc4` 备份与 `rc5` 实机目录部署。
+
+## 0.8.8rc4 · 2026-11-25
+
+- 构建标识：`rc4-0.8.8-20261125-01`（`logistics-companion-0.8.8rc4.jar`，16,527,153 字节 / 约 15.76 MiB，SHA-256 `CCFF6F73FAB38C3C2C9FFA0934E91D31A55979693568D0AF0A6CC3A39097C778`）
+- 贡献记录：
+  - 项目维护者：在屋顶层实机卡点后拍板「我全都要」产品方案（自动 3D 脚手架 + 独立 `scaffold_build` 原语工具箱 + 自动 LIFO 拆架与手动留存开关）。
+  - Carbon（High）：代码走查定位 `Navigator` `interaction` 扫描 `dy = -2..3` 无法够到 3 格高屋顶、`SoundReflex` 高空受击撤退缺后向安全角、`BlueprintBuildJob` 实心阶梯外挂环路与 LIFO 退步拆架核心架构。
+  - Neon（Extra High）：细化并落地高空窄道潜行防坠（`exposedLedge`/`highLedge`）、脚手架方块垂直升降、每上升 1 格配 2 格踏面的外圈空心阶梯（`planHollowPerimeterRamp`）、45° 站位防偏转（`PlacementIntent.stanceInDirectionSector`）、上/下半砖精确点击（`Reach.placementFrom` + 三波次 `BlueprintPlanner`）、独立 `scaffold_build` 状态机与账本持久化、测试与部署。
+- 核心改动：
+  1. 解决屋顶高层 `Y=3` 卡点与半砖/楼梯朝向翻转：`Navigator` 交互扫描扩至 `dy = -4..3`，`Reach.placementFrom` 区分 `top`/`bottom` 点击上下半区，`PlacementIntent.stanceInDirectionSector` 保持 `0.2` 对角余量，`PlaceJob` 在 `aim.ready` 前稳定 `sneakHold` 眼高；`BlueprintPlanner` 升级为底面支撑 -> 侧面/上半砖/悬挑 -> 附属装饰 3 波次。
+  2. 多模式 3D 脚手架与高空防坠（`Navigator`, `SoundReflex`, `BlueprintScaffoldPlanner`, `BlueprintBuildJob`）：支持 `auto`/`scaffolding`/`solid_ramp`/`pillar`/`none`；无足够真脚手架时优先用非蓝图盈余实体方块搭建外圈空心安全阶梯或临时侧支点；支持断点存档 `scaffold_stack`、LIFO 逆序拆架（绝不拆蓝图实体方块）、`keep_scaffold` 与 `blueprint_status(action="cleanup_scaffold")` 及工作台清理按钮；高空窄道禁用跑酷与疾跑并全程潜行锁边，`SoundReflex` 支持 `±145°`/`180°` 沿窄道后撤或悬崖原地潜行保命。
+  3. 独立 `scaffold_build` PRO 原语工具（`ScaffoldJob`, `Store`, `ToolMenu`, `Agent`, `HarnessController`）：仅挂载于 `construction` 档案，支持 `status`/`pillar_up`（服务端确认跳垫）/ `ramp`/`scaffolding_tower`/`temp_support`/`teardown`。
+- 自动化验证：`.\build-local.ps1 -Tasks @('build','--offline','--console=plain')` 全绿（148 个测试套件 / 741 个用例，0 失败 / 0 错误 / 0 跳过）；`test-harness-lease-client.py` 28 项全通过；`companion_input.js` SHA-256 保持 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4` 不变；待 Codex 实机验收（含 `sample_porch_5x4x5`、`Y=3` 屋顶、3D 脚手架与 LIFO 拆架）。
+
+## 0.8.8rc3 · 2026-11-25
+
+**候选更新版（围绕 Codex 首轮 `0.8.8rc2` 实机验收交接修复两条 P1 主线、P2 拒绝码与工作台 UI 文字裁剪）：根治 `StorageDrawers` 5 盒内凹形状命中边框导致左键取不出及右键变邻格放置、接通 `CountUpdateMessage` 客户端计数同步检测并彻底分离目标格与邻格证据（误放置返还 `[PLACED_ADJACENT_NOT_INSERTED]`）、托管 `BlueprintBuildJob` 子 `PlaceJob` 彻底打通施工中查询/暂停/中止与 `BUSY` 精细门禁、补齐结构化失败坐标/支撑优先拓扑/属性状态核验/SHA-256 断点防篡改与 `max_blocks` 分批施工，并修复 `AutoActionJob` 护箱拒绝前缀与左下亮/暗按钮单字裁剪问题。** 构建版本为 `0.8.8rc3` / `rc3-0.8.8-20261125-01`，产物为 `logistics-companion-0.8.8rc3.jar`（`16,489,190 B`，SHA-256 `DE672D2D33885D551EAC1BF8651426789A51CCD3F2952E986CB78653BD6E9229`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| `0.8.8rc2` 全链路实机 QA 与根因级交接报告 | Codex (Computer Use + Harness) | 在独立 1.20.1 QA 存档完成 `T0`–`T8` 实机核验（包含 `mcschematic.top` 6,543 格 `.litematic` 导入预演与小塔续建 `29/29`），精准捕获抽屉取不出/右键放墙前、施工中 `pause`/`status` 被 `BUSY` 拦截、`auto_action` 护箱回执前缀为「成功」及左下主题按钮空白等 4 项问题并产出 `NEON-HANDOFF-0.8.8rc2-20261125.md`。 |
+| P1-1 单方块精细交互：多盒内凹命中、`CountUpdateMessage` 感知与目标/邻格防混淆 | Gemini | 通过反编译 `StorageDrawers 12.15.1` 锁定 5 盒内凹正面边框（`0.0625`）与 `CountUpdateMessage` 客户端同步根因：重写 `FaceHitMath.resolveFaceTarget`/`projectToUV`/`matchesUV` 与 `Reach.faceAt`/`faceFrom` 投射至内凹面板并校验实际命中 UV（拒绝边框误触）；修改 `TargetedInteractionJob`/`ItemOnBlockOperation` 在瞄准前稳住潜行眼高、水平速度与服务端转角同步；升级 `MachineObservation.changed` 支持抽屉自定义同步包；严格分离 `InteractionOutcome`/`InteractionReceipt` 的目标格与邻格变更，非潜行向容器/子槽放块失败退化为邻格放置时报错 `[PLACED_ADJACENT_NOT_INSERTED]`。 |
+| P1-2 蓝图复刻：施工中控制、失败定位、状态核验与断点隔离 | Gemini | 改造 `Actions.Job.managed` 由 `BlueprintBuildJob` 托管子 `PlaceJob`（不再覆盖 `Actions.job`），新增 `pauseActive()`/`abortActive()`、`current_step` 实时进度、层末 1 次有界延迟重试、最多 16 条结构化 `failures` 坐标与原因码、独立 `unloaded` 计数与 `max_blocks` 分批施工；修改 `HarnessController` 对只读查询及 `blueprint_status(pause/abort)` 按子动作放行并保留建造互斥；升级 `BlueprintPlanner` 支撑优先拓扑与 `stateMatches`/`classifyBlock` 状态属性核验；扩展 `BlueprintLibrary` 输出 `file_name` 与 `blueprint_sha256` 并在 `resumeFromCheckpoint` 强制核对维度与哈希防篡改（`[BLUEPRINT_HASH_MISMATCH]`）。 |
+| P2 连挖护箱原因码、左下亮/暗按钮文字修复与样板扩充 | Gemini | 修正 `AutoActionJob` 遇方实体或不可破坏方块时改走 `失败：[PROTECTED_BLOCK_ENTITY]` / `[UNBREAKABLE_BLOCK]` 并更新 `ReasonCodes`；将 `WorkbenchScreen` 左下亮/暗切换按钮扩宽为 `28px` 并切为 `SEGMENT` 居中样式（同时强化 `DeskButton` 窄按钮居中留白）解决 9px 汉字被裁空白问题；新增带 `oak_stairs` 朝向/半砖/原木轴向/屋顶悬空的 `sample_porch_5x4x5.litematic` 样板蓝图并扩充 `FaceHitMathTest`、`InteractionReceiptTest`、`BlueprintPlannerTest`。 |
+
+离线全量构建及 **147 个测试套件 / 736 项测试全部通过**（0 失败 / 0 错误 / 0 跳过），Harness 租约测试 **28 项全部通过**；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。已备份 `0.8.8rc2` 至 `mods_backup\` 并部署 `logistics-companion-0.8.8rc3.jar` 至 `D:\123\.minecraft\versions\1.20.1-Forge_47.4.29\mods`，同时输出回交文档 `NEON-REPLY-0.8.8rc3-20261125.md` 待 Codex 复测。
+
+## 0.8.8rc2 · 2026-11-25
+
+**候选更新版（方案 A 工作台前端全面重构与 `0.8.8` 新能力可视化闭环）：移除浅色模式下突兀的硬编码暗底 Hero 像素横幅并替换为自适应主题的「实时态势遥测」条、将全局紧急控制（紧急停止/AI 接管、暂停/继续、省电）上收至顶栏、重构左侧 7 项精简账本导航（保持 `DeskRoute` 全部页码索引零回归）与左下角一键亮/暗主题切换、补齐「蓝图与建造」与「破坏回滚日志」独立模块化工作台页面、在「当前任务」与 HUD 接入 `GoalBoard` 清单与感知预警，并在「设置 → 输入与感知」落地声音/0ms 避险/昼夜监视开关及 5 类 `policy_whitelist` 白名单可视化查看与编辑。** 构建版本为 `0.8.8rc2` / `rc2-0.8.8-20261125-01`，产物为 `logistics-companion-0.8.8rc2.jar`（`16,470,285 B`，SHA-256 `2EF81719EDBF51D79D525D2097EB25955BB1391C0B9E5F6115239521CA9867DB`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| 亮色主题实机视觉审视与方案 A 彻底重构决策 | 项目维护者 | 指出 `0.8.8rc1` 工作台浅色主题下顶部暗色横幅割裂、左栏标识拥挤及 0.8.8 新能力缺少可视化入口等问题，拍板采用方案 A 彻底优化重构。 |
+| 工作台顶栏/左栏/首页重构与 `GoalBoard` + HUD 集成 | Gemini | 重构 `WorkbenchScreen`（以自适应主题「实时态势遥测」`badgeGrid` 替代旧 `ART` 硬编码暗底横幅；顶栏右上角常驻全局急停/暂停/省电控制；左栏精简为 `v0.8.8rc2` 与动态紧凑间距并在底部增加 `UiTheme.toggledLightDarkId()` 一键亮/暗切换；7 项 `LEDGER_NAV` 合并「技能与知识」、新增「蓝图与建造」与「历史与回滚」并保持 `DeskRoute` 页码兼容；首页状态卡接入 `GoalBoard` 清单 `[✓]/[▶]/[ ]/[!]/[-]` 与检查点并移除重复按钮；扩展 `liveFingerprint()` 自动刷新）；升级 `Hud` 展示 `[steps_done/steps_total]` 计划进度、`SoundReflex` 危险警报及 `EnvironmentWatch` 昼夜/天气/幻翼提示。 |
+| 「蓝图与建造」与「破坏回滚日志」独立视图落地 | Gemini | 新增 `WorkbenchBlueprintView`（在建进度与检查点暂停/继续/中止、`.nbt`/`.litematic` 蓝图发现与点选、BOM 对比随身背包与 `WorldMemory` 缺口、0/90/180/270 旋转与镜像、锚点自动填充、Dry Run 预览及一键开工）与 `WorkbenchRollbackView`（逆序变更账本与容器/方实体警告、`allow_substitute` 开关、单条及 1/5/10 条物理恢复、两步确认清空）。 |
+| 感知设置、5 类白名单可视化管理与检索目录补全 | Gemini | 在 `WorkbenchSettingsViews`（`设置 → 输入与感知`）新增「声音事件感知、0ms 避险与昼夜监视」卡片（3 项开关 + `EnvironmentWatch` 与 `SoundSense.recentJson()` 实时读数）及「模组兼容白名单」5 类（`left_tap` / `generator_blocks` / `sound_warn` / `sound_info` / `sound_ignore`）可视化增删恢复面板；在 `SettingsCatalog` 补充 `goal_board`、`sound_sense`、`environment_watch`、`policy_whitelist`、`blueprint_and_rollback` 检索词条，并扩充 `UiDesignSystemTest` 覆盖亮暗极性翻转与新检索词。 |
+
+离线全量构建及 **147 个测试套件 / 733 项测试全部通过**（0 失败 / 0 错误 / 0 跳过，含扩充后的 `UiDesignSystemTest`），Harness 租约测试 **28 项全部通过**；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。已部署至本地 1.20.1 测试实例 `D:\123\.minecraft\versions\1.20.1-Forge_47.4.29\mods\logistics-companion-0.8.8rc2.jar`（旧版 `0.8.8rc1` 已归档至 `mods_backup\`），待实机联调验收。
+
+## 0.8.8rc1 · 2026-11-25
+
+**候选更新版（`0.8.8` 核心底层能力大更新）：上线声音事件感知与 0ms 客户端紧急避险、昼夜/天气/幻翼主动监视、纯 Java `.litematic`/`.nbt` 蓝图解析与持久化建造引擎、兼容 API-Key 与 Harness 双模式的持久化长程目标板 `GoalBoard`、纯客户端诚实版破坏回滚日志 `RollbackJournal` / `RollbackJob`、Agent 可自主维护的 5 类 `policy_whitelist` 运行时白名单，以及 Storage Drawers 非破坏左键白名单与面内子区域精确命中（`hit_u`/`hit_v`/`sub_slot`），同时根治 `AutoActionJob` 流体邻接硬编码绕过缺陷（H-B2）。** 构建版本为 `0.8.8rc1` / `rc1-0.8.8-20261125-01`，产物为 `logistics-companion-0.8.8rc1.jar`（`16,446,757 B`，SHA-256 `866BA32522D303A4EFCA2760D1AA9DE7CBEA8BCA40717902C05E50390BB83EAA`）。
+
+| 贡献 | 完成方 | 变更 |
+| --- | --- | --- |
+| 版本规划、双接入定位、自维护白名单构想与测试环境统筹 | 项目维护者 | 统筹 `0.8.8` 大更新规划，明确长程目标板服务于 API-Key 接入并与 Harness 固有任务清单互补的产品定位，提出由 Agent 通过工具自主扩展/维护模组兼容白名单的底层适配机制，并安排 1.20.1 Forge 测试实例联调环境。 |
+| 声音事件感知设计稿与后续演进蓝图 | Muse | 产出《Mod 跟进空间总览》与《声音事件感知设计稿》，提出 `SoundEventListener` 静音/无字幕兼容、白名单分层（`CRITICAL` / `WARN` / `INFO` / `IGNORE`）、0ms 危险反射与听声辨位核心架构。 |
+| 多格方块/压缩抽屉细操实机反馈 | Hydrogen | 基于实机体验反馈 `interact_block(button="left")` 需放行 Storage Drawers（如 `storagedrawers:compacting_drawers_2`），并提出面内局部命中点 / 槽位参数需求以解决双格/四格/压缩抽屉上下半格与四象限精准取放问题。 |
+| 声音感知、0ms 避险、环境监视与 Agent 可编辑白名单 | Gemini | 基于 Forge 1.20.1 字节码核验落地 `SoundPolicy`、`SoundSense`（在主音量静音前拦截 `SoundEventListener`）、`SoundReflex`（苦力怕嘶嘶/TNT 点火等 0ms 客户端急救反射）、`EnvironmentWatchPolicy` 与 `EnvironmentWatch`（昼夜、雷雨、幻翼监视）；新增 `WhitelistPolicy` 与 `policy_whitelist` 工具支持 5 类白名单持久化读写；修复 `AutoActionJob` H-B2 `explicitAllowFluidNeighbor=true` 硬编码绕过并补齐 `BlockEntity` 保护。 |
+| Storage Drawers 白名单与面内精确命中（`hit_u`/`hit_v`/`sub_slot`） | Gemini | 新增 `InteractionPolicy`（放行 Functional Storage + Storage Drawers + `WhitelistPolicy` 动态左键抽屉项）与 `FaceHitMath`（支持 `hit_u`/`hit_v` 与 2 格/4 格/压缩抽屉 `sub_slot` 坐标换算并严格按面构造 `BlockHitResult`），接入 `Reach`、`TargetedInteractionJob`、`ItemOnBlockOperation`、`ItemOnBlockJob`、`Actions`、`Agent` 与 `ToolSchemas`。 |
+| 纯 Java 蓝图引擎、长程目标板 `GoalBoard` 与破坏回滚日志 | Gemini | 新增零 MC 依赖的 `BlueprintFormat`（同时解析 `.nbt` 与 `.litematic` 64-bit 跨 word 位解包）、`BlueprintPlanner`（旋转/镜像、BOM 计算、分层拓扑）、`BlueprintLibrary` 与 `BlueprintBuildJob`（检查点续航、缺料停靠、dry-run 预览）；扩展既有 `report_plan` 接入持久化 `GoalBoard`（保持 `ToolMenu.COMMON` 为 26 项不突破 `farming <= 36` 契约）；落地纯客户端诚实版 `RollbackJournal`（接入挖掘/建造/放置路径自动记账，标记方块实体不可恢复容器内容）与 `RollbackJob`（物理放回/挖除回滚与替换方块选项）。 |
+| 自动化测试扩充与 1.20.1 Forge 测试实例装配 | Gemini | 新增 9 个纯 Java JUnit 5 测试套件（`WhitelistPolicyTest`、`InteractionPolicyTest`、`FaceHitMathTest`、`SoundPolicyTest`、`EnvironmentWatchPolicyTest`、`GoalBoardTest`、`RollbackJournalTest`、`BlueprintFormatTest`、`BlueprintPlannerTest`）并同步 `ToolMenuTest`；为 1.20.1 Forge 测试实例校验安装 `StorageDrawers 12.15.1`、`Create 6.0.8`、`Forgematica 0.1.13` 与 `MaFgLib 0.1.14`，并生成且经编译后解析器往返验证的 `sample_shelter_5x5.nbt` 与 `sample_tower_3x3.litematic` 测试蓝图。 |
+
+离线全量构建及 **147 个测试套件 / 733 项测试全部通过**（0 失败 / 0 错误 / 0 跳过），Harness 租约测试 **28 项全部通过**；`coremods/companion_input.js` 未修改（SHA-256 `0D70D197D7179F380139A9310A652C9D62A8918A204AC359B11E33C7D0F29CD4`）。随后在 `0.8.8rc2` 完成前端重构并替代该候选包进入实机联调。
+
 ## 0.8.7 · 2026-11-24
 
 **正式发布版：整合主动探图开图与「带玩家回家」引路（`rc1`）、室内障碍同高度自动回退与 AE/背包/待命自理进食体验升级（`rc2`）、全仓 379 个 Java 类审阅 79 项 P0/P1/P2 安全与稳健性加固（`rc3`），并在最终收口彻底重构 `RoamExplorationJob` 迷宫走廊优先寻路与精确统计（消除虚高 `stuck_ms`、消除 `newCells` 同步竞态、防止逆向 `FRONTIER` 折返并实现 ±45°/±90° 绕墙切向选路）。** 构建版本为 `0.8.7` / `release-0.8.7-20261124-01`，产物为 `logistics-companion-0.8.7.jar`（`16,341,288 B`，SHA-256 `70DB841D7CCEB9AC6FDDA9A201CE5B849BCB87615A122A917CDEFCDA6CB783DF`）。

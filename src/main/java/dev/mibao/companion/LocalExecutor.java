@@ -15,7 +15,14 @@ public final class LocalExecutor {
     if (Actions.job instanceof BaritoneMiningJob mining) mining.interruptedBy(message);
     if (Actions.job instanceof UseHandJob use) use.suspend();
     if (Actions.job instanceof PlatformJob building) building.interruptedBy(message);
-    else if (Actions.job instanceof GameInputJob) Actions.job.finish(message);
+    else if (Actions.job instanceof MiningJob
+        || Actions.job instanceof PlaceJob
+        || Actions.job instanceof AutoActionJob
+        || Actions.job instanceof TargetedInteractionJob
+        || Actions.job instanceof BlueprintBuildJob
+        || Actions.job instanceof RollbackJob) {
+      Actions.job.finish(message);
+    } else if (Actions.job instanceof GameInputJob) Actions.job.finish(message);
   }
 
   public static void tick() {
@@ -60,6 +67,12 @@ public final class LocalExecutor {
     }
     if (HealthRecovery.tick()) {
       interruptInput("输入已释放：进入恢复流程，请重新观察。");
+      lane = ExecutionPolicy.Lane.RECOVERY;
+      Perception.tick();
+      return;
+    }
+    if (SoundReflex.tick()) {
+      interruptInput("输入已释放：触发声音避险撤离，请重新观察。");
       lane = ExecutionPolicy.Lane.RECOVERY;
       Perception.tick();
       return;
@@ -114,6 +127,7 @@ public final class LocalExecutor {
     if (Rules.actionFailed(problem)) o.add("recovery_advice", FailureAdvice.json(problem));
     if (Agent.session != null) o.add("work_session", Agent.session.observe());
     o.add("recovery", HealthRecovery.observe());
+    o.add("sound_reflex", SoundReflex.observe());
     o.add("follow", FollowControl.status());
     o.add("duty", DutyScheduler.status());
     o.add("pickup", CollectionJob.diagnostic());

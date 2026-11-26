@@ -39,11 +39,16 @@ public final class CollectionJob extends Actions.Job {
   private final InventorySession verify = new InventorySession();
   private ItemEntity target;
   private net.minecraft.world.phys.Vec3 targetPos;
-  private int wait, empty, progress, previous, movingReplans, settle;
+  private int wait, empty, progress, previous, movingReplans, settle, maxTicks = 1800;
   private double bestDistance = Double.MAX_VALUE;
   private boolean ending, scopeClear, inventoryVerified, arrived, backgroundDuty;
   private String reason = "";
   private Consumer<UUID> skipListener;
+
+  CollectionJob maxTicks(int limit) {
+    maxTicks = Math.max(60, limit);
+    return this;
+  }
 
   CollectionJob withSkipListener(Consumer<UUID> listener) {
     skipListener = listener;
@@ -163,8 +168,8 @@ public final class CollectionJob extends Actions.Job {
       end("整堆拾取可能超过目标。", true);
       return;
     }
-    if (++ticks > 1800) {
-      end("达到90秒预算，保留已拾取物品。", false);
+    if (++ticks > maxTicks) {
+      end("达到拾取时间预算，保留已拾取物品。", false);
       return;
     }
     if (mc().player.containerMenu != mc().player.inventoryMenu || mc().screen != null) {

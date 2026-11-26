@@ -81,4 +81,29 @@ public final class MovementPolicy {
     if (gapBlocks <= 1) return distToTakeoffEdge <= 0.36;
     return distToTakeoffEdge <= 0.30 && horizSpeed >= 0.15;
   }
+
+  public static boolean parkourExecutionAllowed(
+      boolean plannedParkour, boolean strictWalk, int horizGap) {
+    return plannedParkour && !strictWalk && horizGap >= 1;
+  }
+
+  public static boolean parkourTimedOut(int alignCycles, int totalTicks) {
+    return alignCycles > 2 || totalTicks > 60;
+  }
+
+  public static boolean canSkipCollinearWaypoint(byte currentAction, byte nextAction) {
+    return currentAction == (byte) 0 && nextAction == (byte) 0;
+  }
+
+  public static boolean shouldLedgeSneak(
+      boolean highLedge, boolean onGround, boolean jumping, boolean onScaffoldingSupport) {
+    return highLedge && onGround && !jumping && !onScaffoldingSupport;
+  }
+
+  public static boolean madeHorizontalWalkProgress(
+      double prevX, double prevZ, double curX, double curZ) {
+    double dx = curX - prevX;
+    double dz = curZ - prevZ;
+    return dx * dx + dz * dz >= 0.015;
+  }
 }

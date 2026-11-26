@@ -45,6 +45,7 @@ public final class PermissionView {
     o.addProperty("network_learning", c.web);
     o.addProperty("screenshots", c.harnessImages);
     o.addProperty("public_replies", c.publicReply);
+    o.addProperty("guest_safe_chat", c.allowGuestChat);
     o.addProperty("chat_typing", c.allowChatTyping);
     o.addProperty("chat_submit", c.allowChatSubmit);
     o.add("commands", CommandSettings.observe());

@@ -22,6 +22,7 @@ public final class PlatformJob extends Actions.Job {
   private final String item;
   private final Block block;
   private final List<PlatformPlan.Cell> cells;
+  private final PlatformPlan.Layout layout;
   private final Set<PlatformPlan.Cell> completed = new HashSet<>();
   private final String scope = Store.scope() + "|" + dimension;
   private final int oldSlot, delay;
@@ -49,6 +50,7 @@ public final class PlatformJob extends Actions.Job {
     this.area = area;
     this.delay = delay;
     cells = area.cells();
+    layout = PlatformPlan.Layout.of(area);
     var resource = ResourceLocation.tryParse(item);
     if (resource == null
         || !BuiltInRegistries.ITEM.containsKey(resource)
@@ -288,37 +290,38 @@ public final class PlatformJob extends Actions.Job {
       halt("BUILD_FOOTING", "脚下不是可通行完整方块，请先回到平台中心");
       return;
     }
-    var parents = PlatformPlan.reachable(start, this::walkable, 4096);
-    double best = Double.MAX_VALUE;
-    PlatformPlan.Cell target = null, support = null;
-    Vec3 selected = null;
     for (var c : cells) {
-      var at = pos(c);
-      if (!mc().level.hasChunkAt(at)) {
+      if (!mc().level.hasChunkAt(pos(c))) {
         halt("UNLOADED_TARGET", "施工区域有未加载方块");
         return;
       }
-      if (!mc().level.getBlockState(at).isAir() || !mc().level.getFluidState(at).isEmpty())
-        continue;
-      for (var neighbor : c.neighbors()) {
-        if (!parents.containsKey(neighbor) || !walkable(neighbor)) continue;
-        double sx = neighbor.x() + .5 + (c.x() - neighbor.x()) * .60;
-        double sz = neighbor.z() + .5 + (c.z() - neighbor.z()) * .60;
-        if (!supported(sx, sz)) continue;
-        var point = new Vec3(sx, area.y() + 1, sz);
-        if (Reach.placementFrom(at, point.add(0, mc().player.getEyeHeight(), 0)) == null) continue;
-        double cost =
-            PlatformPlan.path(parents, neighbor).size()
-                + point.distanceToSqr(mc().player.position()) * .1;
-        if (cost < best) {
-          best = cost;
-          target = c;
-          support = neighbor;
-          selected = point;
-        }
-      }
     }
-    if (target == null) {
+    var tree = PlatformPlan.walkTree(start, this::walkable, 4096);
+    double px = mc().player.getX(), py = mc().player.getY(), pz = mc().player.getZ();
+    double eyeH = mc().player.getEyeHeight();
+    var placement =
+        PlatformPlan.nextPlacement(
+            layout,
+            tree,
+            this::walkable,
+            c -> {
+              var at = pos(c);
+              return mc().level.getBlockState(at).isAir() && mc().level.getFluidState(at).isEmpty();
+            },
+            (c, neighbor) -> {
+              double sx = neighbor.x() + .5 + (c.x() - neighbor.x()) * .60;
+              double sz = neighbor.z() + .5 + (c.z() - neighbor.z()) * .60;
+              if (!supported(sx, sz)) return false;
+              var point = new Vec3(sx, area.y() + 1, sz);
+              return Reach.placementFrom(pos(c), point.add(0, eyeH, 0)) != null;
+            },
+            (c, neighbor) -> {
+              double sx = neighbor.x() + .5 + (c.x() - neighbor.x()) * .60;
+              double sz = neighbor.z() + .5 + (c.z() - neighbor.z()) * .60;
+              double dx = sx - px, dy = (area.y() + 1) - py, dz = sz - pz;
+              return (dx * dx + dy * dy + dz * dz) * .1;
+            });
+    if (placement.isEmpty()) {
       int missing = preview(area).get("missing_air_cells").getAsInt();
       if (missing > 0) {
         halt("BUILD_FRONTIER", "剩余" + missing + "个空位没有安全可达支撑面");
@@ -329,10 +332,15 @@ public final class PlatformJob extends Actions.Job {
       finish("成功：施工范围空气位已铺完；本次服务器方块与材料核实" + placed + "格，保留原有占用。不是所有占用方块都保证可通行。");
       return;
     }
-    pending = target;
-    anchor = support;
-    stance = selected;
-    route = new ArrayDeque<>(PlatformPlan.path(parents, support));
+    var pl = placement.get();
+    pending = pl.target();
+    anchor = pl.anchor();
+    stance =
+        new Vec3(
+            anchor.x() + .5 + (pending.x() - anchor.x()) * .60,
+            area.y() + 1,
+            anchor.z() + .5 + (pending.z() - anchor.z()) * .60);
+    route = new ArrayDeque<>(tree.path(anchor));
     phase = 1;
     stepTicks = 0;
     aim = new AimGate();
@@ -485,6 +493,7 @@ public final class PlatformJob extends Actions.Job {
         completed.add(pending);
         placed++;
         WorldSense.record(target, server);
+        RollbackJob.recordPlace(target, null, server, "PlatformJob");
         pending = null;
         phase = 4;
         wait = 0;

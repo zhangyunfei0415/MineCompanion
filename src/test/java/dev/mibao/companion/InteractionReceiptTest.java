@@ -103,4 +103,29 @@ class InteractionReceiptTest {
     evidence.addProperty("ticks", 40);
     assertEquals("读数=无变化（观测 40 tick）", InteractionReceipt.readout(evidence));
   }
+
+  @Test
+  void separatesAdjacentPlacementFromTargetBlockConfirmation() {
+    var evidence = new JsonObject();
+    evidence.addProperty("block_position", "-1, -60, 13");
+    evidence.addProperty("block_before", "storagedrawers:compacting_drawers_2");
+    evidence.addProperty("block_changed", false);
+    evidence.addProperty("machine_changed", false);
+    evidence.addProperty("adjacent_block_changed", true);
+    evidence.addProperty("adjacent_position", "-1, -60, 12");
+    evidence.addProperty("adjacent_block_before", "minecraft:air");
+    evidence.addProperty("adjacent_block_after", "minecraft:bamboo_block");
+    evidence.addProperty("ticks", 40);
+
+    assertFalse(InteractionReceipt.confirmed(evidence));
+    String summary = InteractionReceipt.summarize(evidence);
+    assertTrue(summary.contains("未观察到目标方块/机器变化"), summary);
+    assertTrue(summary.contains("相邻格 -1, -60, 12 变为 minecraft:bamboo_block"), summary);
+    String readout = InteractionReceipt.readout(evidence);
+    assertTrue(readout.contains("邻格(-1, -60, 12)→minecraft:bamboo_block"), readout);
+
+    var chestErr = ReasonCodes.describe("失败：[PROTECTED_BLOCK_ENTITY] 目标含方块实体");
+    assertEquals("PROTECTED_BLOCK_ENTITY", chestErr.get("reason_code").getAsString());
+    assertTrue(chestErr.getAsJsonArray("suggested_alternatives").size() > 0);
+  }
 }

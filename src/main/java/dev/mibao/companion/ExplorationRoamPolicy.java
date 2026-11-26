@@ -180,6 +180,26 @@ public final class ExplorationRoamPolicy {
     return score;
   }
 
+  public static double scoreFrontier3d(
+      double dx,
+      double dy,
+      double dz,
+      int currentHeading,
+      int preferredHeading,
+      int chunkVisits,
+      boolean walkedBefore,
+      boolean visitedThisRun,
+      boolean verticalConnector) {
+    double score =
+        scoreFrontier(
+            dx, dz, currentHeading, preferredHeading, chunkVisits, walkedBefore, visitedThisRun);
+    score += Math.abs(dy) * 0.45;
+    if (verticalConnector && !visitedThisRun && Math.abs(dy) >= 1.0) {
+      score -= 8.0;
+    }
+    return score;
+  }
+
   public static double scoreCorridorCell(
       double dx,
       double dz,

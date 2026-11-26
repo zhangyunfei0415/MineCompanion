@@ -26,6 +26,15 @@ public final class GeneratorPolicy {
           "create:crimsite",
           "create:ochrum");
 
+  public enum FluidVerdict {
+    OK,
+    PLAYER_UNSAFE,
+    ABOVE_HAZARD,
+    HORIZONTAL_FIRE,
+    BULK_FLUID,
+    NOT_GENERATOR
+  }
+
   public enum AutoMode {
     MINE_HOLD("刷石机/定点连挖"),
     ATTACK_CLICK("刷怪塔/满蓄力连点"),
@@ -51,6 +60,29 @@ public final class GeneratorPolicy {
 
   private GeneratorPolicy() {}
 
+  public static FluidVerdict verdict(
+      String blockId,
+      boolean targeted,
+      boolean explicitAllowFluidNeighbor,
+      boolean fluidOrFireAbove,
+      boolean hasHorizontalFluid,
+      boolean hasHorizontalFire,
+      boolean playerDryAndSafe,
+      Collection<String> extraGeneratorBlocks) {
+    if (!playerDryAndSafe) return FluidVerdict.PLAYER_UNSAFE;
+    if (fluidOrFireAbove) return FluidVerdict.ABOVE_HAZARD;
+    if (hasHorizontalFire) return FluidVerdict.HORIZONTAL_FIRE;
+    if (!hasHorizontalFluid) return FluidVerdict.OK;
+    if (!targeted) return FluidVerdict.BULK_FLUID;
+    if (explicitAllowFluidNeighbor) return FluidVerdict.OK;
+    if (blockId == null || blockId.isBlank()) return FluidVerdict.NOT_GENERATOR;
+    if (GENERATOR_BLOCKS.contains(blockId)
+        || WhitelistPolicy.matchesPrefixOrExact(blockId, extraGeneratorBlocks)) {
+      return FluidVerdict.OK;
+    }
+    return FluidVerdict.NOT_GENERATOR;
+  }
+
   public static boolean allowFluidNeighbor(
       String blockId,
       boolean targeted,
@@ -58,10 +90,34 @@ public final class GeneratorPolicy {
       boolean fluidOrFireAbove,
       boolean hasHorizontalFluid,
       boolean playerDryAndSafe) {
-    if (!targeted || fluidOrFireAbove || !playerDryAndSafe) return false;
-    if (!hasHorizontalFluid) return true;
-    if (explicitAllowFluidNeighbor) return true;
-    return blockId != null && GENERATOR_BLOCKS.contains(blockId);
+    return allowFluidNeighbor(
+        blockId,
+        targeted,
+        explicitAllowFluidNeighbor,
+        fluidOrFireAbove,
+        hasHorizontalFluid,
+        playerDryAndSafe,
+        List.of());
+  }
+
+  public static boolean allowFluidNeighbor(
+      String blockId,
+      boolean targeted,
+      boolean explicitAllowFluidNeighbor,
+      boolean fluidOrFireAbove,
+      boolean hasHorizontalFluid,
+      boolean playerDryAndSafe,
+      Collection<String> extraGeneratorBlocks) {
+    return verdict(
+            blockId,
+            targeted,
+            explicitAllowFluidNeighbor,
+            fluidOrFireAbove,
+            hasHorizontalFluid,
+            false,
+            playerDryAndSafe,
+            extraGeneratorBlocks)
+        == FluidVerdict.OK;
   }
 
   public static int clampIntervalTicks(int ticks) {

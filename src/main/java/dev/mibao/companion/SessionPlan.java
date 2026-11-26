@@ -25,6 +25,8 @@ public final class SessionPlan {
           "build_platform",
           "build_bridge",
           "build_shelter",
+          "terraform_preview",
+          "terraform_run",
           "smelt_batch",
           "brew_batch",
           "enchant_item",

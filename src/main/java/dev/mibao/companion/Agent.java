@@ -40,6 +40,15 @@ public final class Agent {
             t.setDaemon(true);
             return t;
           });
+  private static final ExecutorService GUEST_IO =
+      Executors.newSingleThreadExecutor(
+          r -> {
+            Thread t = new Thread(r, "Companion-API-Guest");
+            t.setDaemon(true);
+            return t;
+          });
+  private static final java.util.concurrent.atomic.AtomicInteger guestInflight =
+      new java.util.concurrent.atomic.AtomicInteger();
   private static final HttpClient HTTP =
       HttpClient.newBuilder()
           .connectTimeout(Duration.ofSeconds(15))
@@ -162,6 +171,30 @@ public final class Agent {
     Companion.notifyUser(why);
   }
 
+  static void cancelForegroundJob(String why) {
+    DecisionService.invalidate();
+    lastEpochReason = why;
+    ActionTrace.interrupted(why);
+    StreamProgress.cancel(why);
+    epoch++;
+    cancelActiveJobs();
+    if (request != null) request.cancel(true);
+    request = null;
+    busy = false;
+    Actions.cancel();
+    PlayerControls.release();
+    state = paused ? "作业已取消 · 保持暂停" : "作业已取消 · 等待新任务";
+    Companion.notifyUser(why);
+  }
+
+  static String activeJobKind() {
+    if (Actions.job instanceof ScaffoldJob) return "scaffold";
+    if (Actions.job instanceof BlueprintBuildJob) return "blueprint";
+    if (Actions.job != null) return "foreground";
+    if (routine != null || session != null || busy) return "active";
+    return "";
+  }
+
   static void suspendForDeath() {
     FollowControl.beforeDeath();
     DutyScheduler.disarmForSafety("角色死亡，值守进入安全待命");
@@ -247,6 +280,16 @@ public final class Agent {
     transport = null;
     if (restock != null) restock.cancel();
     restock = null;
+  }
+
+  public static void clearContinuationTasksForSafety() {
+    cancelActiveJobs();
+    clearPendingApproval();
+    calls.clear();
+  }
+
+  public static String currentTaskLabel() {
+    return Rules.clean(task, 64);
   }
 
   private static void clearPendingApproval() {
@@ -560,16 +603,32 @@ public final class Agent {
   }
 
   public static void submit(String text, boolean local) {
-    var follow = local ? ChatCommand.follow(text) : null;
+    submitInternal(text, local, true);
+  }
+
+  static void submitFromMention(CommunityBoard.Task t) {
+    if (t == null) return;
+    String prompt =
+        t.resume
+            ? "恢复未完成目标，先观察库存、设施和已有产物，再只规划剩余工作。不得重放不确定点击/投料，不把原口令直接再执行。上阶段记录："
+                + t.note
+                + "；原始目标："
+                + t.text
+            : "来自成员 " + t.name + " 的消息：" + t.text;
+    submitInternal(prompt, false, false);
+  }
+
+  private static void submitInternal(String text, boolean local, boolean allowLocalShortcuts) {
+    var follow = local && allowLocalShortcuts ? ChatCommand.follow(text) : null;
     if (follow != null) {
       FollowControl.command(follow, "", Companion::notifyUser);
       return;
     }
-    if (local && ChatCommand.incompleteFollow(text)) {
+    if (local && allowLocalShortcuts && ChatCommand.incompleteFollow(text)) {
       Companion.notifyUser("请说「跟随 玩家名」或先选人，再说「开始跟随」");
       return;
     }
-    var dutyCmd = local ? ChatCommand.duty(text) : null;
+    var dutyCmd = local && allowLocalShortcuts ? ChatCommand.duty(text) : null;
     if (dutyCmd != null) {
       DutyScheduler.handleChatCommand(dutyCmd, Companion::notifyUser);
       return;
@@ -579,15 +638,15 @@ public final class Agent {
       Companion.notifyUser("请先在面板点击 AI 接管");
       return;
     }
-    if (text.trim().equals("交回AI")) {
+    if (allowLocalShortcuts && text.trim().equals("交回AI")) {
       Cooperation.resume();
       return;
     }
-    if (text.trim().equals("暂停") || text.trim().equals("继续")) {
+    if (allowLocalShortcuts && (text.trim().equals("暂停") || text.trim().equals("继续"))) {
       pause(text.trim().equals("暂停"));
       return;
     }
-    if (text.trim().equals("流程状态")) {
+    if (allowLocalShortcuts && text.trim().equals("流程状态")) {
       localConversation = local;
       Companion.notifyUser(session != null ? session.human() : WorkLedger.current());
       return;
@@ -640,7 +699,7 @@ public final class Agent {
     approval = null;
     pendingTool = "";
     runningSkill = "";
-    ProgressBoard.clear();
+    ProgressBoard.clearTransient();
     localConversation = local;
     task = Rules.clean(text, 4000);
     CompanionIdentity.record("user", task);
@@ -648,7 +707,7 @@ public final class Agent {
     history.clear();
     VisualAssist.newTask();
     TaskTimeline.begin(task);
-    if (local(task)) return;
+    if (allowLocalShortcuts && local(task)) return;
     if (Store.config.driver.equals("HARNESS")) {
       HarnessController.task(task);
       state = "等待本地Harness处理指令";
@@ -1156,7 +1215,11 @@ public final class Agent {
         + "用report_plan简报选出的挖法与原因，先核对next_action和预览：支路缩短或跳过时按实际能做的范围汇报，用户要求的长度未达不能算完整。执行后核对回执。指定坐标须先到入口并站稳；指定采集地点也先走到现场。缺露头时先按观测换作业点；只有目标和授权允许开挖才做短段勘探。"
         + "连续矿物不足时以completed_count和mining_status核对剩余需求；原作业可用返回的request和job_id恢复，不把未知回执当失败重放。先开矿道再采集时，施工不计产量；需要从终点继续时让中间段return_home=false，记住各段入口，再检测终点、采集、按任务要求返程。"
         + "计划的remaining_depth_after_segment或remaining_length_after_segment大于零时，站稳后从实际前沿重新规划，扣除已花的总预算，最终按已通过的路线逐段返。复合任务如挖完再熔炼，可切换对应工具组继续。用户指定的方位、截面、预算、禁止破坏或交付限制均不可自行更改。只有缺关键目标或缺权限、路线持续不安全才询问。旧mine_resource的count仍是方块数。"
-        + "AI 拥有自主调档权（遵循玩家设置的自主调档权限）：根据主人上线/远行或背包满载等局势可主动调用 duty_set 在 STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER 间切换；协同互动可用 observe_owner_focus 读取主人视线与手持、handoff_to_owner 递物资；刷石机/曲柄/筛网/刷怪塔连续挂机优先使用 auto_action。";
+        + (Store.config.driver.equals("API")
+            ? "【API模式长程目标板】复杂多步任务开始时，建议先用 report_plan(action=\"set\", goal=..., steps=[...]) 写好拆解清单并随推进 update/checkpoint，它按世界持久保存，重连或上下文压缩后依然可续跑。"
+            : "")
+        + "AI 拥有自主调档权（遵循玩家设置的自主调档权限）：根据主人上线/远行或背包满载等局势可主动调用 duty_set 在 STANDBY/BASE_STEWARD/ESCORT_GUARD/EXPEDITION_GATHER 间切换；协同互动可用 observe_owner_focus 读取主人视线与手持、handoff_to_owner 递物资；刷石机/曲柄/筛网/刷怪塔连续挂机优先使用 auto_action。"
+        + "多格/压缩抽屉支持在 interact_block / use_item_on_block 传 hit_u、hit_v 或 sub_slot(top/bottom/top_left等)精确命中上下槽；如遇未知模组抽屉、特殊造石产物或干扰声源，可用 policy_whitelist 按安全规则自助维护兼容白名单；蓝图施工用 blueprint_list/blueprint_inspect/blueprint_build/blueprint_status（支持自动3D搭高与LIFO拆架），独立搭高/拆架原语用 scaffold_build；大范围平地/区域填充/9x9智能水田开荒优先用 terraform_preview → terraform_run → terraform_control（先预览后动工，严禁手工逐格循环place/break_block）；误拆/误放需要撤销恢复时用 rollback_journal(list/preview/restore)。";
   }
 
   public static String recall(String query) {
@@ -1353,10 +1416,48 @@ public final class Agent {
         if (!streamed) TaskTimeline.add("note", msg.get("content").getAsString(), "模型工作说明，非执行证明");
       }
       if (msg.has("tool_calls") && !msg.getAsJsonArray("tool_calls").isEmpty()) {
-        for (JsonElement c : msg.getAsJsonArray("tool_calls")) calls.add(c.getAsJsonObject());
+        var arr = msg.getAsJsonArray("tool_calls");
+        for (JsonElement c : arr) calls.add(c.getAsJsonObject());
+        if (!localConversation
+            && !CommunityTasks.recipient().isBlank()
+            && msg.has("content")
+            && !msg.get("content").isJsonNull()) {
+          String preface = Rules.clean(msg.get("content").getAsString(), 400).trim();
+          boolean callsSay = false;
+          for (JsonElement c : arr) {
+            var fn = c.getAsJsonObject().getAsJsonObject("function");
+            if (fn != null && "say".equals(str(fn, "name", ""))) {
+              callsSay = true;
+              break;
+            }
+          }
+          if (!preface.isBlank() && !callsSay && !CommunityTasks.ackSent()) {
+            Messages.mentionReply(
+                CommunityTasks.recipient(),
+                preface,
+                MentionPolicy.ReplyPhase.ACK,
+                CommunityTasks.reportMode(),
+                false,
+                true);
+            CommunityTasks.markAckSent();
+          }
+        }
       } else {
-        if (msg.has("content") && !msg.get("content").isJsonNull())
-          Messages.reply(msg.get("content").getAsString());
+        if (msg.has("content") && !msg.get("content").isJsonNull()) {
+          String replyText = msg.get("content").getAsString();
+          if (!localConversation && !CommunityTasks.recipient().isBlank()) {
+            Messages.mentionReply(
+                CommunityTasks.recipient(),
+                replyText,
+                MentionPolicy.ReplyPhase.FINAL,
+                CommunityTasks.reportMode(),
+                CommunityTasks.ackSent(),
+                true);
+            CommunityTasks.markNaturalReplySent();
+          } else {
+            Messages.reply(replyText);
+          }
+        }
         complete();
       }
       Store.saveSoon();
@@ -1416,7 +1517,12 @@ public final class Agent {
       done.accept("失败：[RECOVERY_REQUIRED] 生命恢复中，请先观察、进食或等待恢复。");
       return;
     }
-    if (Rules.WRITE.contains(tool)
+    boolean writeGated =
+        Rules.WRITE.contains(tool)
+            && !("terraform_control".equals(tool)
+                && Set.of("", "status")
+                    .contains(str(args, "action", "status").strip().toLowerCase(Locale.ROOT)));
+    if (writeGated
         && !Store.config.fullGameControl
         && !Store.config.permission.equals("FULL")
         && !(Store.config.permission.equals("ASK")
@@ -1445,7 +1551,7 @@ public final class Agent {
       if (limited) {
         String denial =
             Rules.limitedDenial(
-                tool, Store.config.allowMine, Store.config.allowPlace, Store.config.allowHunt);
+                tool, args, Store.config.allowMine, Store.config.allowPlace, Store.config.allowHunt);
         if (!denial.isEmpty()
             && !(tool.equals("game_command")
                 && GameCommandPolicy.playerCommand(
@@ -1499,7 +1605,8 @@ public final class Agent {
           && !tool.equals("follow_enter_portal")
           && !tool.equals("duty_set"))
         FollowControl.suspend("等待当前任务安全完成");
-      if (Set.of(
+      boolean requiresClearWorldUi =
+          Set.of(
               "swim_out",
               "unstick",
               "break_block",
@@ -1519,6 +1626,10 @@ public final class Agent {
               "harvest_honey",
               "collect_mined",
               "place_block",
+              "blueprint_build",
+              "terraform_run",
+              "scaffold_build",
+              "rollback_journal",
               "build_platform",
               "build_bridge",
               "build_shelter",
@@ -1544,7 +1655,12 @@ public final class Agent {
               "deposit",
               "transport",
               "restock")
-          .contains(tool)) {
+          .contains(tool);
+      boolean scaffoldBypassPrecheck =
+          "scaffold_build".equals(tool)
+              && Set.of("status", "abort")
+                  .contains(str(a, "action", "status").strip().toLowerCase(Locale.ROOT));
+      if (requiresClearWorldUi && !scaffoldBypassPrecheck) {
         if (!mc().player.containerMenu.getCarried().isEmpty())
           throw new IllegalArgumentException("[CURSOR_OCCUPIED] 鼠标持有物品，请先stow_cursor再开始世界作业");
         if (mc().screen != null) {
@@ -1672,7 +1788,44 @@ public final class Agent {
         case "task_submit" -> done.accept(TaskGateway.submit(a).toString());
         case "task_status", "task_result" ->
             done.accept(TaskGateway.receipt(SkillCatalog.required(a, "task_id")).toString());
-        case "task_cancel" -> done.accept(TaskGateway.cancel(SkillCatalog.required(a, "task_id")));
+        case "task_cancel" -> {
+          String tid = SkillCatalog.required(a, "task_id");
+          var route =
+              TaskCancelPolicy.resolve(
+                  tid,
+                  TaskGateway.exists(tid),
+                  HarnessController.matchesInflightRequest(tid),
+                  activeJobKind());
+          switch (route) {
+            case GATEWAY_CANCEL -> done.accept(TaskGateway.cancel(tid));
+            case CANCEL_INFLIGHT_REQUEST -> {
+              String reason = "失败：[CANCELLED] 已按请求ID取消：" + tid;
+              HarnessController.cancelInflightRequest(tid, reason);
+              if (Actions.job instanceof ScaffoldJob) {
+                done.accept(ScaffoldJob.abortActive().toString());
+              } else if (Actions.job instanceof BlueprintBuildJob) {
+                done.accept(BlueprintBuildJob.abortActive().toString());
+              } else {
+                cancelForegroundJob("已取消当前请求 " + tid + "；保留接管与租约");
+                done.accept("成功：已取消进行中请求 " + tid + "，F8 接管与 Harness 租约已保留。");
+              }
+            }
+            case ABORT_SCAFFOLD -> {
+              HarnessController.cancelAnyInflightRequest("失败：[CANCELLED] 脚手架作业已中止");
+              done.accept(ScaffoldJob.abortActive().toString());
+            }
+            case ABORT_BLUEPRINT -> {
+              HarnessController.cancelAnyInflightRequest("失败：[CANCELLED] 蓝图作业已中止");
+              done.accept(BlueprintBuildJob.abortActive().toString());
+            }
+            case CANCEL_ACTIVE_FOREGROUND -> {
+              HarnessController.cancelAnyInflightRequest("失败：[CANCELLED] 前台作业已中止");
+              cancelForegroundJob("已取消当前活跃作业；保留接管与租约");
+              done.accept("成功：已取消当前活跃作业，F8 接管与 Harness 租约已保留。");
+            }
+            case NOT_FOUND -> throw new IllegalArgumentException("[TASK_NOT_FOUND] 未找到本世界任务ID");
+          }
+        }
         case "follow_targets" -> done.accept(FollowControl.targets().toString());
         case "follow_status" -> done.accept(FollowControl.status().toString());
         case "follow_start" -> done.accept(FollowControl.start(a, false).toString());
@@ -1722,6 +1875,190 @@ public final class Agent {
                   number(a, "min_durability", 0),
                   str(a, "item", ""),
                   done);
+        }
+        case "policy_whitelist" -> {
+          String act = str(a, "action", "list").strip().toLowerCase(Locale.ROOT);
+          if (act.equals("list") && str(a, "category", "").isBlank()) {
+            done.accept(
+                WhitelistPolicy.describe(
+                        Store.config.customLeftTapPrefixes,
+                        Store.config.customGeneratorBlocks,
+                        Store.config.customSoundWarn,
+                        Store.config.customSoundInfo,
+                        Store.config.customSoundIgnore)
+                    .toString());
+          } else {
+            String cat = SkillCatalog.required(a, "category").strip().toLowerCase(Locale.ROOT);
+            List<String> targetList =
+                switch (cat) {
+                  case "left_tap" -> Store.config.customLeftTapPrefixes;
+                  case "generator_blocks" -> Store.config.customGeneratorBlocks;
+                  case "sound_warn" -> Store.config.customSoundWarn;
+                  case "sound_info" -> Store.config.customSoundInfo;
+                  case "sound_ignore" -> Store.config.customSoundIgnore;
+                  default -> throw new IllegalArgumentException(
+                      "[INVALID_ARGUMENT] category须为 left_tap/generator_blocks/sound_warn/sound_info/sound_ignore");
+                };
+            if (act.equals("list")) {
+              done.accept(
+                  WhitelistPolicy.describe(
+                          Store.config.customLeftTapPrefixes,
+                          Store.config.customGeneratorBlocks,
+                          Store.config.customSoundWarn,
+                          Store.config.customSoundInfo,
+                          Store.config.customSoundIgnore)
+                      .toString());
+            } else {
+              boolean changed = WhitelistPolicy.mutate(targetList, cat, act, str(a, "entry", ""));
+              if (changed) Store.saveSettingsOnly();
+              var out =
+                  WhitelistPolicy.describe(
+                      Store.config.customLeftTapPrefixes,
+                      Store.config.customGeneratorBlocks,
+                      Store.config.customSoundWarn,
+                      Store.config.customSoundInfo,
+                      Store.config.customSoundIgnore);
+              out.addProperty("changed", changed);
+              out.addProperty("category", cat);
+              out.addProperty("action", act);
+              done.accept(out.toString());
+            }
+          }
+        }
+        case "rollback_journal" -> {
+          String act = str(a, "action", "list").strip().toLowerCase(Locale.ROOT);
+          String dim = mc().level == null ? "" : mc().level.dimension().location().toString();
+          String taskFilter = str(a, "task_id", "");
+          var log = Store.rollbackLog();
+          if (act.equals("list")) {
+            var arr = new JsonArray();
+            for (var e : RollbackJournal.list(log, dim, number(a, "limit", 20), taskFilter)) {
+              arr.add(e.toJson());
+            }
+            var out = new JsonObject();
+            out.addProperty("dimension", dim);
+            out.addProperty("count", arr.size());
+            out.add("entries", arr);
+            done.accept(out.toString());
+          } else if (act.equals("clear")) {
+            int removed = RollbackJournal.clear(log, dim);
+            Store.saveSoon();
+            done.accept("已清理当前维度回滚日志 " + removed + " 条。");
+          } else if (act.equals("preview") || act.equals("restore")) {
+            List<Long> idList = new ArrayList<>();
+            if (a.has("ids") && a.get("ids").isJsonArray()) {
+              for (var el : a.getAsJsonArray("ids")) idList.add(el.getAsLong());
+            }
+            var targets =
+                RollbackJournal.selectForRestore(
+                    log, dim, number(a, "count", 10), idList, taskFilter);
+            if (targets.isEmpty()) {
+              done.accept("没有匹配的可回滚操作记录。");
+            } else if (act.equals("preview")) {
+              var arr = new JsonArray();
+              for (var e : targets) arr.add(e.toJson());
+              var out = new JsonObject();
+              out.addProperty("preview_count", arr.size());
+              out.add("targets", arr);
+              done.accept(out.toString());
+            } else {
+              TaskReadiness.requireWorld(false);
+              Actions.job =
+                  new RollbackJob(
+                      targets, a.has("allow_substitute") && a.get("allow_substitute").getAsBoolean(), done);
+            }
+          } else {
+            throw new IllegalArgumentException(
+                "[INVALID_ARGUMENT] action须为 list/preview/restore/clear");
+          }
+        }
+        case "blueprint_list" -> done.accept(BlueprintLibrary.listJson().toString());
+        case "blueprint_inspect" -> {
+          try {
+            done.accept(
+                BlueprintLibrary.inspectJson(
+                        SkillCatalog.required(a, "name"),
+                        number(a, "rotation", 0),
+                        str(a, "mirror", "none"))
+                    .toString());
+          } catch (java.io.IOException ioe) {
+            throw new IllegalArgumentException("[BLUEPRINT_IO] 蓝图读取失败：" + ioe.getMessage());
+          }
+        }
+        case "blueprint_build" -> {
+          TaskReadiness.requireWorld(false);
+          try {
+            int maxBlocks = number(a, "max_blocks", 0);
+            if (a.has("resume") && a.get("resume").getAsBoolean()) {
+              Boolean keepOv =
+                  a.has("keep_scaffold") ? a.get("keep_scaffold").getAsBoolean() : null;
+              Actions.job = BlueprintBuildJob.resumeFromCheckpoint(maxBlocks, keepOv, done);
+            } else {
+              String name = SkillCatalog.required(a, "name");
+              int ax = Rules.requiredInt(a, "x");
+              int ay = Rules.requiredInt(a, "y");
+              int az = Rules.requiredInt(a, "z");
+              int rot = number(a, "rotation", 0);
+              String mir = str(a, "mirror", "none");
+              int yMin = number(a, "y_min", 0);
+              int yMax = number(a, "y_max", -1);
+              String scMode = str(a, "scaffold_mode", "auto");
+              String scBlock = str(a, "scaffold_block", "");
+              boolean keepScaff = a.has("keep_scaffold") && a.get("keep_scaffold").getAsBoolean();
+              if (a.has("dry_run") && a.get("dry_run").getAsBoolean()) {
+                done.accept(BlueprintBuildJob.dryRunReport(name, ax, ay, az, rot, mir, yMin, yMax));
+              } else {
+                Actions.job =
+                    new BlueprintBuildJob(
+                        name, ax, ay, az, rot, mir, yMin, yMax, maxBlocks, scMode, scBlock,
+                        keepScaff, done);
+              }
+            }
+          } catch (java.io.IOException ioe) {
+            throw new IllegalArgumentException("[BLUEPRINT_IO] 蓝图解析失败：" + ioe.getMessage());
+          }
+        }
+        case "blueprint_status" -> {
+          String act = str(a, "action", "status").strip().toLowerCase(Locale.ROOT);
+          switch (act) {
+            case "status" -> done.accept(BlueprintBuildJob.statusJson().toString());
+            case "resume" -> {
+              TaskReadiness.requireWorld(false);
+              try {
+                int maxBlocks = number(a, "max_blocks", 0);
+                Boolean keepOv =
+                    a.has("keep_scaffold") ? a.get("keep_scaffold").getAsBoolean() : null;
+                Actions.job = BlueprintBuildJob.resumeFromCheckpoint(maxBlocks, keepOv, done);
+              } catch (java.io.IOException ioe) {
+                throw new IllegalArgumentException("[BLUEPRINT_IO] 恢复蓝图失败：" + ioe.getMessage());
+              }
+            }
+            case "cleanup_scaffold" -> {
+              TaskReadiness.requireWorld(false);
+              try {
+                Actions.job = BlueprintBuildJob.cleanupScaffold(done);
+              } catch (java.io.IOException ioe) {
+                throw new IllegalArgumentException("[BLUEPRINT_IO] 清理脚手架失败：" + ioe.getMessage());
+              }
+            }
+            case "pause" -> done.accept(BlueprintBuildJob.pauseActive().toString());
+            case "abort" -> done.accept(BlueprintBuildJob.abortActive().toString());
+            default -> throw new IllegalArgumentException(
+                "[INVALID_ARGUMENT] action须为 status/resume/pause/abort/cleanup_scaffold");
+          }
+        }
+        case "terraform_preview" -> done.accept(TerraformJob.preview(a).toString());
+        case "terraform_run" -> Actions.job = TerraformJob.start(a, done);
+        case "terraform_control" -> done.accept(TerraformJob.control(a, done).toString());
+        case "scaffold_build" -> {
+          String act = str(a, "action", "status").strip().toLowerCase(Locale.ROOT);
+          if ("status".equals(act)) {
+            done.accept(ScaffoldJob.statusJson().toString());
+          } else if ("abort".equals(act)) {
+            done.accept(ScaffoldJob.abortActive().toString());
+          } else {
+            Actions.job = new ScaffoldJob(a, done);
+          }
         }
         case "resync_inventory" -> Actions.job = new ResyncInventoryJob(done);
         case "brew_batch" -> Actions.job = new BrewJob(a, done);
@@ -1810,6 +2147,9 @@ public final class Agent {
                     a.has("sneak") && a.get("sneak").getAsBoolean(),
                     str(a, "hand", "main"),
                     SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
+                    dbl(a, "hit_u"),
+                    dbl(a, "hit_v"),
+                    str(a, "sub_slot", ""),
                     done);
         case "rs_inventory" ->
             done.accept(
@@ -1915,8 +2255,32 @@ public final class Agent {
                     .toString());
         case "report_plan" -> {
           DecisionService.invalidate();
-          ProgressBoard.report(str(a, "goal", ""), str(a, "current", ""), str(a, "next", ""));
-          done.accept("规划摘要已更新；计划不代表已执行或已完成。");
+          String act = str(a, "action", "");
+          boolean structured =
+              !act.isBlank()
+                  || a.has("steps")
+                  || a.has("step_id")
+                  || a.has("step_index")
+                  || a.has("checkpoint_key");
+          if (structured && Store.data != null) {
+            String msg =
+                GoalBoard.apply(
+                    Store.goalBoard(), act.isBlank() ? "set" : act, a, System.currentTimeMillis());
+            var snap = GoalBoard.toSnapshot(Store.goalBoard());
+            if (snap.has("goal")) {
+              ProgressBoard.report(
+                  str(snap, "goal", ""), str(snap, "current", ""), str(snap, "next", ""));
+            }
+            Store.saveSoon();
+            done.accept(msg);
+          } else {
+            if (Store.data != null && !str(a, "goal", "").isBlank()) {
+              GoalBoard.apply(Store.goalBoard(), "legacy", a, System.currentTimeMillis());
+              Store.saveSoon();
+            }
+            ProgressBoard.report(str(a, "goal", ""), str(a, "current", ""), str(a, "next", ""));
+            done.accept("规划摘要已更新；计划不代表已执行或已完成。");
+          }
         }
         case "inspect_scene" -> done.accept(DynamicScene.inspect().toString());
         case "farm_cycle" -> {
@@ -1929,18 +2293,22 @@ public final class Agent {
           session = new WorkSession(FarmPlan.create(a), done);
         }
         case "use_item_on_block" -> {
-          String face = str(a, "face", "any");
-          if (!Set.of("top", "any").contains(face))
-            throw new IllegalArgumentException("face为top或any");
+          String face = str(a, "face", "any").strip().toLowerCase(Locale.ROOT);
+          if (!Set.of("top", "any", "up", "down", "north", "south", "east", "west").contains(face))
+            throw new IllegalArgumentException(
+                "[INVALID_ARGUMENT] face须为 any/top/up/down/north/south/east/west");
           TaskReadiness.requireWorld(false);
           var useTarget = Actions.target(a);
           Actions.job =
               new ItemOnBlockJob(
                   useTarget,
                   str(a, "item", ""),
-                  face.equals("top"),
+                  face,
                   a.has("sneak") && a.get("sneak").getAsBoolean(),
                   SkillCatalog.bounded(a, "max_radius", 3, 1, 5),
+                  dbl(a, "hit_u"),
+                  dbl(a, "hit_v"),
+                  str(a, "sub_slot", ""),
                   WriteTrace.written(useTarget, done));
         }
         case "plant_crops", "fertilize_crops" ->
@@ -2280,6 +2648,24 @@ public final class Agent {
         case "run_preset" -> {
           var preset = SkillCatalog.get(str(a, "name", ""));
           var params = obj(a, "parameters").deepCopy();
+          for (var be : preset.boundParameters().entrySet()) {
+            String k = be.getKey(), requiredVal = be.getValue();
+            if (params.has(k) && !params.get(k).isJsonNull()) {
+              String got = params.get(k).getAsString().strip();
+              if (!got.equalsIgnoreCase(requiredVal)) {
+                throw new IllegalArgumentException(
+                    "[ARGUMENT_INVALID] 预设 "
+                        + preset.id()
+                        + " 锁定参数 "
+                        + k
+                        + "="
+                        + requiredVal
+                        + "，不可传 "
+                        + got);
+              }
+            }
+            params.addProperty(k, requiredVal);
+          }
           if (preset.id().equals("farm")
               && (!params.has("collect") || params.get("collect").getAsBoolean())) {
             params.addProperty("plant", false);
@@ -2559,7 +2945,19 @@ public final class Agent {
           done.accept("已发送");
         }
         case "finish" -> {
-          say(str(a, "summary", "任务结束"));
+          String summary = str(a, "summary", "任务结束");
+          if (!localConversation && !CommunityTasks.recipient().isBlank()) {
+            Messages.mentionReply(
+                CommunityTasks.recipient(),
+                summary,
+                MentionPolicy.ReplyPhase.FINAL,
+                CommunityTasks.reportMode(),
+                CommunityTasks.ackSent(),
+                true);
+            CommunityTasks.markNaturalReplySent();
+          } else {
+            say(summary);
+          }
           complete();
           done.accept("任务已结束");
         }
@@ -2759,7 +3157,124 @@ public final class Agent {
   }
 
   private static void say(String text) {
+    if (!localConversation && !CommunityTasks.recipient().isBlank()) {
+      var phase =
+          CommunityTasks.ackSent()
+              ? MentionPolicy.ReplyPhase.PROGRESS
+              : MentionPolicy.ReplyPhase.ACK;
+      Messages.mentionReply(
+          CommunityTasks.recipient(),
+          text,
+          phase,
+          CommunityTasks.reportMode(),
+          CommunityTasks.ackSent(),
+          true);
+      CommunityTasks.markAckSent();
+      return;
+    }
     Messages.reply(text);
+  }
+
+  /** Isolated zero-tool LLM chat responder for unprivileged GUEST @mentions in API mode. */
+  static void replyGuestMention(PlayerMentionInbox.Mention mention) {
+    if (mention == null || !enabled || !Store.config.allowGuestChat) return;
+    if (Store.config.apiKey.isBlank()) return;
+    if (guestInflight.incrementAndGet() > 2) {
+      guestInflight.decrementAndGet();
+      return;
+    }
+    var mc = mc();
+    if (mc.level == null || mc.player == null) {
+      guestInflight.decrementAndGet();
+      return;
+    }
+    final String observedScope = HarnessController.currentScope();
+    final String botName = Store.config.name;
+    final String dim = mc.level.dimension().location().toString();
+    final String weather = mc.level.isThundering() ? "雷暴" : mc.level.isRaining() ? "下雨" : "晴朗";
+    final long dayTime = mc.level.getDayTime() % 24000L;
+    final String timeOfDay = dayTime < 12000L ? "白天" : dayTime < 13800L ? "黄昏" : "夜晚";
+    final String activity =
+        busy || Actions.job != null || routine != null || session != null ? "正在处理其他工作" : "空闲待命";
+
+    final JsonArray msgs = new JsonArray();
+    msgs.add(
+        message(
+            "system",
+            "你是 Minecraft 里的同伴角色「"
+                + botName
+                + "」。当前是未授权访客玩家的安全闲聊通道，无任何工具或行动权限。"
+                + "只依据下方只读现场快照自然、友好、简短地回应（最多 80 字）。"
+                + "绝不承诺去挖矿/拿东西/干活/更改设置，也绝不输出以 / 开头的聊天命令。"));
+    msgs.add(
+        message(
+            "user",
+            "只读快照：维度="
+                + dim
+                + "，时段="
+                + timeOfDay
+                + "，天气="
+                + weather
+                + "，当前状态="
+                + activity
+                + "\n访客 "
+                + mention.senderName
+                + " 对你说："
+                + mention.text));
+    final JsonObject body = new JsonObject();
+    body.addProperty("model", Store.config.model);
+    body.add("messages", msgs);
+    body.addProperty("max_tokens", 160);
+    body.addProperty("stream", false);
+
+    final String endpoint = Store.config.endpoint;
+    final String key = Store.config.apiKey;
+    final String protocol = ProviderWire.protocol(Store.config.apiProtocol);
+    final String model = Store.config.model;
+    final JsonObject wireBody = ProviderWire.request(protocol, body);
+    final java.net.URI uri = ProviderWire.endpoint(endpoint, model, protocol);
+
+    GUEST_IO.submit(
+        () -> {
+          try {
+            var ex =
+                ModelRequest.exchange(
+                    HTTP, uri, key, wireBody, false, () -> {}, protocol, false, p -> {});
+            if (ex.response().statusCode() != 200) return;
+            JsonObject raw = JsonParser.parseString(ex.response().body()).getAsJsonObject();
+            JsonObject normalized = ProviderWire.response(protocol, raw);
+            if (!normalized.has("content") || normalized.get("content").isJsonNull()) return;
+            String reply = Rules.clean(normalized.get("content").getAsString(), 180).trim();
+            if (reply.isBlank() || MentionPolicy.isSlashCommand(reply)) return;
+            mc()
+                .execute(
+                    () -> {
+                      if (!enabled
+                          || !Store.config.allowGuestChat
+                          || !observedScope.equals(HarnessController.currentScope())) return;
+                      try {
+                        HarnessController.inbox()
+                            .markReplySent(
+                                mention.id,
+                                observedScope,
+                                MentionPolicy.ReplyPhase.CHAT,
+                                true,
+                                System.currentTimeMillis());
+                      } catch (Exception ignored) {
+                      }
+                      Messages.mentionReply(
+                          mention.senderName,
+                          reply,
+                          MentionPolicy.ReplyPhase.CHAT,
+                          "BRIEF",
+                          false,
+                          false);
+                    });
+          } catch (Exception ignored) {
+          } finally {
+            guestInflight.decrementAndGet();
+          }
+        });
   }
 
   public static String str(JsonObject o, String key, String fallback) {
@@ -2771,6 +3286,15 @@ public final class Agent {
       return o.get(key).getAsInt();
     } catch (Exception e) {
       return fallback;
+    }
+  }
+
+  public static Double dbl(JsonObject o, String key) {
+    if (o == null || !o.has(key) || o.get(key).isJsonNull()) return null;
+    try {
+      return o.get(key).getAsDouble();
+    } catch (Exception e) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 参数 " + key + " 须为浮点数");
     }
   }
 

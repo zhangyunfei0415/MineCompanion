@@ -1,3 +1,8 @@
+# 0.8.8 · release-0.8.8-20261127-01 · 2026-11-27
+
+- 正式发布版：整合统一三维整地/筑造/大规模灌溉农田引擎（`flatten` / `fill` / `farm_grid`，支持创造与 `/fly` 安全落地、9×9 分段水格+含水上半砖、`pool_2x2` 自动打水、防踩踏退后开垦即播与 `pause`/`resume` 断点重采样）、纯 Java `.nbt`/`.litematic` 蓝图建造与 3D 脚手架 LIFO 退拆清落物、500 条诚实版破坏回滚日志、声音感知与 0ms 客户端避险、昼夜/幻翼监视、`policy_whitelist` 五类自维护白名单、Storage Drawers 局部 UV 精确命中与 `CountUpdateMessage` 感知、核心算法升级（弹道双弧求解/最大流防爆炸合成/3D 聚类采矿/零 GC 寻路/竖井立体探索图与爬梯跑酷加固）、工作台方案 A 亮暗重构、`GoalBoard` 长程目标板，以及多人 `@` 收件箱/`wait_events` 长轮询/`GUEST` 只读硬沙箱。
+- 见 [0.8.8 正式版发布说明](docs/releases/RELEASE-0.8.8-20261127.md) 与 [版本与贡献记录](VERSION-HISTORY.md)。
+
 # 0.8.7 · release-0.8.7-20261124-01 · 2026-11-24
 
 - 正式发布版：整合主动探图开图与「带玩家回家」引路（`rc1`）、室内 `go_to` 同高度安全回退与 AE/背包/待命自理进食升级（`rc2`）、全仓 379 个 Java 类审阅 79 项 P0/P1/P2 安全与稳健性加固（`rc3`），以及收口阶段 `ExplorationRoamPolicy` / `RoamExplorationJob` 迷宫走廊优先寻路与精确统计重构。

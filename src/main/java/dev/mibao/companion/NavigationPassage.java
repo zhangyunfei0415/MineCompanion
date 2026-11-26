@@ -62,7 +62,9 @@ public final class NavigationPassage {
 
   public static boolean clear(AABB area, boolean planning) {
     if (mc().level.noCollision(mc().player, area)) return true;
-    if (!planning || !Store.config.autoOpenDoors) return false;
+    boolean ignoreGates = planning && Store.config.autoOpenDoors;
+    boolean ignoreScaffolding = Store.config.allowClimb;
+    if (!ignoreGates && !ignoreScaffolding) return false;
     if (!mc().level.getEntityCollisions(mc().player, area).isEmpty()) return false;
     for (BlockPos at :
         BlockPos.betweenClosed(
@@ -70,7 +72,10 @@ public final class NavigationPassage {
             BlockPos.containing(area.maxX + 1, area.maxY + 1, area.maxZ + 1))) {
       if (!mc().level.hasChunkAt(at)) return false;
       var state = mc().level.getBlockState(at);
-      if (operable(state) || (state.is(Blocks.IRON_DOOR) && findIronDoorTrigger(at, false) != null))
+      if (ClimbRules.isScaffoldingCollisionPassable(
+          state.getBlock() instanceof ScaffoldingBlock, ignoreScaffolding)) continue;
+      if (ignoreGates
+          && (operable(state) || (state.is(Blocks.IRON_DOOR) && findIronDoorTrigger(at, false) != null)))
         continue;
       for (var box :
           state.getCollisionShape(mc().level, at, CollisionContext.of(mc().player)).toAabbs())
@@ -141,6 +146,9 @@ public final class NavigationPassage {
     }
     BlockPos clickTarget = triggerPos != null ? triggerPos : pending;
     var hit = Reach.hit(clickTarget);
+    if (hit == null && mc().player != null) {
+      hit = Reach.mineFrom(clickTarget, mc().player.getEyePosition());
+    }
     if (hit == null) {
       error = "[DOOR_BLOCKED] 门或开关暂不可交互：" + clickTarget.toShortString();
       return -1;

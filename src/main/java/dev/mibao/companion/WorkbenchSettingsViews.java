@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 /** Redesigned G4Neon Settings Views: card-based, live permission overview, search, dirty-state. */
 final class WorkbenchSettingsViews {
   private final WorkbenchScreen ui;
+  private String whitelistCategory = "left_tap";
 
   WorkbenchSettingsViews(WorkbenchScreen ui) {
     this.ui = ui;
@@ -434,6 +435,13 @@ final class WorkbenchSettingsViews {
               "对外可见",
               t.warning());
           ui.toggleRow(
+              "允许未授权玩家 @ 仅安全聊天（只读，严禁任何写操作）",
+              () -> Store.config.allowGuestChat,
+              v -> Store.config.allowGuestChat = v,
+              true,
+              "访客隔离",
+              t.warning());
+          ui.toggleRow(
               "Harness 截图授权",
               () -> Store.config.harnessImages,
               v -> Store.config.harnessImages = v,
@@ -683,6 +691,152 @@ final class WorkbenchSettingsViews {
         });
 
     ui.card(
+        "声音事件感知、0ms 避险与昼夜监视",
+        SoundReflex.active() ? "避险触发中" : (Store.config.soundSense ? "监听中" : "已关闭"),
+        SoundReflex.active() ? t.danger() : (Store.config.soundSense ? t.success() : t.textMuted()),
+        () -> {
+          ui.toggleRow(
+              "声音事件感知（关闭字幕 / F4 静音下仍生效）",
+              () -> Store.config.soundSense,
+              v -> {
+                Store.config.soundSense = v;
+                if (!v) SoundSense.reset();
+                else SoundSense.attach();
+              },
+              false,
+              "SoundEventListener",
+              t.accent());
+          ui.toggleRow(
+              "0ms 本地致命避险（苦力怕/TNT 冲刺撤离、挖矿近岩浆停镐）",
+              () -> Store.config.soundReflex,
+              v -> {
+                Store.config.soundReflex = v;
+                if (!v) SoundReflex.reset();
+              },
+              false,
+              "高优保命",
+              t.warning());
+          ui.toggleRow(
+              "昼夜、天气与幻翼监视（无天空光照维度自动静默）",
+              () -> Store.config.environmentWatch,
+              v -> Store.config.environmentWatch = v,
+              false,
+              "hasSkyLight 门控",
+              t.accentAlt());
+
+          var env = EnvironmentWatch.observe();
+          if (env.size() > 0) {
+            ui.text(
+                "当前环境 · "
+                    + env.get("phase").getAsString()
+                    + " / "
+                    + env.get("weather").getAsString()
+                    + " · 未睡眠 "
+                    + env.get("days_since_sleep").getAsInt()
+                    + " 日"
+                    + (env.has("alert") ? " · " + env.get("alert").getAsString() : ""));
+          } else {
+            ui.mutedText(
+                Minecraft.getInstance().level == null
+                    ? "当前环境 · 未进入世界"
+                    : "当前环境 · 无天空光照维度 / 监视关闭（保持静默）");
+          }
+          var sounds = SoundSense.recentJson();
+          if (sounds.size() == 0) {
+            ui.mutedText("最近 10 秒声音缓冲：暂无外部警觉音效（已过滤 1.5 格内自身挖放步声）。");
+          } else {
+            for (int i = 0; i < Math.min(3, sounds.size()); i++) {
+              var s = sounds.get(i).getAsJsonObject();
+              ui.mutedText(
+                  "["
+                      + s.get("tier").getAsString()
+                      + "] "
+                      + s.get("id").getAsString()
+                      + " · 方位 "
+                      + s.get("bearing").getAsString()
+                      + " · ×"
+                      + s.get("count").getAsInt());
+            }
+          }
+        });
+
+    List<String> wlList =
+        switch (whitelistCategory) {
+          case "generator_blocks" -> Store.config.customGeneratorBlocks;
+          case "sound_warn" -> Store.config.customSoundWarn;
+          case "sound_info" -> Store.config.customSoundInfo;
+          case "sound_ignore" -> Store.config.customSoundIgnore;
+          default -> Store.config.customLeftTapPrefixes;
+        };
+    String wlTitle =
+        switch (whitelistCategory) {
+          case "generator_blocks" -> "刷石机再生白名单";
+          case "sound_warn" -> "自定义 WARN 音效";
+          case "sound_info" -> "自定义 INFO 音效";
+          case "sound_ignore" -> "自定义 IGNORE 音效";
+          default -> "非破坏左键抽屉白名单";
+        };
+    ui.card(
+        "模组兼容白名单（Agent 可通过 policy_whitelist 自维护）",
+        wlList.size() + " 条自定义",
+        t.accent(),
+        () -> {
+          ui.segmentRow(
+              List.of(
+                  wlOption("左键抽屉", "left_tap"),
+                  wlOption("刷石机", "generator_blocks"),
+                  wlOption("警告音", "sound_warn"),
+                  wlOption("提示音", "sound_info"),
+                  wlOption("忽略音", "sound_ignore")));
+          if (whitelistCategory.equals("left_tap")) {
+            ui.mutedText("内置放行：functionalstorage: 、storagedrawers:（含压缩抽屉/多格抽屉）");
+          } else if (whitelistCategory.equals("generator_blocks")) {
+            ui.mutedText("内置放行：原石/石头/玄武岩/黑曜石/机械动力六种造石矿石等");
+          } else {
+            ui.mutedText("支持精确 ID（如 mod:sound.event）或前缀（如 mod:），严禁 * 通配符。");
+          }
+          if (wlList.isEmpty()) {
+            ui.mutedText("「" + wlTitle + "」暂无自定义条目。");
+          } else {
+            int shown = 0;
+            for (String entry : new ArrayList<>(wlList)) {
+              if (++shown > 12) {
+                ui.mutedText("其余 " + (wlList.size() - 12) + " 项省略，可用 policy_whitelist list 查看。");
+                break;
+              }
+              String targetEntry = entry;
+              ui.button(
+                  "移除 · " + targetEntry,
+                  () -> {
+                    WhitelistPolicy.mutate(wlList, whitelistCategory, "remove", targetEntry);
+                    Store.saveSettingsOnly();
+                    ui.setStatus("已从「" + wlTitle + "」移除：" + targetEntry);
+                    ui.rebuild();
+                  });
+            }
+          }
+          ui.field("wl/entry", "添加条目（精确 ID 或 namespace: 前缀）", "", v -> {});
+          ui.row(
+              "添加到「" + wlTitle + "」",
+              () -> {
+                ui.saveDrafts();
+                String entry = ui.value("wl/entry", "");
+                boolean added = WhitelistPolicy.mutate(wlList, whitelistCategory, "add", entry);
+                Store.saveSettingsOnly();
+                ui.clearDrafts("wl/");
+                ui.setStatus(added ? "已添加到「" + wlTitle + "」：" + entry.trim() : "条目已存在");
+                ui.rebuild();
+              },
+              "清空本类自定义",
+              () -> {
+                WhitelistPolicy.mutate(wlList, whitelistCategory, "reset", "");
+                Store.saveSettingsOnly();
+                ui.setStatus("已清空「" + wlTitle + "」自定义条目");
+                ui.rebuild();
+              });
+        });
+
+    ui.card(
         "模组快捷键总览",
         "7 项",
         t.accentAlt(),
@@ -891,5 +1045,16 @@ final class WorkbenchSettingsViews {
     HarnessController.configureLease(seconds);
     ui.setStatus("Harness 租约已应用：" + HarnessLeasePolicy.label(seconds));
     ui.rebuild();
+  }
+
+  private WorkbenchScreen.SegmentOption wlOption(String label, String category) {
+    return new WorkbenchScreen.SegmentOption(
+        label,
+        whitelistCategory.equals(category),
+        () -> {
+          whitelistCategory = category;
+          ui.clearDrafts("wl/");
+          ui.rebuild();
+        });
   }
 }

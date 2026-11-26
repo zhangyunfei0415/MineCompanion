@@ -23,6 +23,8 @@ public final class HarnessSession {
   }
 
   private String lease = "", scope = "";
+  private String inflightRequestId = "";
+  private long inflightEpoch = -1L;
   private long expires;
   private final Map<String, JsonObject> receipts = new LinkedHashMap<>();
   private final Set<String> seen = new HashSet<>();
@@ -52,6 +54,46 @@ public final class HarnessSession {
   public void revokeLease() {
     lease = "";
     expires = 0;
+    inflightRequestId = "";
+    inflightEpoch = -1L;
+  }
+
+  public void markInflight(String id, long epoch) {
+    inflightRequestId = id == null ? "" : id;
+    inflightEpoch = epoch;
+  }
+
+  public void clearInflight(String id) {
+    if (inflightRequestId.equals(id)) {
+      inflightRequestId = "";
+      inflightEpoch = -1L;
+    }
+  }
+
+  public boolean isInflight(String id, String currentScope, long currentEpoch) {
+    if (id == null || id.isBlank() || !id.equals(inflightRequestId)) return false;
+    var r = receipts.get(id);
+    return r != null
+        && "running".equals(r.get("state").getAsString())
+        && inflightEpoch == currentEpoch
+        && currentScope.equals(scope)
+        && currentScope.equals(r.get("scope").getAsString())
+        && r.get("epoch").getAsLong() == currentEpoch;
+  }
+
+  public boolean cancelRunning(String id, String currentScope, long currentEpoch, String reason) {
+    if (!isInflight(id, currentScope, currentEpoch)) return false;
+    var r = receipts.get(id);
+    r.addProperty("state", "cancelled");
+    r.addProperty("result", reason);
+    r.add("outcome", ActionOutcome.describe(reason));
+    clearInflight(id);
+    return true;
+  }
+
+  public boolean cancelCurrentInflight(String currentScope, long currentEpoch, String reason) {
+    return !inflightRequestId.isBlank()
+        && cancelRunning(inflightRequestId, currentScope, currentEpoch, reason);
   }
 
   public void check(String lease, String scope, long now) {
@@ -127,6 +169,8 @@ public final class HarnessSession {
       }
     lease = "";
     expires = 0;
+    inflightRequestId = "";
+    inflightEpoch = -1L;
   }
 
   public void invalidateEpoch(long epoch) {
@@ -135,6 +179,10 @@ public final class HarnessSession {
         r.addProperty("state", "interrupted");
         r.addProperty("result", "任务代次已变，旧动作不得重放");
       }
+    if (inflightEpoch != epoch) {
+      inflightRequestId = "";
+      inflightEpoch = -1L;
+    }
   }
 
   /** Same-server dimension transition only; controller validates that boundary before calling. */

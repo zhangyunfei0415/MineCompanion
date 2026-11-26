@@ -322,7 +322,11 @@ public final class DeskButton extends Button {
           UiTheme.withAlpha(bc, 110));
       rightReserve += bw + 8;
     }
-    String s = f.plainSubstrByWidth(getMessage().getString(), Math.max(8, w - rightReserve - 8));
-    g.drawString(f, s, x + 8, y + (h - 8) / 2, fg, false);
+    String s =
+        f.plainSubstrByWidth(
+            getMessage().getString(),
+            badge.isEmpty() && w <= 34 ? Math.max(10, w - 8) : Math.max(8, w - rightReserve - 8));
+    int tx = badge.isEmpty() && w <= 34 ? x + Math.max(2, (w - f.width(s)) / 2) : x + 8;
+    g.drawString(f, s, tx, y + (h - 8) / 2, fg, false);
   }
 }

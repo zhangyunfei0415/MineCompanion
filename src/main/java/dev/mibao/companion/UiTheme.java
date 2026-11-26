@@ -224,6 +224,18 @@ public record UiTheme(
     };
   }
 
+  public String toggledLightDarkId() {
+    return switch (id) {
+      case "霓虹" -> "霓虹亮";
+      case "霓虹亮" -> "霓虹";
+      case "纸白" -> "深海";
+      case "深海" -> "纸白";
+      case "终端" -> "霓虹亮";
+      case "原版" -> "纸白";
+      default -> light ? "霓虹" : "霓虹亮";
+    };
+  }
+
   public static double contrastRatio(int fg, int bg) {
     double l1 = relativeLuminance(fg);
     double l2 = relativeLuminance(bg);

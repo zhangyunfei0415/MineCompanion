@@ -12,10 +12,13 @@ import net.minecraft.client.Minecraft;
  */
 public final class HarnessController {
   private static final HarnessSession session = new HarnessSession();
-  private static final Deque<JsonObject> events = new ArrayDeque<>();
+  private static final HarnessEventHub hub = new HarnessEventHub();
+  private static final PlayerMentionInbox mentionInbox = new PlayerMentionInbox();
   private static ObservationFrames frames = new ObservationFrames();
-  private static long sequence, nextFrame;
+  private static JsonObject lastChatEvent;
+  private static long nextFrame;
   private static String connectionScope = "";
+  private static volatile String cachedScope = "";
   private static HarnessRecorder recorder;
   private static Path recordingFile;
   private static final ExecutorService IO =
@@ -69,6 +72,8 @@ public final class HarnessController {
   }
 
   public static void tick() {
+    cachedScope = scope();
+    hub.updateScope(cachedScope);
     session.invalidateEpoch(Agent.epoch);
     if (!connectionScope.isEmpty()) {
       if (!scope().equals(connectionScope)
@@ -113,7 +118,9 @@ public final class HarnessController {
 
   public static void interrupted(String why) {
     session.interrupt(why);
+    mentionInbox.expireAll(why);
     connectionScope = "";
+    hub.updateScope(scope());
     event("control_stopped", why);
     stopRecord();
   }
@@ -137,14 +144,13 @@ public final class HarnessController {
         sender != null && !sender.isBlank()
             ? "[" + kind + "] <" + Rules.clean(sender, 48) + "> " + cleanText
             : "[" + kind + "] " + cleanText;
-    var last = events.peekLast();
+    var last = lastChatEvent;
     if (last != null
-        && "chat".equals(last.get("kind").getAsString())
         && line.equals(last.get("text").getAsString())
         && System.currentTimeMillis() - last.get("at_ms").getAsLong() < 500) {
       return;
     }
-    event("chat", line);
+    lastChatEvent = event("chat", line);
   }
 
   public static void task(String text) {
@@ -152,17 +158,80 @@ public final class HarnessController {
     LocalDialogue.add("系统", "指令已交给本地Harness，等待控制器处理");
   }
 
-  private static void event(String kind, String text) {
-    var e = new JsonObject();
-    e.addProperty("scope", scope());
-    e.addProperty("sequence", ++sequence);
-    e.addProperty("at_ms", System.currentTimeMillis());
-    e.addProperty("at", java.time.Instant.now().toString());
-    e.addProperty("kind", kind);
-    e.addProperty("text", text);
-    events.addLast(e);
-    while (events.size() > 256) events.removeFirst();
-    write(e);
+  static PlayerMentionInbox inbox() {
+    return mentionInbox;
+  }
+
+  static HarnessEventHub eventHub() {
+    return hub;
+  }
+
+  static long worldGeneration() {
+    return hub.generation();
+  }
+
+  static String currentScope() {
+    String s = scope();
+    cachedScope = s;
+    return s;
+  }
+
+  static void publishPlayerMention(PlayerMentionInbox.Mention m) {
+    if (m == null) return;
+    cachedScope = m.scope;
+    JsonObject extra = m.toJson();
+    extra.addProperty("busy", foregroundBusy());
+    extra.addProperty("public_reply", Store.config.publicReply);
+    if (MentionPolicy.canWork(m.role)) {
+      extra.add("recent_chat", ChatBuffer.recentJson(Store.scope(), 5));
+      var level = mc().level;
+      if (level != null) {
+        try {
+          var senderPlayer = level.getPlayerByUUID(UUID.fromString(m.senderUuid));
+          if (senderPlayer != null) {
+            var pos = new JsonObject();
+            pos.addProperty("x", senderPlayer.getBlockX());
+            pos.addProperty("y", senderPlayer.getBlockY());
+            pos.addProperty("z", senderPlayer.getBlockZ());
+            extra.add("sender_pos", pos);
+          }
+        } catch (IllegalArgumentException ignored) {
+        }
+      }
+    }
+    JsonObject published =
+        hub.publish(
+            m.scope,
+            "player_mention",
+            "[" + m.role.name() + "] " + m.senderName + ": " + Rules.clean(m.text, 160),
+            extra);
+    if (MentionPolicy.canWork(m.role)) {
+      write(published);
+    }
+  }
+
+  static void communityTaskStarted(CommunityBoard.Task t) {
+    if (t == null) return;
+    JsonObject extra = new JsonObject();
+    extra.addProperty("task_id", t.id);
+    extra.addProperty("run_id", t.runId);
+    if (!t.mentionId.isBlank()) extra.addProperty("mention_id", t.mentionId);
+    extra.addProperty("sender", t.name);
+    extra.addProperty("sender_uuid", t.sender);
+    extra.addProperty("role", t.role);
+    extra.addProperty("text", t.text);
+    if (!t.delivery.isBlank()) extra.addProperty("delivery", t.delivery);
+    extra.addProperty("report_mode", CommunityTasks.reportMode());
+    JsonObject published =
+        hub.publish(scope(), "community_task_started", t.name + ": " + Rules.clean(t.text, 160), extra);
+    write(published);
+  }
+
+  private static JsonObject event(String kind, String text) {
+    cachedScope = scope();
+    JsonObject stored = hub.publish(cachedScope, kind, text, null);
+    write(stored);
+    return stored;
   }
 
   private static void write(JsonObject e) {
@@ -220,6 +289,7 @@ public final class HarnessController {
   }
 
   public static JsonObject status() {
+    cachedScope = scope();
     var o = Actions.observe();
     o.addProperty("contract_version", 1);
     o.add("death_recovery", DeathRecovery.observe());
@@ -275,6 +345,7 @@ public final class HarnessController {
       return o;
     }
     if (name.equals("events")) return readEvents(a);
+    if (name.equals("mentions")) return readMentions();
     if (name.equals("receipt"))
       return publicReceipt(session.receipt(Agent.str(a, "request_id", ""), scope()));
     if (name.equals("stop")) {
@@ -295,8 +366,8 @@ public final class HarnessController {
         throw new IllegalArgumentException("[DRIVER_MISMATCH] 在游戏中选择Harness驱动");
       if (mc().player == null) throw new IllegalArgumentException("[WORLD_REQUIRED] 尚未进入世界");
       session.durationSeconds(Store.config.harnessLeaseSeconds);
-      String lease = session.connect(scope(), System.currentTimeMillis());
-      connectionScope = scope();
+      String lease = session.connect(currentScope(), System.currentTimeMillis());
+      connectionScope = cachedScope;
       var o = ok("本地Harness已连接");
       o.addProperty("lease", lease);
       o.addProperty("ttl_seconds", session.ttlSeconds());
@@ -317,17 +388,30 @@ public final class HarnessController {
         return ok("租约已按当前期限续期");
       }
       case "release" -> {
-        Agent.stop("本地Harness主动释放控制");
+        Agent.harnessDisconnected("本地Harness主动释放控制");
         return ok("已释放");
       }
       case "reply" -> {
-        Agent.localConversation = true;
-        Messages.reply(Agent.str(a, "text", ""));
+        Messages.localOnlyReply(Agent.str(a, "text", ""));
         if (!busy() && !Agent.paused) {
           Agent.state = "本地Harness已回复，等待任务";
           Hud.FEED.acknowledge();
         }
         return ok("本地回复已显示，未发送公屏");
+      }
+      case "reply_to_mention" -> {
+        return handleReplyToMention(a);
+      }
+      case "accept_mention_work" -> {
+        return CommunityTasks.acceptMentionWork(
+            Agent.str(a, "mention_id", ""), Agent.str(a, "note", ""));
+      }
+      case "complete_mention_task" -> {
+        return CommunityTasks.completeMentionTask(
+            Agent.str(a, "task_id", ""),
+            Agent.str(a, "outcome", "COMPLETED"),
+            Agent.str(a, "summary", ""),
+            Agent.str(a, "reply_text", ""));
       }
       case "record" -> {
         if (Agent.str(a, "mode", "start").equals("stop")) stopRecord();
@@ -347,6 +431,45 @@ public final class HarnessController {
             || a.get("epoch").getAsLong() != Agent.epoch
             || !Agent.str(a, "scope", "").equals(scope()))
           throw new IllegalArgumentException("[STALE_EPOCH] 旧epoch/scope不可控制，请重新status观察");
+        boolean guestSandboxed = a.has("guest_mode") && a.get("guest_mode").getAsBoolean();
+        String mentionId = Agent.str(a, "mention_id", "");
+        if (!mentionId.isBlank()) {
+          var mention = mentionInbox.get(mentionId, scope(), System.currentTimeMillis());
+          boolean closed =
+              mention == null
+                  || mention.state == PlayerMentionInbox.State.EXPIRED
+                  || (mention.state == PlayerMentionInbox.State.RESOLVED
+                      && (mention.taskId == null || mention.taskId.isBlank()));
+          switch (MentionPolicy.evaluateActionMention(
+              mentionId, mention != null, mention != null ? mention.role : null, closed)) {
+            case REJECT_STALE_OR_CLOSED -> {
+              return publicReceipt(
+                  session.blocked(
+                      id,
+                      signature,
+                      Agent.epoch,
+                      tool,
+                      "失败：[MENTION_EXPIRED] 提及已过期、已结案或不属于当前世界作用域，禁止回退为普通租约执行："
+                          + mentionId));
+            }
+            case SANDBOX_GUEST -> guestSandboxed = true;
+            case ALLOW_MEMBER, NO_MENTION -> {}
+          }
+        }
+        boolean guestAllowed =
+            MentionPolicy.isGuestReadOnlyTool(tool)
+                || ("terraform_control".equals(tool)
+                    && Set.of("", "status")
+                        .contains(Agent.str(args, "action", "status").strip().toLowerCase(Locale.ROOT)));
+        if (guestSandboxed && !guestAllowed) {
+          return publicReceipt(
+              session.blocked(
+                  id,
+                  signature,
+                  Agent.epoch,
+                  tool,
+                  "失败：[PERMISSION_DENIED] 访客模式仅允许安全只读观察与聊天，禁止工具：" + tool));
+        }
         if (!Rules.TOOLS.contains(tool)
             || Set.of("finish", "run_skill", "save_skill", "read_web", "search_web").contains(tool))
           throw new IllegalArgumentException("外部action仅允许已有游戏工具；不直接执行模型、网页或技能定义");
@@ -386,8 +509,12 @@ public final class HarnessController {
                     "plan_mining",
                     "preview_mining_route",
                     "explore_query",
-                    "command_status")
-                .contains(tool))
+                    "command_status",
+                    "blueprint_list",
+                    "blueprint_inspect",
+                    "terraform_preview")
+                .contains(tool)
+            && !allowBlueprintControlWhenBusy(tool, args))
           return publicReceipt(session.blocked(id, signature, Agent.epoch, tool,
               "失败：[BUSY] 当前暂停/忙碌/待审批；先查状态或回执，不叠加写动作"));
         if (!Agent.paused && !Cooperation.yielding() && DutyScheduler.ownsCurrentJob()
@@ -398,6 +525,8 @@ public final class HarnessController {
           DutyScheduler.yieldCurrentJob("明确指令抢占：" + tool);
         }
         var r = session.begin(id, signature, Agent.epoch, tool);
+        boolean trackInflight = !isControlOrQueryTool(tool) && !allowBlueprintControlWhenBusy(tool, args);
+        if (trackInflight) session.markInflight(id, Agent.epoch);
         Agent.localConversation = true;
         Hud.FEED.acknowledge();
         if (RestockTask.latest != null && RestockTask.latest.ended > 0) RestockTask.latest = null;
@@ -406,6 +535,7 @@ public final class HarnessController {
             tool,
             args,
             result -> {
+              if (trackInflight) session.clearInflight(id);
               if (r.get("state").getAsString().equals("running")) {
                 r.addProperty("state", Rules.actionFailed(result) ? "blocked" : "returned");
                 r.addProperty("result", result);
@@ -419,9 +549,186 @@ public final class HarnessController {
     }
   }
 
+  static boolean matchesInflightRequest(String id) {
+    return session.isInflight(id, scope(), Agent.epoch);
+  }
+
+  static boolean cancelInflightRequest(String id, String reason) {
+    return session.cancelRunning(id, scope(), Agent.epoch, reason);
+  }
+
+  static void cancelAnyInflightRequest(String reason) {
+    session.cancelCurrentInflight(scope(), Agent.epoch, reason);
+  }
+
+  private static boolean isControlOrQueryTool(String tool) {
+    return Set.of(
+            "capability_probe",
+            "machine_adapters",
+            "work_session_status",
+            "build_status",
+            "logistics_status",
+            "task_timeline",
+            "task_status",
+            "task_result",
+            "task_cancel",
+            "follow_targets",
+            "follow_status",
+            "follow_stop",
+            "duty_status",
+            "duty_set",
+            "observe_owner_focus",
+            "resume_control",
+            "pause_control",
+            "permission_status",
+            "decision_status",
+            "config_reload",
+            "observe_compact",
+            "observe",
+            "integration_status",
+            "inspect_client",
+            "inspect_landing",
+            "column_probe",
+            "light_survey",
+            "find_blocks",
+            "vehicle_state",
+            "mining_status",
+            "plan_mining",
+            "preview_mining_route",
+            "explore_query",
+            "command_status",
+            "blueprint_list",
+            "blueprint_inspect",
+            "terraform_preview")
+        .contains(tool);
+  }
+
+  private static boolean allowBlueprintControlWhenBusy(String tool, JsonObject args) {
+    if ("blueprint_build".equals(tool)) {
+      return args != null && args.has("dry_run") && args.get("dry_run").getAsBoolean();
+    }
+    if ("terraform_preview".equals(tool)) {
+      return true;
+    }
+    if ("terraform_control".equals(tool)) {
+      String act = Agent.str(args, "action", "status").strip().toLowerCase(Locale.ROOT);
+      return act.isBlank() || act.equals("status") || act.equals("pause") || act.equals("abort");
+    }
+    if ("scaffold_build".equals(tool)) {
+      String act = Agent.str(args, "action", "status").strip().toLowerCase(Locale.ROOT);
+      return act.isBlank() || act.equals("status") || act.equals("abort");
+    }
+    if ("blueprint_status".equals(tool)) {
+      String act = Agent.str(args, "action", "status").strip().toLowerCase(Locale.ROOT);
+      return act.isBlank() || act.equals("status") || act.equals("pause") || act.equals("abort");
+    }
+    return false;
+  }
+
+  public static CompletableFuture<JsonObject> waitEventsAsync(JsonObject a) {
+    long after = a != null && a.has("after") ? a.get("after").getAsLong() : 0L;
+    long timeoutMs = a != null && a.has("timeout_ms") ? a.get("timeout_ms").getAsLong() : 15_000L;
+    Set<String> kinds = new LinkedHashSet<>();
+    if (a != null && a.has("kinds") && !a.get("kinds").isJsonNull()) {
+      var el = a.get("kinds");
+      if (el.isJsonArray()) {
+        for (var item : el.getAsJsonArray()) {
+          if (item.isJsonPrimitive() && !item.getAsString().isBlank()) {
+            kinds.add(item.getAsString().strip());
+          }
+        }
+      } else if (el.isJsonPrimitive()) {
+        for (String part : el.getAsString().split(",")) {
+          if (!part.isBlank()) kinds.add(part.strip());
+        }
+      }
+    }
+    String sc = cachedScope.isEmpty() ? "disconnected" : cachedScope;
+    return hub.waitFor(sc, after, kinds, timeoutMs);
+  }
+
   private static JsonObject readEvents(JsonObject a) {
-    return HarnessEventPage.read(
-        events, scope(), a.has("after") ? a.get("after").getAsLong() : 0, sequence);
+    cachedScope = scope();
+    return hub.read(cachedScope, a.has("after") ? a.get("after").getAsLong() : 0);
+  }
+
+  private static JsonObject readMentions() {
+    String sc = scope();
+    cachedScope = sc;
+    var o = new JsonObject();
+    o.add("mentions", mentionInbox.listActive(sc, System.currentTimeMillis()));
+    var active = Store.data.community.active();
+    if (active != null) {
+      var aObj = new JsonObject();
+      aObj.addProperty("task_id", active.id);
+      aObj.addProperty("sender", active.name);
+      aObj.addProperty("role", active.role);
+      aObj.addProperty("state", active.state);
+      o.add("active_task", aObj);
+    }
+    o.addProperty("busy", foregroundBusy());
+    return o;
+  }
+
+  private static JsonObject handleReplyToMention(JsonObject a) {
+    long now = System.currentTimeMillis();
+    String sc = scope();
+    String mentionId = Agent.str(a, "mention_id", "");
+    String taskId = Agent.str(a, "task_id", "");
+    String text = Agent.str(a, "text", "");
+    if (text.isBlank()) throw new IllegalArgumentException("[INVALID_ARGUMENT] text 不能为空");
+    if (MentionPolicy.isSlashCommand(text)) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 禁止在公屏回复中发送 / 指令");
+    }
+    String phaseRaw = Agent.str(a, "phase", "CHAT").strip().toUpperCase(Locale.ROOT);
+    MentionPolicy.ReplyPhase phase;
+    try {
+      phase = MentionPolicy.ReplyPhase.valueOf(phaseRaw);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] phase 须为 CHAT/ACK/PROGRESS/FINAL");
+    }
+    boolean resolve = a.has("resolve") && a.get("resolve").getAsBoolean();
+    String recipient;
+    String mode = CommunityReport.mode("DEFAULT", Store.config.teamReport);
+    boolean ackSent = false;
+    boolean recordIdentity = true;
+
+    if (!mentionId.isBlank()) {
+      var m = mentionInbox.get(mentionId, sc, now);
+      if (m == null) throw new IllegalArgumentException("[MENTION_NOT_FOUND] 未找到有效或未过期的玩家提及会话");
+      if (m.role == MentionPolicy.Role.GUEST) {
+        if (!Store.config.allowGuestChat) {
+          throw new IllegalArgumentException("[PERMISSION_DENIED] 访客安全聊天未开启");
+        }
+        recordIdentity = false;
+      }
+      recipient = m.senderName;
+      ackSent = m.ackSent;
+      var member =
+          Store.data.members.stream().filter(x -> x.uuid.equals(m.senderUuid)).findFirst();
+      if (member.isPresent()) mode = CommunityReport.mode(member.get().report, Store.config.teamReport);
+      mentionInbox.markReplySent(mentionId, sc, phase, resolve, now);
+    } else if (!taskId.isBlank()) {
+      var active = Store.data.community.active();
+      if (active == null || !active.id.equals(taskId)) {
+        throw new IllegalArgumentException("[TASK_NOT_FOUND] 未找到匹配的活动多人任务");
+      }
+      recipient = active.name;
+      ackSent = active.ackSent;
+      mode = CommunityTasks.reportMode();
+      if (phase == MentionPolicy.ReplyPhase.ACK) active.ackSent = true;
+      if (phase == MentionPolicy.ReplyPhase.FINAL) active.naturalReplySent = true;
+    } else {
+      throw new IllegalArgumentException("[INVALID_ARGUMENT] 须提供 mention_id 或 task_id");
+    }
+
+    boolean queuedPublic =
+        Messages.mentionReply(recipient, text, phase, mode, ackSent, recordIdentity);
+    var out = ok(queuedPublic ? "已排队发送安全公屏回复" : "已显示于本地侧栏（公屏关闭或规则过滤）");
+    out.addProperty("sent_public", queuedPublic);
+    out.addProperty("recipient", recipient);
+    out.addProperty("phase", phase.name());
+    return out;
   }
 
   public static void configureLease(int seconds) {

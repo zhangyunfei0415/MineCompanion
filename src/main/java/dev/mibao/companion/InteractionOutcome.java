@@ -39,11 +39,27 @@ public final class InteractionOutcome {
   private final List<AABB> anchors = new ArrayList<>();
   private AABB area;
   private int ticks;
-  private boolean blockChanged, machineChanged, truncated;
-  private String blockAfter = "";
+  private boolean blockChanged, machineChanged, truncated, adjacentBlockChanged;
+  private String blockAfter = "",
+      adjacentPosition = "",
+      adjacentBlockBefore = "",
+      adjacentBlockAfter = "",
+      hitUvDetail = "";
 
   private InteractionOutcome(BlockPos[] positions) {
     this.positions = positions;
+  }
+
+  public void recordHitPoint(double u, double v) {
+    this.hitUvDetail = String.format(java.util.Locale.ROOT, "%.2f,%.2f", u, v);
+  }
+
+  public boolean placedAdjacentWithoutTargetEffect() {
+    return adjacentBlockChanged && !blockChanged && !machineChanged;
+  }
+
+  public String adjacentBlockAfter() {
+    return adjacentBlockAfter;
   }
 
   private static Minecraft mc() {
@@ -99,16 +115,24 @@ public final class InteractionOutcome {
   public void tick() {
     if (area == null || mc().level == null || mc().player == null) return;
     ticks++;
-    for (Watch watch : watches) {
+    for (int i = 0; i < watches.size(); i++) {
+      Watch watch = watches.get(i);
       BlockState current = mc().level.getBlockState(watch.pos());
       if (!current.equals(watch.before())) {
         BlockState server = PlayerEvidence.block(watch.pos());
         if (server != null && server.equals(current)) {
-          blockChanged = true;
-          blockAfter = blockId(current);
+          if (i == 0) {
+            blockChanged = true;
+            blockAfter = blockId(current);
+          } else {
+            adjacentBlockChanged = true;
+            adjacentPosition = watch.pos().toShortString();
+            adjacentBlockBefore = blockId(watch.before());
+            adjacentBlockAfter = blockId(current);
+          }
         }
       }
-      if (MachineObservation.changed(watch.pos(), watch.machine(), watch.revision()))
+      if (i == 0 && MachineObservation.changed(watch.pos(), watch.machine(), watch.revision()))
         machineChanged = true;
     }
     for (ItemEntity entity : sensor.observe(area, candidate -> true, ticks)) {
@@ -179,6 +203,13 @@ public final class InteractionOutcome {
       if (blockChanged) out.addProperty("block_after", blockAfter);
       out.addProperty("machine_changed", machineChanged);
     }
+    if (adjacentBlockChanged) {
+      out.addProperty("adjacent_block_changed", true);
+      out.addProperty("adjacent_position", adjacentPosition);
+      out.addProperty("adjacent_block_before", adjacentBlockBefore);
+      out.addProperty("adjacent_block_after", adjacentBlockAfter);
+    }
+    if (!hitUvDetail.isBlank()) out.addProperty("hit_uv", hitUvDetail);
     return out;
   }
 

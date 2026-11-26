@@ -38,6 +38,21 @@ class MovementAndPowerSaverTest {
     assertTrue(MovementPolicy.parkourAllowed("FULL", 3, 0, 8, 2, true, 20));
     assertFalse(MovementPolicy.parkourAllowed("FULL", 3, 0, 8, 1, true, 20));
     assertFalse(MovementPolicy.parkourAllowed("FULL", 3, 0, 8, 2, true, 6));
+
+    assertFalse(MovementPolicy.parkourExecutionAllowed(false, false, 2));
+    assertFalse(MovementPolicy.parkourExecutionAllowed(true, true, 2));
+    assertFalse(MovementPolicy.parkourExecutionAllowed(true, false, 0));
+    assertTrue(MovementPolicy.parkourExecutionAllowed(true, false, 1));
+
+    assertFalse(MovementPolicy.parkourTimedOut(1, 25));
+    assertFalse(MovementPolicy.parkourTimedOut(2, 60));
+    assertTrue(MovementPolicy.parkourTimedOut(3, 20));
+    assertTrue(MovementPolicy.parkourTimedOut(1, 61));
+
+    assertTrue(MovementPolicy.canSkipCollinearWaypoint((byte) 0, (byte) 0));
+    assertFalse(MovementPolicy.canSkipCollinearWaypoint((byte) 3, (byte) 0));
+    assertFalse(MovementPolicy.canSkipCollinearWaypoint((byte) 0, (byte) 3));
+    assertFalse(MovementPolicy.canSkipCollinearWaypoint((byte) 1, (byte) 0));
   }
 
   @Test
@@ -160,5 +175,22 @@ class MovementAndPowerSaverTest {
     assertFalse(SettingsCatalog.search("梯子").isEmpty());
     assertFalse(SettingsCatalog.search("水坑").isEmpty());
     assertFalse(SettingsCatalog.search("lootr").isEmpty());
+  }
+
+  @Test
+  void rc12ScaffoldingLedgeSneakHorizontalProgressAndStarvationPause() {
+    assertTrue(MovementPolicy.shouldLedgeSneak(true, true, false, false));
+    assertFalse(MovementPolicy.shouldLedgeSneak(true, true, false, true));
+    assertFalse(MovementPolicy.shouldLedgeSneak(true, true, true, false));
+
+    assertFalse(MovementPolicy.madeHorizontalWalkProgress(87.5, 119.7, 87.5, 119.7));
+    assertTrue(MovementPolicy.madeHorizontalWalkProgress(87.5, 119.7, 87.5, 119.83));
+
+    assertFalse(SurvivalPolicy.shouldPauseBuildWork(4.0, 20.0, 0, true, false));
+    assertFalse(SurvivalPolicy.shouldPauseBuildWork(4.0, 20.0, 0, false, true));
+    assertFalse(SurvivalPolicy.shouldPauseBuildWork(20.0, 20.0, 6, false, false));
+    assertFalse(SurvivalPolicy.shouldPauseBuildWork(20.0, 20.0, 0, false, false));
+    assertTrue(SurvivalPolicy.shouldPauseBuildWork(19.0, 20.0, 0, false, false));
+    assertTrue(SurvivalPolicy.shouldPauseBuildWork(5.0, 20.0, 18, false, false));
   }
 }

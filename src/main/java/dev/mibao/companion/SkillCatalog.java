@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Independent client-player procedures. No maid entity code or server capabilities. */
 public final class SkillCatalog {
-  public static final String VERSION = "9";
+  public static final String VERSION = "10";
 
   public record Preset(
       String id,
@@ -15,7 +15,20 @@ public final class SkillCatalog {
       String prerequisites,
       String steps,
       String verification,
-      String recovery) {}
+      String recovery,
+      Map<String, String> boundParameters) {
+    public Preset(
+        String id,
+        String name,
+        String tool,
+        String parameters,
+        String prerequisites,
+        String steps,
+        String verification,
+        String recovery) {
+      this(id, name, tool, parameters, prerequisites, steps, verification, recovery, Map.of());
+    }
+  }
 
   public static final List<Preset> ALL =
       List.of(
@@ -137,7 +150,37 @@ public final class SkillCatalog {
               "生存；背包有斧子或能做木/石斧的普通材料；缺工作台需要放置授权；安全可达天然树干",
               "准备/按需制作斧子 → 检查土上树干与附近树叶 → 每4块正常挖除并等服务器确认 → 主动拾取附近新掉落 → 数量核对",
               "挖除和入包分别验收，装备耐久NBT改变不算新增；不凭空移除整树",
-              "缺材料/高处不可达/满包/领地限制即停；不自动搭高、攀树或砍建筑木柱；明确配置交付箱后可有界卸货再恢复"));
+              "缺材料/高处不可达/满包/领地限制即停；不自动搭高、攀树或砍建筑木柱；明确配置交付箱后可有界卸货再恢复"),
+          new Preset(
+              "terraform_flatten",
+              "区域平地（削峰与可选回填）",
+              "terraform_run",
+              "min_x,min_y,min_z,max_x,max_y,max_z,target_y,variant=cut_only/cut_and_fill,block=回填方块",
+              "已加载目标盒与周边一格；允许挖/放授权；飞行时脚下8格内有干燥安全落脚面",
+              "如有飞行先降落 → 分帧采样与落沙列隔离 → 严格自顶向下切除 → 可选由底向上回填",
+              "切方与填方逐格取得服务器更新及实体核验；超500条日志上限时预览报告回滚覆盖",
+              "外部压顶落沙按列跳过；受保护/非天然方块不破坏；低血/饥饿或人工起飞即暂停保存断点",
+              Map.of("mode", "flatten")),
+          new Preset(
+              "terraform_fill",
+              "三维区域填充（实心/空心/四壁/仅补空气）",
+              "terraform_run",
+              "min_x,min_y,min_z,max_x,max_y,max_z,variant=solid/hollow/walls/replace_air,block,replace_natural",
+              "已加载区域；相应建材与放置授权（替换天然地形时另需采集授权）",
+              "如有飞行先降落 → 可选清理天然占位 → 同站多格由底向上逐格填充并核对",
+              "目标格与指定方块匹配且服务器确认；replace_air 严禁覆盖非空气占位",
+              "遇冲突方块（未开 replace_natural）或受保护方块跳过记录；随时支持 pause/resume/abort",
+              Map.of("mode", "fill")),
+          new Preset(
+              "terraform_farm_grid",
+              "大规模规范水田开荒（9x9水网与退步锄播）",
+              "terraform_run",
+              "min_x,min_y,min_z,max_x,max_y,max_z,target_y,crop=可选作物,water_source=inventory/pool_2x2,cover_slab=可选半砖",
+              "已加载区域；水源/水桶、泥土、锄及可选种子与半砖；至少一侧出口或1格安全撤离点",
+              "整平土层与封闭水穴 → 分段9x9布水源与可选上半含水盖板 → 沿出口生成树逆序退步单趟先锄即播",
+              "水源逐格核实后方开锄；全边禁踩已耕地；每格锄成FARMLAND后同站立即播种核对",
+              "1x1或无退路拒绝盲开；缺水默认暂停或按 on_water_shortage=prepare_dirt 交付平地",
+              Map.of("mode", "farm_grid")));
 
   public static Preset get(String id) {
     return ALL.stream()

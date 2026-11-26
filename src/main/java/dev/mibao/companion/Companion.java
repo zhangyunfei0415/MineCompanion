@@ -212,6 +212,9 @@ public final class Companion {
       QuestBookBridge.reset();
       RecentWrites.clear();
       RestockTask.latest = null;
+      SoundSense.attach();
+      EnvironmentWatch.reset();
+      SoundReflex.reset();
       Agent.stop("已连接。请在 " + PANEL.getTranslatedKeyMessage().getString() + " 面板明确开启 AI。");
       if (Store.data.checkpoints != null
           && Store.data.checkpoints.values().stream()
@@ -236,6 +239,9 @@ public final class Companion {
       QuestBookBridge.reset();
       RecentWrites.clear();
       RestockTask.latest = null;
+      SoundSense.detach();
+      EnvironmentWatch.reset();
+      SoundReflex.reset();
     }
     connected = now;
     if (now) {
@@ -257,6 +263,8 @@ public final class Companion {
       guarded("Messages", Messages::tick);
       guarded("StatusLink", StatusLink::tick);
       guarded("QuestBookBridge", QuestBookBridge::tick);
+      guarded("SoundSense", SoundSense::attach);
+      guarded("EnvironmentWatch", EnvironmentWatch::tick);
       if (++ticks % 20 == 0 && WatchPowerSaver.active())
         guarded("WatchPowerSaver", WatchPowerSaver::tick);
       if (ticks % 600 == 0) Store.saveSoon();
@@ -414,11 +422,19 @@ public final class Companion {
         Store.config.owner,
         Agent.enabled,
         Store.hasControl())) return;
-    String name = Store.config.name;
-    String playerOrder = e instanceof ClientChatReceivedEvent.Player player
-        ? ChatCommand.followMention(player.getPlayerChatMessage().signedContent(), name) : "";
-    String msg = playerOrder.isBlank() ? ChatCommand.extract(text, name) : playerOrder;
-    if (msg.isBlank() || (playerOrder.isBlank() && ChatCommand.follow(msg) != null)) return;
+    String rawBody =
+        e instanceof ClientChatReceivedEvent.Player player
+            ? player.getPlayerChatMessage().signedContent()
+            : text;
+    MentionPolicy.ExtractedMention extracted =
+        ChatCommand.extractMention(
+            rawBody, Store.config.name, mc.player.getGameProfile().getName());
+    if (extracted == null && !(e instanceof ClientChatReceivedEvent.Player)) {
+      extracted =
+          ChatCommand.extractMention(
+              text, Store.config.name, mc.player.getGameProfile().getName());
+    }
+    if (extracted == null) return;
     if (e.getSender() == null || mc.getConnection() == null) return;
     var info = mc.getConnection().getPlayerInfo(e.getSender());
     if (info == null) return;
@@ -426,7 +442,7 @@ public final class Companion {
     if (sender.equalsIgnoreCase(mc.player.getGameProfile().getName())
         && Messages.isOwnReply(text)) return;
     try {
-      CommunityTasks.receive(e.getSender().toString(), sender, msg);
+      CommunityTasks.receiveMention(e.getSender().toString(), sender, extracted);
     } catch (Exception failure) {
       Messages.teamReport(
           sender, "接单未执行：" + Rules.clean(failure.getMessage(), 180), Store.config.teamReport);

@@ -41,6 +41,14 @@ public final class SettingsCatalog {
               -1,
               "模型与连接"),
           new Entry(
+              "goal_board",
+              "长程目标板（GoalBoard 断点持久化）",
+              "通过 report_plan 按世界持久保存多步清单与检查点（API 模式核心断点工具，Harness 零强迫）",
+              "目标板 长程 拆解 清单 断点 report_plan goal api harness",
+              0,
+              -1,
+              "模型与连接"),
+          new Entry(
               "decision_layer",
               "局部判断层（OFF / CLOUD / LOCAL）",
               "配置独立的 GOOGLE / JEV / OPENAI 决策选优端点、Key 与自动提交",
@@ -84,9 +92,9 @@ public final class SettingsCatalog {
               "权限与安全"),
           new Entry(
               "external_channels",
-              "外部通道与安全护栏（公屏 / 截图 / 联网）",
-              "独立控制回复公屏、Harness 截图、联网资料、聊天提交及传送/关键方块保护",
-              "公屏 截图 联网 聊天 打字 提交 安全 传送 方块 confirm",
+              "外部通道与安全护栏（公屏 / 访客聊天 / 截图 / 联网）",
+              "独立控制回复公屏、未授权玩家仅安全聊天、Harness 截图、联网资料、聊天提交及传送/关键方块保护",
+              "公屏 访客 安全聊天 guest 截图 联网 聊天 打字 提交 安全 传送 方块 confirm",
               1,
               -1,
               "权限与安全"),
@@ -148,6 +156,30 @@ public final class SettingsCatalog {
               "权限与安全"),
 
           // Page 2: 输入与感知
+          new Entry(
+              "sound_sense",
+              "声音事件感知与 0ms 本地避险",
+              "通过客户端声音监听器实时识别苦力怕引燃/岩浆/恶魂（关字幕与 F4 静音下仍生效）并快速撤离",
+              "声音 听觉 避险 反射 苦力怕 岩浆 恶魂 静音 f4 sound reflex",
+              2,
+              -1,
+              "输入与感知"),
+          new Entry(
+              "environment_watch",
+              "昼夜、天气与幻翼监视",
+              "按维度天空光照门控监测黄昏/入夜/雷暴/未睡眠幻翼风险（后室与下界自动静默）",
+              "昼夜 天气 雷暴 幻翼 天空 日落 环境 监视 environment weather phantom",
+              2,
+              -1,
+              "输入与感知"),
+          new Entry(
+              "policy_whitelist",
+              "模组兼容白名单（抽屉 / 刷石机 / 音效）",
+              "查看与编辑 left_tap（Storage Drawers等）、generator_blocks 与自定义音效分级白名单",
+              "白名单 抽屉 刷石机 音效 兼容 storagedrawers left_tap whitelist policy",
+              2,
+              -1,
+              "输入与感知"),
           new Entry(
               "input_behavior",
               "开门导航、后台输入与诊断显示",
@@ -255,6 +287,14 @@ public final class SettingsCatalog {
               "备份 恢复 导出 目录 统计 backup",
               4,
               6,
+              "数据与维护"),
+          new Entry(
+              "blueprint_and_rollback",
+              "蓝图建造与破坏回滚说明",
+              "蓝图 (.nbt / .litematic) 施工位于账本「蓝图与建造」；破坏回滚日志位于账本「历史与回滚」",
+              "蓝图 建造 施工 litematic nbt create bom 回滚 日志 撤销 误拆 恢复 blueprint rollback",
+              4,
+              -1,
               "数据与维护"));
 
   private SettingsCatalog() {}

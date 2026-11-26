@@ -59,7 +59,9 @@ public final class ToolMenu {
                   "inspect_menu",
                   "list_places",
                   "remember_place",
-                  "scan_world"),
+                  "scan_world",
+                  "rollback_journal",
+                  "policy_whitelist"),
           "farming",
               Set.of(
                   "farm_cycle",
@@ -112,6 +114,7 @@ public final class ToolMenu {
                   "ae_craft_plan",
                   "ae_craft_confirm",
                   "auto_action",
+                  "policy_whitelist",
                   "resync_inventory"),
           "construction",
               Set.of(
@@ -130,7 +133,17 @@ public final class ToolMenu {
                   "select_slot",
                   "inspect_scene",
                   "resync_inventory",
-                  "unstick"),
+                  "unstick",
+                  "blueprint_list",
+                  "blueprint_inspect",
+                  "blueprint_build",
+                  "blueprint_status",
+                  "scaffold_build",
+                  "terraform_preview",
+                  "terraform_run",
+                  "terraform_control",
+                  "rollback_journal",
+                  "policy_whitelist"),
           "gathering",
               Set.of(
                   "explore_mark",
@@ -156,7 +169,9 @@ public final class ToolMenu {
                   "inventory_memory",
                   "move_inventory",
                   "resync_inventory",
-                  "restock"),
+                  "restock",
+                  "rollback_journal",
+                  "policy_whitelist"),
           "combat",
               Set.of(
                   "vehicle_control",
@@ -232,7 +247,7 @@ public final class ToolMenu {
     if (text.matches("(?s).*(任务书|gui|界面|按钮|tooltip).*")) return "gui";
     if (text.matches("(?s).*(ae|rs|样板|配方|合成|做饭|烹饪|生产|熔炼|酿造|抗火药水|治疗药水|机器|附魔|铁砧|改名|修理|记忆包|本地化|适配).*"))
       return "production";
-    if (text.matches("(?s).*(平台|搭建|建造|桥|照明|火把).*")) return "construction";
+    if (text.matches("(?s).*(平台|搭建|建造|蓝图|litematic|schematic|回滚|撤销|恢复方块|桥|照明|火把).*")) return "construction";
     if (text.matches("(?s).*(农|种|收割|骨粉|田|作物|甘蔗|竹子|仙人掌|南瓜|西瓜).*")) return "farming";
     if (text.matches("(?s).*(战斗|攻击|防身|怪).*")) return "combat";
     if (text.matches("(?s).*(采|挖|矿|砍|木|拾取|收集|钓鱼|fishing).*")) return "gathering";

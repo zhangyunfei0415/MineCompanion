@@ -14,6 +14,7 @@ import java.util.function.*;
 public final class HarnessHttp implements AutoCloseable {
   private final HttpServer server;
   private final ExecutorService pool;
+  private final ExecutorService responsePool;
   private final Supplier<String> token;
   private final Function<JsonObject, CompletableFuture<JsonObject>> dispatch;
 
@@ -34,6 +35,19 @@ public final class HarnessHttp implements AutoCloseable {
             new ArrayBlockingQueue<>(16),
             r -> {
               var t = new Thread(r, "Companion-Harness-HTTP");
+              t.setDaemon(true);
+              return t;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+    responsePool =
+        new ThreadPoolExecutor(
+            2,
+            2,
+            0,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(32),
+            r -> {
+              var t = new Thread(r, "Companion-Harness-AsyncReply");
               t.setDaemon(true);
               return t;
             },
@@ -101,6 +115,20 @@ public final class HarnessHttp implements AutoCloseable {
         empty(ex, 202);
         return;
       }
+      boolean asyncWait = isAsyncWaitCall(req);
+      if (asyncWait) {
+        final JsonElement reqId = req.get("id");
+        CompletableFuture<JsonObject> future;
+        try {
+          future = dispatch.apply(req);
+        } catch (Exception failed) {
+          finishAsync(ex, reqId, null, failed);
+          return;
+        }
+        future.whenCompleteAsync(
+            (res, err) -> finishAsync(ex, reqId, res, err), responsePool);
+        return;
+      }
       var response = new JsonObject();
       response.addProperty("jsonrpc", "2.0");
       response.add("id", req.get("id"));
@@ -121,18 +149,55 @@ public final class HarnessHttp implements AutoCloseable {
             failed.getCause() == null ? failed.getMessage() : failed.getCause().getMessage());
         response.add("error", err);
       }
-      byte[] out = response.toString().getBytes(StandardCharsets.UTF_8);
-      ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-      ex.getResponseHeaders().set("Cache-Control", "no-store");
-      ex.sendResponseHeaders(200, out.length);
-      ex.getResponseBody().write(out);
-      ex.close();
+      writeJson(ex, response);
     } catch (Exception failed) {
       try {
         empty(ex, 500);
       } catch (Exception ignored) {
       }
     }
+  }
+
+  private static boolean isAsyncWaitCall(JsonObject req) {
+    if (!"tools/call".equals(req.get("method").getAsString())) return false;
+    if (!req.has("params") || !req.get("params").isJsonObject()) return false;
+    JsonObject params = req.getAsJsonObject("params");
+    return params.has("name")
+        && params.get("name").isJsonPrimitive()
+        && "wait_events".equals(params.get("name").getAsString());
+  }
+
+  private static void finishAsync(
+      HttpExchange ex, JsonElement reqId, JsonObject res, Throwable err) {
+    try {
+      var response = new JsonObject();
+      response.addProperty("jsonrpc", "2.0");
+      response.add("id", reqId);
+      if (err != null) {
+        Throwable root = err instanceof CompletionException && err.getCause() != null ? err.getCause() : err;
+        var errObj = new JsonObject();
+        errObj.addProperty("code", -32602);
+        errObj.addProperty("message", String.valueOf(root.getMessage()));
+        response.add("error", errObj);
+      } else {
+        response.add("result", res == null ? new JsonObject() : res);
+      }
+      writeJson(ex, response);
+    } catch (Exception ignored) {
+      try {
+        ex.close();
+      } catch (Exception ignored2) {
+      }
+    }
+  }
+
+  private static void writeJson(HttpExchange ex, JsonObject response) throws Exception {
+    byte[] out = response.toString().getBytes(StandardCharsets.UTF_8);
+    ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+    ex.getResponseHeaders().set("Cache-Control", "no-store");
+    ex.sendResponseHeaders(200, out.length);
+    ex.getResponseBody().write(out);
+    ex.close();
   }
 
   private static void empty(HttpExchange ex, int status) throws Exception {
@@ -144,5 +209,6 @@ public final class HarnessHttp implements AutoCloseable {
   public void close() {
     server.stop(0);
     pool.shutdownNow();
+    responsePool.shutdownNow();
   }
 }

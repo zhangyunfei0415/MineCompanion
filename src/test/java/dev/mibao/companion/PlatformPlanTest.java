@@ -74,4 +74,36 @@ class PlatformPlanTest {
     assertFalse(Rules.WRITE.contains("build_status"));
     assertFalse(Rules.limitedDenial("build_platform", true, false, true).isBlank());
   }
+
+  @Test
+  void walkTreeAndNextPlacementPreferWellSupportedTargetsWithoutDuplicatePairs() {
+    var area = PlatformPlan.rectangle(0, 64, 0, 3, 3);
+    var layout = PlatformPlan.Layout.of(area);
+    // Floor forms a U-shape around (1,1), giving (1,1) 3 walkable neighbors vs corner/edge cells.
+    var floor =
+        Set.of(
+            new PlatformPlan.Cell(0, 0),
+            new PlatformPlan.Cell(1, 0),
+            new PlatformPlan.Cell(2, 0),
+            new PlatformPlan.Cell(0, 1),
+            new PlatformPlan.Cell(2, 1));
+    var start = new PlatformPlan.Cell(1, 0);
+    var tree = PlatformPlan.walkTree(start, floor::contains, 64);
+    assertEquals(0, tree.distance(start));
+    assertEquals(2, tree.distance(new PlatformPlan.Cell(0, 1)));
+
+    var next =
+        PlatformPlan.nextPlacement(
+                layout,
+                tree,
+                floor::contains,
+                c -> !floor.contains(c),
+                (target, anchor) -> true,
+                (target, anchor) -> 0.0)
+            .orElseThrow();
+    assertEquals(new PlatformPlan.Cell(1, 1), next.target());
+    assertEquals(3, next.supportNeighbors());
+    assertEquals(start, next.anchor());
+    assertEquals(List.of(start), tree.path(next.anchor()));
+  }
 }

@@ -47,6 +47,7 @@ public final class Cooperation {
     PlayerControls.release();
     for (var key : mc().options.keyMappings)
       if (keys.contains(key.getKey().getValue())) key.setDown(true);
+    if (Actions.job instanceof TerraformJob tf) tf.onHumanIntervention(why);
     if (transaction) {
       menuOwned = true;
       Agent.cooperativeIntervention();

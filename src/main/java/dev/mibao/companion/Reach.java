@@ -11,6 +11,52 @@ public final class Reach {
     return faceFrom(pos, eye, face, hit -> true);
   }
 
+  public static BlockHitResult faceAt(
+      BlockPos pos, Vec3 eye, Direction face, double u, double v) {
+    var mc = Minecraft.getInstance();
+    if (!mc.level.hasChunkAt(pos)) return null;
+    double range = mc.gameMode.getPickRange() - .05;
+    if (eye.distanceToSqr(Vec3.atCenterOf(pos)) > (range + 1) * (range + 1)) return null;
+    var shape = mc.level.getBlockState(pos).getShape(mc.level, pos);
+    if (shape.isEmpty()) return faceFrom(pos, eye, face);
+    var bounds = shape.bounds();
+    double ex = eye.x - pos.getX(), ey = eye.y - pos.getY(), ez = eye.z - pos.getZ();
+    if (face == Direction.EAST && ex <= bounds.maxX
+        || face == Direction.WEST && ex >= bounds.minX
+        || face == Direction.UP && ey <= bounds.maxY
+        || face == Direction.DOWN && ey >= bounds.minY
+        || face == Direction.SOUTH && ez <= bounds.maxZ
+        || face == Direction.NORTH && ez >= bounds.minZ) return null;
+    var aabbs = shape.toAabbs();
+    java.util.List<FaceHitMath.Box> boxes = new java.util.ArrayList<>(aabbs.size());
+    for (var b : aabbs) boxes.add(new FaceHitMath.Box(b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ));
+    FaceHitMath.Box boundsBox =
+        new FaceHitMath.Box(
+            bounds.minX, bounds.minY, bounds.minZ, bounds.maxX, bounds.maxY, bounds.maxZ);
+    FaceHitMath.LocalPoint lp = FaceHitMath.resolveFaceTarget(face.getName(), u, v, boxes);
+    Vec3 aimPoint = new Vec3(pos.getX() + lp.dx(), pos.getY() + lp.dy(), pos.getZ() + lp.dz());
+    Vec3 delta = aimPoint.subtract(eye);
+    double distToAim = delta.length();
+    if (distToAim < 1e-4) return null;
+    // Extend past the target point (matching vanilla/StorageDrawers WorldUtils.rayTraceEyes) so
+    // tiny face offsets never fall short of a recessed pane such as StorageDrawers slots.
+    Vec3 end = eye.add(delta.scale((Math.min(range + 0.25, distToAim + 0.5)) / distToAim));
+    var hit =
+        mc.level.clip(
+            new ClipContext(
+                eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
+    if (hit.getType() != HitResult.Type.BLOCK
+        || !hit.getBlockPos().equals(pos)
+        || hit.getDirection() != face
+        || eye.distanceTo(hit.getLocation()) > range) return null;
+    Vec3 h = hit.getLocation();
+    FaceHitMath.UV actualUv =
+        FaceHitMath.projectToUV(
+            face.getName(), h.x - pos.getX(), h.y - pos.getY(), h.z - pos.getZ(), boundsBox);
+    if (!FaceHitMath.matchesUV(new FaceHitMath.UV(u, v), actualUv, 0.12)) return null;
+    return hit;
+  }
+
   private static BlockHitResult faceFrom(
       BlockPos pos, Vec3 eye, Direction face, java.util.function.Predicate<BlockHitResult> accept) {
     var mc = Minecraft.getInstance();
@@ -22,6 +68,8 @@ public final class Reach {
       var fluid = hitFrom(pos, eye);
       return fluid != null && fluid.getDirection() == face && accept.test(fluid) ? fluid : null;
     }
+    var centered = faceAt(pos, eye, face, 0.5, 0.5);
+    if (centered != null && accept.test(centered)) return centered;
     var boxes = shape.toAabbs();
     int budget = 0;
     for (var box : boxes) {
@@ -123,6 +171,13 @@ public final class Reach {
       if (!mc.level.hasChunkAt(support)) continue;
       var shape = mc.level.getBlockState(support).getShape(mc.level, support);
       if (shape.isEmpty()) continue;
+      if (face.getAxis().isHorizontal()) {
+        for (double vSample : new double[] {0.78, 0.22}) {
+          var subHit = faceAt(support, eye, face, 0.5, vSample);
+          if (subHit != null && support.relative(face).equals(target) && accept.test(subHit))
+            return subHit;
+        }
+      }
       var hit = faceFrom(support, eye, face, accept);
       if (hit != null && support.relative(face).equals(target)) return hit;
     }
@@ -139,6 +194,27 @@ public final class Reach {
 
   public static BlockHitResult hit(BlockPos pos) {
     return hitFrom(pos, Minecraft.getInstance().player.getEyePosition());
+  }
+
+  public static BlockHitResult mine(BlockPos pos) {
+    return mineFrom(pos, Minecraft.getInstance().player.getEyePosition());
+  }
+
+  public static BlockHitResult mineFrom(BlockPos pos, Vec3 eye) {
+    BlockHitResult direct = hitFrom(pos, eye);
+    if (direct != null) return direct;
+    var mc = Minecraft.getInstance();
+    if (mc.level == null || !mc.level.hasChunkAt(pos)) return null;
+    double range = mc.gameMode.getPickRange() - .05;
+    for (Direction dir : Direction.values()) {
+      BlockHitResult faceHit = faceFrom(pos, eye, dir);
+      if (faceHit != null
+          && faceHit.getBlockPos().equals(pos)
+          && eye.distanceTo(faceHit.getLocation()) <= range) {
+        return faceHit;
+      }
+    }
+    return null;
   }
 
   public static BlockHitResult hitFrom(BlockPos pos, Vec3 eye) {

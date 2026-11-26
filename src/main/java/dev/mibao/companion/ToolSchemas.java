@@ -339,8 +339,8 @@ public final class ToolSchemas {
     schema(
         out,
         "interact_block",
-        "定向正常交互：face=up/down/north/south/east/west，hand=main/off，item省略为空手，sneak可组合；button=left仅支持生存空主手FunctionalStorage不持续挖掘；自动精确站位到可见支撑面，回执带目标/手持物/延迟读数与候选诊断；变化仍需核对。max_radius=站位搜索半径1..5，默认3",
-        "item:s,face:s!,hand:s,button:s,sneak:b,object:s,place:s,x:i,y:i,z:i,max_radius:i");
+        "定向正常交互：face=up/down/north/south/east/west，hand=main/off，item省略为空手，sneak可组合；可用 hit_u/hit_v(0..1) 或 sub_slot(center/top/bottom/left/right/top_left/top_right/bottom_left/bottom_right) 精确命中面内子区域（如压缩抽屉上格/下格）；button=left仅支持生存空主手抽屉（FunctionalStorage/StorageDrawers/自定义左键白名单）不持续挖掘；max_radius=1..5",
+        "item:s,face:s!,hand:s,button:s,sneak:b,object:s,place:s,x:i,y:i,z:i,max_radius:i,hit_u:n,hit_v:n,sub_slot:s");
     schema(
         out,
         "rs_inventory",
@@ -472,17 +472,26 @@ public final class ToolSchemas {
         "item:s!,stack:b");
     schema(
         out, "inspect_client", "F3同源的客户端调试感知；可选目标坐标返回六面可达性、形状与加载状态；不读取服务端内部或未知库存", "x:i,y:i,z:i");
-    schema(
-        out,
-        "report_plan",
-        "仅展示规划摘要：goal目标/current当前步骤/next下一步；不是执行命令或成功证据",
-        "goal:s,current:s,next:s");
+    var reportPlanSchema =
+        schema(
+            out,
+            "report_plan",
+            "长程目标板（持久化保存，API模式断点续跑核心工具；Harness模式可选零强迫开销）：兼容旧 goal/current/next，也可传 action=set/add_steps/update/checkpoint/get/clear 管理有序 steps 与 checkpoints；计划不代替完成证据",
+            "action:s,goal:s,current:s,next:s,step_id:s,step_index:i,status:s,note:s,checkpoint_key:s,checkpoint_value:s");
+    var planStepsArr = new JsonObject();
+    planStepsArr.addProperty("type", "array");
+    planStepsArr.addProperty("maxItems", 24);
+    var planStepItem = new JsonObject();
+    planStepItem.addProperty("type", "object");
+    planStepItem.addProperty("additionalProperties", true);
+    planStepsArr.add("items", planStepItem);
+    reportPlanSchema.getAsJsonObject("properties").add("steps", planStepsArr);
     schema(out, "inspect_scene", "当前已加载动态场景：实体包围盒/速度/可见性/攻击距离/掉落物及拾取容量；缓存每100ms，不加载远处区块", "");
     schema(
         out,
         "use_item_on_block",
-        "使用指定主手物品或空手作用于已加载目标：种子/骨粉/锄/桶/方块/空手右键均可。item省略或empty_hand=空手；sneak=true交互前潜行、交互后释放；face=top或any；自动精确站位到可见支撑面，未确认回执带目标/手持物/延迟读数与候选诊断；一次使用，核对方块、背包与附近掉落物（区分已入包与掉在地上），不盲目重试。max_radius=站位搜索半径1..5，默认3。打开空手机器仍用use_block",
-        "item:s,object:s,place:s,x:i,y:i,z:i,face:s,sneak:b,max_radius:i");
+        "使用指定主手物品或空手作用于已加载目标：种子/骨粉/锄/桶/方块/空手右键均可。face支持any/top或up/down/north/south/east/west六向，可配 hit_u/hit_v(0..1) 或 sub_slot 精确命中面内子槽；item省略或empty_hand=空手；sneak=true先潜行再放开；max_radius=1..5",
+        "item:s,object:s,place:s,x:i,y:i,z:i,face:s,sneak:b,max_radius:i,hit_u:n,hit_v:n,sub_slot:s");
     schema(out, "plant_crops", "分帧寻找空耕地，准备对应种子并逐格播种；缺料等30秒；核对幼苗与消耗", "crop:s!,count:i,radius:i");
     schema(
         out,
@@ -948,6 +957,73 @@ public final class ToolSchemas {
             new Gson()
                 .toJsonTree(
                     java.util.List.of("MINE_HOLD", "ATTACK_CLICK", "USE_HOLD", "USE_CLICK")));
+    var wlSchema =
+        schema(
+            out,
+            "policy_whitelist",
+            "底层兼容性白名单自配置工具（持久化至 settings.json）：action=list/add/remove/reset，category=left_tap/generator_blocks/sound_warn/sound_info/sound_ignore，entry 为精确ID或 namespace: 前缀；禁止通配符 * 与危险方块/爆炸声忽略",
+            "action:s,category:s,entry:s");
+    wlSchema
+        .getAsJsonObject("properties")
+        .getAsJsonObject("category")
+        .add(
+            "enum",
+            new Gson()
+                .toJsonTree(
+                    java.util.List.of(
+                        "left_tap", "generator_blocks", "sound_warn", "sound_info", "sound_ignore")));
+    var rbSchema =
+        schema(
+            out,
+            "rollback_journal",
+            "破坏与建造回滚日志及纯客户端诚实物理恢复（零OP作弊）：action=list/preview/restore/clear；restore 物理走位用 PlaceJob/MiningJob 复原最近破坏/误放，allow_substitute=true 才允许原石/圆石替代，严格返回恢复/缺料/变化回执",
+            "action:s,count:i,limit:i,task_id:s,allow_substitute:b");
+    var rbIds = new JsonObject();
+    rbIds.addProperty("type", "array");
+    var rbIdItem = new JsonObject();
+    rbIdItem.addProperty("type", "integer");
+    rbIds.add("items", rbIdItem);
+    rbSchema.getAsJsonObject("properties").add("ids", rbIds);
+    schema(
+        out,
+        "blueprint_list",
+        "扫描 .minecraft/schematics、config/litematica 与插件 blueprints 目录，列出可用的 .nbt（原版/Create）与 .litematic（Litematica）蓝图及尺寸摘要",
+        "");
+    schema(
+        out,
+        "blueprint_inspect",
+        "纯Java离线解码蓝图并核算完整BOM缺料清单（对比当前背包 + WorldMemory 已观测基地箱子存货）；rotation=0/90/180/270，mirror=none/left_right/front_back",
+        "name:s!,rotation:i,mirror:s");
+    schema(
+        out,
+        "blueprint_build",
+        "纯客户端分层蓝图施工：自底向上3波次拓扑委托真实PlaceJob摆放，自动依据背包余量选用scaffolding/廉价实心折返梯/临时支撑搭高并在完工后LIFO安全拆架；支持scaffold_mode=auto/scaffolding/solid_ramp/pillar/none、scaffold_block、keep_scaffold、max_blocks分段与dry_run核验",
+        "name:s!,x:i!,y:i!,z:i!,rotation:i,mirror:s,y_min:i,y_max:i,max_blocks:i,scaffold_mode:s,scaffold_block:s,keep_scaffold:b,dry_run:b,resume:b");
+    schema(
+        out,
+        "blueprint_status",
+        "施工中也可只读查询与可控暂停/中止：action=status/resume/pause/abort/cleanup_scaffold；resume支持keep_scaffold覆盖与SHA-256校验，cleanup_scaffold独立按LIFO安全拆架",
+        "action:s,max_blocks:i,keep_scaffold:b");
+    schema(
+        out,
+        "scaffold_build",
+        "PRO级独立脚手架与临时搭高工具：action=status/pillar_up(原地安全跳垫1..12格)/ramp(空心折返实心斜坡至target_y)/scaffolding_tower(原版脚手架塔+0..5悬挑)/temp_support(单格临时支撑)/teardown(严格LIFO退步拆架回收)/abort(中止活跃脚手架作业并保留账本)；绝不写入破坏回滚日志",
+        "action:s!,height:i,target_y:i,direction:s,overhang_dir:s,overhang_len:i,x:i,y:i,z:i,item:s,limit:i");
+    schema(
+        out,
+        "terraform_preview",
+        "只读预览大范围三维平地(flatten)、三维填充(fill)或9x9智能水田开荒(farm_grid)；不移动或写世界，返回plan_hash、分阶段变更数、所需材料、受保护冲突、外部落沙跳列、水田退路及500条日志上限下的回滚覆盖评估",
+        "min_x:i!,min_y:i!,min_z:i!,max_x:i!,max_y:i!,max_z:i!,mode:s!,variant:s,target_y:i,block:s,replace_natural:b,cut_blocks:s,crop:s,water_source:s,pool_x:i,pool_y:i,pool_z:i,cover_slab:s,on_water_shortage:s");
+    schema(
+        out,
+        "terraform_run",
+        "执行三维平地、区域填充或9x9智能水田开荒（同站耗尽减少寻路，支持创造与生存/fly降落安全、落沙列隔离及不踩田单趟先锄即播）；可传expected_plan_hash防现场漂移",
+        "min_x:i!,min_y:i!,min_z:i!,max_x:i!,max_y:i!,max_z:i!,mode:s!,variant:s,target_y:i,block:s,replace_natural:b,cut_blocks:s,crop:s,water_source:s,pool_x:i,pool_y:i,pool_z:i,cover_slab:s,on_water_shortage:s,expected_plan_hash:s");
+    schema(
+        out,
+        "terraform_control",
+        "查询或控制地形工程：action=status(只读查询，可省job_id) | pause/resume/abort(需job_id)；忙碌时仅status/pause/abort可用，resume需空闲且重验现场与权限",
+        "action:s!,job_id:s");
     return out;
   }
 

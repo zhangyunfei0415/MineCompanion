@@ -38,6 +38,10 @@ public final class AutoActionJob extends Actions.Job {
   private BlockState lastTargetState;
   private String lastBrokenId = "";
 
+  public boolean isMineMode() {
+    return mode == GeneratorPolicy.AutoMode.MINE_HOLD;
+  }
+
   public AutoActionJob(
       GeneratorPolicy.AutoMode mode,
       BlockPos targetPos,
@@ -171,6 +175,7 @@ public final class AutoActionJob extends Actions.Job {
     BlockState state = mc.level.getBlockState(pos);
     if (state.isAir() || !state.getFluidState().isEmpty()) {
       if (wasBreaking) {
+        if (lastTargetState != null) RollbackJob.recordBreak(pos, lastTargetState, "AutoActionJob");
         completedActions++;
         wasBreaking = false;
         miningStarted = false;
@@ -188,8 +193,24 @@ public final class AutoActionJob extends Actions.Job {
     lastTargetState = state;
     lastBrokenId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
 
+    if (state.hasBlockEntity()) {
+      finish(
+          "失败：[PROTECTED_BLOCK_ENTITY] 目标含方块实体（容器/机器），刷石机模式禁止破坏："
+              + lastBrokenId
+              + " @ "
+              + pos.toShortString()
+              + "。"
+              + summaryJson());
+      return;
+    }
     if (state.getDestroySpeed(mc.level, pos) < 0) {
-      finishSummary("目标方块不可破坏");
+      finish(
+          "失败：[UNBREAKABLE_BLOCK] 目标方块不可破坏："
+              + lastBrokenId
+              + " @ "
+              + pos.toShortString()
+              + "。"
+              + summaryJson());
       return;
     }
     if (!isGeneratorSafeNow(mc, pos, state)) {
@@ -366,19 +387,26 @@ public final class AutoActionJob extends Actions.Job {
   private boolean isGeneratorSafeNow(Minecraft mc, BlockPos pos, BlockState state) {
     boolean aboveBad = false;
     boolean horizFluid = false;
+    boolean horizFire = false;
     for (var d : Direction.values()) {
       BlockPos n = pos.relative(d);
       if (!mc.level.hasChunkAt(n)) return false;
       var s = mc.level.getBlockState(n);
-      if (!s.getFluidState().isEmpty() || s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE)) {
+      var fs = s.getFluidState();
+      boolean isFire = s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE);
+      if (!fs.isEmpty() || isFire) {
         if (d == Direction.UP) {
           aboveBad = true;
         } else if (d == Direction.DOWN) {
-          if (s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE) || !s.getFluidState().is(FluidTags.WATER)) {
+          if (isFire || !fs.is(FluidTags.WATER)) {
             aboveBad = true;
           }
-        } else {
+        } else if (isFire) {
+          horizFire = true;
+        } else if (fs.is(FluidTags.WATER) || fs.is(FluidTags.LAVA)) {
           horizFluid = true;
+        } else {
+          aboveBad = true;
         }
       }
     }
@@ -388,13 +416,16 @@ public final class AutoActionJob extends Actions.Job {
             && !mc.player.isOnFire()
             && mc.level.hasChunkAt(feet)
             && mc.level.getBlockState(feet).getFluidState().isEmpty();
-    return GeneratorPolicy.allowFluidNeighbor(
-        BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
-        true,
-        true,
-        aboveBad,
-        horizFluid,
-        dry);
+    return GeneratorPolicy.verdict(
+            BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
+            true,
+            false,
+            aboveBad,
+            horizFluid,
+            horizFire,
+            dry,
+            Store.config.customGeneratorBlocks)
+        == GeneratorPolicy.FluidVerdict.OK;
   }
 
   private boolean hasPickupCapacity(Minecraft mc, BlockState state) {
@@ -448,7 +479,7 @@ public final class AutoActionJob extends Actions.Job {
     return -1;
   }
 
-  private void finishSummary(String reason) {
+  private JsonObject summaryJson() {
     int gained =
         PlayerEvidence.revision == 0
             ? 0
@@ -459,6 +490,12 @@ public final class AutoActionJob extends Actions.Job {
     json.addProperty("tool_switches", toolSwitches);
     json.addProperty("inventory_gained", gained);
     if (!lastBrokenId.isBlank()) json.addProperty("last_block", lastBrokenId);
+    return json;
+  }
+
+  private void finishSummary(String reason) {
+    var json = summaryJson();
+    int gained = json.get("inventory_gained").getAsInt();
     finish("成功：" + mode.label + " 结束（" + reason + "）：累计 " + completedActions + " 次，换工具 " + toolSwitches + " 次，净增 " + gained + " 件。" + json);
   }
 

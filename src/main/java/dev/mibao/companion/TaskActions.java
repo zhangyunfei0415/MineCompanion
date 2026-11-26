@@ -30,6 +30,7 @@ final class TaskActions {
                 "restock",
                 "transport",
                 "farm_cycle",
+                "terraform_run",
                 "build_platform",
                 "build_bridge",
                 "build_shelter",

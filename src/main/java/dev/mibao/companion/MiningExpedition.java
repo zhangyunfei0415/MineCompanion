@@ -324,6 +324,8 @@ public final class MiningExpedition extends Actions.Job {
         && mc().level.getBlockState(pos).isAir()) {
       job.broken.add(pos.immutable());
       job.batchBroken.add(pos.immutable());
+      var beforeState = job.issued.get(pos);
+      if (beforeState != null) RollbackJob.recordBreak(pos, beforeState, "MiningExpedition");
     }
   }
 
@@ -420,7 +422,17 @@ public final class MiningExpedition extends Actions.Job {
             }
             ledger.credit(batchBefore, receipt.inventory(), drops.pickups(batchBroken), true);
             survey.completed(batchBroken);
-            survey.reject(batch.stream().filter(p -> !batchBroken.contains(p)).toList());
+            var mineReceipt = MiningJob.lastReceipt;
+            if (mineReceipt != null && mineReceipt.epoch() == epoch) {
+              if (!mineReceipt.terminalRejects().isEmpty()) {
+                survey.reject(mineReceipt.terminalRejects());
+              } else if (batchBroken.isEmpty()
+                  && !mineReceipt.toolBlocked()
+                  && !mineReceipt.capacityBlocked()
+                  && !batch.isEmpty()) {
+                survey.reject(List.of(batch.get(0)));
+              }
+            }
             failedBatches = batchBroken.isEmpty() ? failedBatches + 1 : 0;
             workReturn = Navigator.standingCell();
             if (!batchBroken.isEmpty()) ExplorationMemory.minedAt(workReturn, batchBroken);
@@ -626,7 +638,17 @@ public final class MiningExpedition extends Actions.Job {
             broken.addAll(receipt.positions());
             batchBroken.addAll(receipt.positions());
           }
-          if (batchBroken.isEmpty() && Rules.actionFailed(result)) survey.reject(batch);
+          if (batchBroken.isEmpty() && Rules.actionFailed(result)) {
+            if (receipt != null && receipt.epoch() == epoch) {
+              if (!receipt.terminalRejects().isEmpty()) {
+                survey.reject(receipt.terminalRejects());
+              } else if (!receipt.toolBlocked() && !receipt.capacityBlocked() && !batch.isEmpty()) {
+                survey.reject(List.of(batch.get(0)));
+              }
+            } else if (!batch.isEmpty()) {
+              survey.reject(List.of(batch.get(0)));
+            }
+          }
           phase = "collect";
         });
   }

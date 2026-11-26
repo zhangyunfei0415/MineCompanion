@@ -10,6 +10,7 @@ import net.minecraft.world.phys.*;
 /** Surface-aware client walking, bounded search and stable arrival. Never modifies terrain. */
 public final class Navigator {
   private List<BlockPos> path = List.of();
+  private byte[] pathActions = new byte[0];
   private int index, stuck, ticks, replans, settling;
   private Vec3 last;
   private BlockPos target, requestedTarget;
@@ -24,7 +25,11 @@ public final class Navigator {
   private record Edge(BlockPos from, BlockPos to) {}
 
   private final Set<Edge> blocked = new HashSet<>();
-  private final Map<BlockPos, Boolean> searchStands = new HashMap<>();
+  private final Map<Long, Boolean> packedStands = new HashMap<>();
+  private final Set<BlockPos> ladderTopGaps = new LinkedHashSet<>();
+  private double lastDistSqToNext = Double.NaN;
+  private final GridSearch.SearchWorkspace searchWorkspace = new GridSearch.SearchWorkspace();
+  private final TickProbeCache probeCache = new TickProbeCache();
   private SwimRecovery water;
   private int waterRecoveries;
   private boolean ownsInput;
@@ -36,6 +41,9 @@ public final class Navigator {
   private int parkourIndex = -1;
   private BlockPos parkourTakeoff, parkourLanding;
   private int parkourAlignTicks;
+  private int parkourAlignCycles;
+  private int parkourTicks;
+  private final ClimbRules.ClimbHysteresis climbHysteresis = new ClimbRules.ClimbHysteresis();
   private boolean placement;
 
   private void resetParkour() {
@@ -44,20 +52,35 @@ public final class Navigator {
     parkourTakeoff = null;
     parkourLanding = null;
     parkourAlignTicks = 0;
+    parkourAlignCycles = 0;
+    parkourTicks = 0;
   }
   private Direction requiredFace, placementFace;
   private java.util.function.Predicate<Vec3> placementStance = eye -> true;
   private java.util.function.Predicate<BlockHitResult> placementHit = hit -> true;
+  private java.util.function.BiPredicate<Vec3, BlockHitResult> placementHitEye = (eye, hit) -> true;
 
   Navigator placementIntent(
       java.util.function.Predicate<Vec3> stance, java.util.function.Predicate<BlockHitResult> hit) {
-    placementStance = stance;
-    placementHit = hit;
+    placementStance = stance == null ? eye -> true : stance;
+    placementHit = hit == null ? h -> true : hit;
+    placementHitEye = (eye, h) -> true;
+    return this;
+  }
+
+  public Navigator placementIntent(
+      java.util.function.Predicate<Vec3> stance,
+      java.util.function.BiPredicate<Vec3, BlockHitResult> hitWithEye) {
+    placementStance = stance == null ? eye -> true : stance;
+    placementHit = hit -> true;
+    placementHitEye = hitWithEye == null ? (eye, hit) -> true : hitWithEye;
     return this;
   }
 
   private boolean exactStance;
   private int maxRadius = 3;
+  private int minInteractionDy = -4, maxInteractionDy = 3;
+  private boolean allowScaffoldingColumnMine;
   private int scannedCandidates, standCandidates, visibleCandidates, bothCandidates;
   private int visibleOnlyCandidates, blockedCandidates, unloadedCandidates, hazardCandidates;
   private BlockPos nearestCandidate, nearestVisibleCandidate;
@@ -104,6 +127,17 @@ public final class Navigator {
   /** Stance candidate search radius in blocks, clamped to 1..5. */
   public Navigator maxRadius(int value) {
     maxRadius = Math.max(1, Math.min(5, value));
+    return this;
+  }
+
+  public Navigator interactionDy(int minDy, int maxDy) {
+    minInteractionDy = Math.max(-6, Math.min(0, minDy));
+    maxInteractionDy = Math.max(0, Math.min(4, maxDy));
+    return this;
+  }
+
+  public Navigator allowScaffoldingColumnMine(boolean value) {
+    allowScaffoldingColumnMine = value;
     return this;
   }
 
@@ -163,6 +197,9 @@ public final class Navigator {
   }
 
   public boolean startLocal(BlockPos goal) {
+    allowedCell = null;
+    allowedEdge = null;
+    strictWalk = false;
     requiredFace = null;
     waterRecoveries = 0;
     placement = false;
@@ -174,6 +211,20 @@ public final class Navigator {
   }
 
   public boolean startExact(BlockPos goal) {
+    allowedCell = null;
+    allowedEdge = null;
+    strictWalk = false;
+    requiredFace = null;
+    waterRecoveries = 0;
+    placement = false;
+    pickupBox = null;
+    exact = true;
+    topFace = false;
+    localOnly = true;
+    return begin(goal, false);
+  }
+
+  private boolean startConstrainedExact(BlockPos goal) {
     requiredFace = null;
     waterRecoveries = 0;
     placement = false;
@@ -186,16 +237,26 @@ public final class Navigator {
 
   boolean startFollow(BlockPos goal, java.util.function.Predicate<BlockPos> allowed) {
     allowedCell = allowed;
+    allowedEdge = null;
     strictWalk = false;
-    return startExact(goal);
+    return startConstrainedExact(goal);
   }
 
   private boolean strictWalk;
+  private java.util.function.BiPredicate<BlockPos, BlockPos> allowedEdge;
 
   boolean startKnownWalk(BlockPos goal, java.util.function.Predicate<BlockPos> allowed) {
+    return startKnownWalk(goal, allowed, null);
+  }
+
+  boolean startKnownWalk(
+      BlockPos goal,
+      java.util.function.Predicate<BlockPos> allowed,
+      java.util.function.BiPredicate<BlockPos, BlockPos> edgeAllowed) {
     allowedCell = allowed;
+    allowedEdge = edgeAllowed;
     strictWalk = true;
-    return startExact(goal);
+    return startConstrainedExact(goal);
   }
 
   private boolean allowed(BlockPos p) {
@@ -267,10 +328,21 @@ public final class Navigator {
 
   private boolean visible(BlockPos goal, Vec3 eye) {
     if (placement && !placementStance.test(eye)) return false;
+    if (allowScaffoldingColumnMine
+        && requiredFace == null
+        && !placement
+        && !topFace
+        && mc().level != null
+        && mc().level.hasChunkAt(goal)
+        && mc().level.getBlockState(goal).getBlock()
+            instanceof net.minecraft.world.level.block.ScaffoldingBlock) {
+      return Reach.mineFrom(goal, eye) != null;
+    }
     return (requiredFace != null
             ? Reach.faceFrom(goal, eye, requiredFace)
             : placement
-                ? Reach.placementFrom(goal, eye, placementFace, placementHit)
+                ? Reach.placementFrom(
+                    goal, eye, placementFace, hit -> placementHit.test(hit) && placementHitEye.test(eye, hit))
                 : topFace ? Reach.topFrom(goal, eye) : Reach.hitFrom(goal, eye))
         != null;
   }
@@ -281,29 +353,30 @@ public final class Navigator {
     scannedCandidates++;
     boolean unloaded = !mc().level.hasChunkAt(at);
     boolean standable = !unloaded && stand(at);
-    boolean seen = false;
-    if (!unloaded) seen = visible(goal, foot(at).add(0, player.getEyeHeight(), 0));
-    if (standable) {
-      standCandidates++;
-      if (seen) visibleCandidates++;
-      double dx = foot(at).x - player.getX(), dz = foot(at).z - player.getZ();
-      double distance = Math.sqrt(dx * dx + dz * dz);
-      if (distance < nearestCandidateDistance) {
-        nearestCandidateDistance = distance;
-        nearestCandidate = at;
+    if (!standable) {
+      if (unloaded) unloadedCandidates++;
+      else if (hazard(at) || hazard(at.below())) hazardCandidates++;
+      else blockedCandidates++;
+      return;
+    }
+    standCandidates++;
+    Vec3 footAt = foot(at);
+    boolean seen = visible(goal, footAt.add(0, player.getEyeHeight(), 0));
+    double dx = footAt.x - player.getX(), dz = footAt.z - player.getZ();
+    double distance = Math.sqrt(dx * dx + dz * dz);
+    if (distance < nearestCandidateDistance) {
+      nearestCandidateDistance = distance;
+      nearestCandidate = at;
+    }
+    if (seen) {
+      visibleCandidates++;
+      bothCandidates++;
+      if (distance < nearestVisibleDistance) {
+        nearestVisibleDistance = distance;
+        nearestVisibleCandidate = at;
       }
-      if (seen) {
-        bothCandidates++;
-        if (distance < nearestVisibleDistance) {
-          nearestVisibleDistance = distance;
-          nearestVisibleCandidate = at;
-        }
-        options.add(at);
-      }
-    } else if (seen) visibleOnlyCandidates++;
-    else if (unloaded) unloadedCandidates++;
-    else if (hazard(at) || hazard(at.below())) hazardCandidates++;
-    else blockedCandidates++;
+      options.add(at);
+    }
   }
 
   private boolean begin(BlockPos goal, boolean use) {
@@ -321,13 +394,14 @@ public final class Navigator {
     nearestCandidate = nearestVisibleCandidate = null;
     nearestCandidateDistance = nearestVisibleDistance = Double.MAX_VALUE;
     blocked.clear();
-    searchStands.clear();
+    packedStands.clear();
     path = List.of();
     index = 0;
     jump = new JumpCycle();
     arrival = new ArrivalGate();
     passage = new NavigationPassage();
     resetParkour();
+    climbHysteresis.reset();
     if (mc().screen != null || mc().player.containerMenu != mc().player.inventoryMenu) {
       if (!(mc().screen
               instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen)
@@ -421,10 +495,25 @@ public final class Navigator {
       if (pickupReached() && stand(start)) options.add(start);
     } else if (interaction) {
       if (stand(start) && visible(goal, player.getEyePosition())) options.add(start);
-      if (options.isEmpty())
+      if (options.isEmpty()) {
         for (int dx = -maxRadius; dx <= maxRadius; dx++)
           for (int dz = -maxRadius; dz <= maxRadius; dz++)
-            for (int dy = -2; dy <= 3; dy++) scanCandidate(goal, goal.offset(dx, dy, dz), options);
+            for (int dy = minInteractionDy; dy <= maxInteractionDy; dy++)
+              scanCandidate(goal, goal.offset(dx, dy, dz), options);
+        if (options.isEmpty()) {
+          // Only pay raycast cost on non-standable cells when failure diagnostics actually need visible_only.
+          for (int dx = -maxRadius; dx <= maxRadius; dx++)
+            for (int dz = -maxRadius; dz <= maxRadius; dz++)
+              for (int dy = minInteractionDy; dy <= maxInteractionDy; dy++) {
+                BlockPos at = goal.offset(dx, dy, dz);
+                if (mc().level.hasChunkAt(at)
+                    && !stand(at)
+                    && visible(goal, foot(at).add(0, player.getEyeHeight(), 0))) {
+                  visibleOnlyCandidates++;
+                }
+              }
+        }
+      }
     } else {
       if (stand(start)
           && ArrivalGate.near(
@@ -432,23 +521,24 @@ public final class Navigator {
               player.getY(),
               player.getZ(),
               goal.getX() + .5,
-              exact ? surfaceY(goal) : goal.getY(),
+              exact ? foot(goal).y : goal.getY(),
               goal.getZ() + .5,
               exact)) options.add(start);
+      boolean goalPlanning = !strictWalk;
       if (options.isEmpty())
         for (int dx = -2; dx <= 2; dx++)
           for (int dz = -2; dz <= 2; dz++)
             for (int dy = -1; dy <= 1; dy++) {
               BlockPos at = goal.offset(dx, dy, dz);
               if (exact && !at.equals(goal)) continue;
-              Vec3 v = foot(at);
-              if (allowed(at) && stand(at)
+              Vec3 v = foot(at, goalPlanning);
+              if (allowed(at) && stand(at, goalPlanning)
                   && ArrivalGate.candidate(
                       v.x,
                       v.y,
                       v.z,
                       goal.getX() + .5,
-                      exact ? surfaceY(goal) : goal.getY(),
+                      exact ? foot(goal, goalPlanning).y : goal.getY(),
                       goal.getZ() + .5,
                       exact)) options.add(at);
             }
@@ -498,8 +588,7 @@ public final class Navigator {
       return 0;
     }
     if (++ticks > (baritone ? 12000 : 2400)) return fail("[NAVIGATION_TIMEOUT] 导航时间预算耗尽");
-    double arrivalY = (exact || fallbackTargetUsed) ? surfaceY(target) : target.getY();
-    if (!Double.isFinite(arrivalY)) arrivalY = target.getY();
+    double arrivalY = (exact || fallbackTargetUsed) ? foot(target).y : target.getY();
     if (baritone
         && !exact
         && Math.abs(p.getX() - target.getX() - .5) <= 2
@@ -521,17 +610,38 @@ public final class Navigator {
                     arrivalY,
                     target.getZ() + .5,
                     exact);
-    boolean safelyStanding = grounded();
+    boolean allowClimbableArrival =
+        interaction || pickupBox != null || isClimbable(target, !strictWalk);
+    boolean safelyStanding =
+        grounded()
+            && ClimbRules.canAcceptClimbableArrival(
+                Store.config.allowClimb && p.onClimbable(),
+                p.onGround(),
+                allowClimbableArrival);
     if (arrival.step(range, safelyStanding, p.getDeltaMovement().y)) {
       stop();
       return 1;
     }
     if (range && safelyStanding) {
-      PlayerControls.motionState(false, false);
+      if (ClimbRules.shouldSneakToStabilizeClimb(
+          Store.config.allowClimb && p.onClimbable(),
+          p.onGround(),
+          isScaffoldingSupport(p.blockPosition()))) {
+        PlayerControls.motionState(false, false, false, true);
+      } else {
+        PlayerControls.motionState(false, false);
+      }
       return 0;
     }
     if (search != null) {
-      release();
+      if (ClimbRules.shouldSneakToStabilizeClimb(
+          Store.config.allowClimb && p.onClimbable(),
+          p.onGround(),
+          isScaffoldingSupport(p.blockPosition()))) {
+        PlayerControls.motionState(false, false, false, true);
+      } else {
+        release();
+      }
       GridSearch.State result = search.advance(192, 2_000_000);
       if (result == GridSearch.State.SEARCHING) return 0;
       if (result != GridSearch.State.FOUND) {
@@ -546,21 +656,77 @@ public final class Navigator {
             return 0;
           }
         }
-        return fail("搜索预算内未找到安全路线（展开 " + search.expanded() + "/20000；候选站位 " + goals.size() + "）");
+        String gapNote =
+            ladderTopGaps.isEmpty()
+                ? ""
+                : "；[LADDER_TOP_GAP] 梯顶上方纯空气断档="
+                    + ladderTopGaps.stream().limit(3).map(BlockPos::toShortString).toList();
+        String replanNote =
+            replans > 0 ? "；重规划 " + replans + "/3；已屏蔽边 " + blocked.size() : "";
+        return fail("搜索预算内未找到安全路线（展开 " + search.expanded() + "/20000；候选站位 " + goals.size() + "）" + gapNote + replanNote);
       }
-      path = search.path().stream().map(Navigator::pos).toList();
-      if (path.isEmpty()) path = List.of(standingCell());
+      int len = search.pathLength();
+      var built = new ArrayList<BlockPos>(len);
+      byte[] actions = new byte[len];
+      int ox = standingOriginX, oy = standingOriginY, oz = standingOriginZ;
+      for (int i = 0; i < len; i++) {
+        long k = search.pathKey(i);
+        built.add(new BlockPos(ox + GridSearch.unpackRelX(k), oy + GridSearch.unpackRelY(k), oz + GridSearch.unpackRelZ(k)));
+        actions[i] = search.pathAction(i);
+      }
+      path = List.copyOf(built);
+      pathActions = actions;
+      if (path.isEmpty()) {
+        path = List.of(standingCell());
+        pathActions = new byte[1];
+      }
       if (fallbackTargetUsed && !path.isEmpty()) target = path.get(path.size() - 1);
       index = 0;
       resetParkour();
       search = null;
       stuck = 0;
       last = p.position();
+      lastDistSqToNext = Double.NaN;
     }
-    if (p.position().distanceToSqr(last) < .015) stuck++;
+    BlockPos curStand = standingCell();
+    BlockPos nextCell = (path != null && index < path.size()) ? path.get(index) : null;
+    BlockPos prevStepCell =
+        (path != null && index > 0 && index < path.size()) ? path.get(index - 1) : curStand;
+    Vec3 nextWaypoint = nextCell != null ? foot(nextCell) : null;
+    double curDistSq = nextWaypoint != null ? p.position().distanceToSqr(nextWaypoint) : Double.NaN;
+    if (nextWaypoint != null && !Double.isFinite(lastDistSqToNext)) {
+      lastDistSqToNext = curDistSq;
+    }
+    int targetDy = nextCell != null ? Integer.compare(nextCell.getY(), curStand.getY()) : 0;
+    boolean climbingTick = Store.config.allowClimb && p.onClimbable();
+    boolean verticalClimbStep =
+        Store.config.allowClimb
+            && nextCell != null
+            && nextCell.getX() == prevStepCell.getX()
+            && nextCell.getZ() == prevStepCell.getZ()
+            && nextCell.getY() != prevStepCell.getY()
+            && (p.onClimbable()
+                || isClimbable(prevStepCell, !strictWalk)
+                || isClimbable(nextCell, !strictWalk));
+    boolean horizontalStep =
+        !verticalClimbStep
+            && nextCell != null
+            && (nextCell.getX() != curStand.getX() || nextCell.getZ() != curStand.getZ());
+    boolean progressed;
+    if (verticalClimbStep && nextWaypoint != null && Double.isFinite(lastDistSqToNext)) {
+      progressed = ClimbRules.madeProgress(lastDistSqToNext, curDistSq, last.y, p.getY(), targetDy);
+    } else if (horizontalStep) {
+      progressed = MovementPolicy.madeHorizontalWalkProgress(last.x, last.z, p.getX(), p.getZ());
+    } else if (climbingTick && nextWaypoint != null && Double.isFinite(lastDistSqToNext)) {
+      progressed = ClimbRules.madeProgress(lastDistSqToNext, curDistSq, last.y, p.getY(), targetDy);
+    } else {
+      progressed = p.position().distanceToSqr(last) >= .015;
+    }
+    if (!progressed) stuck++;
     else {
       stuck = 0;
       last = p.position();
+      lastDistSqToNext = curDistSq;
     }
     if (stuck > 40 && !baritone) {
       if (!replan(standingCell())) return -1;
@@ -587,12 +753,22 @@ public final class Navigator {
             p.distanceToSqr(foot(path.get(index))),
             groundedForWaypoint,
             index == path.size() - 1,
-            range))
+            range)) {
       index++;
+      lastDistSqToNext = Double.NaN;
+      last = p.position();
+    }
     if (index >= path.size()) {
       if (range) {
         if (++settling > 40) return fail("已接近但未在安全站位稳定落地");
-        PlayerControls.motionState(false, false);
+        if (ClimbRules.shouldSneakToStabilizeClimb(
+            Store.config.allowClimb && p.onClimbable(),
+            p.onGround(),
+            isScaffoldingSupport(p.blockPosition()))) {
+          PlayerControls.motionState(false, false, false, true);
+        } else {
+          PlayerControls.motionState(false, false);
+        }
         return 0;
       }
       if (!replan(standingCell())) return -1;
@@ -600,13 +776,17 @@ public final class Navigator {
     }
     // Skip only collinear level cells; never skip a rise, corner, water, climb or parkour step.
     while (index + 1 < path.size()) {
+      if (index + 1 < pathActions.length
+          && !MovementPolicy.canSkipCollinearWaypoint(pathActions[index], pathActions[index + 1])) {
+        break;
+      }
       var a = path.get(index);
       var b = path.get(index + 1);
       if (a.distManhattan(b) > 1
           || isWater(a)
           || isWater(b)
-          || isClimbable(a)
-          || isClimbable(b)) break;
+          || isClimbable(a, !strictWalk)
+          || isClimbable(b, !strictWalk)) break;
       var av = foot(a);
       var bv = foot(b);
       var dv = bv.subtract(p.position());
@@ -645,33 +825,83 @@ public final class Navigator {
             && next.getX() == prevCell.getX()
             && next.getZ() == prevCell.getZ()
             && next.getY() != prevCell.getY()
-            && (p.onClimbable() || isClimbable(prevCell) || isClimbable(next));
+            && (p.onClimbable()
+                || isClimbable(prevCell, !strictWalk)
+                || isClimbable(next, !strictWalk));
+    boolean inShallowWater = isWater(p.blockPosition()) || isWater(next) || p.isInWater();
+    boolean highLedge = !inShallowWater && !p.onClimbable() && (exposedLedgeCached(standingCell()) || exposedLedgeCached(next));
+    if (!verticalClimb) climbHysteresis.reset();
     if (verticalClimb) {
+      if (!strictWalk) {
+        var climbCorridor = body(p.position()).minmax(body(destination));
+        if (next.getY() > prevCell.getY()) climbCorridor = climbCorridor.expandTowards(0, 0.25, 0);
+        int climbGate = passage.prepare(climbCorridor);
+        if (climbGate < 0) return fail(passage.error());
+        if (climbGate == 0) {
+          if (ClimbRules.shouldHoldJumpOnClimbGateWait(
+              p.onClimbable(), p.onGround(), next.getY() > prevCell.getY())) {
+            PlayerControls.motionState(false, true, false, false);
+          } else {
+            release();
+          }
+          stuck = 0;
+          last = p.position();
+          return 0;
+        }
+      }
       BlockPos ladderPos =
-          isClimbable(p.blockPosition())
+          isClimbable(p.blockPosition(), !strictWalk)
               ? p.blockPosition()
-              : (isClimbable(prevCell) ? prevCell : next);
+              : (isClimbable(prevCell, !strictWalk) ? prevCell : next);
       var climbState = mc().level.getBlockState(ladderPos);
-      float desiredYaw;
+      boolean isScaffolding =
+          climbState.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock
+              || mc().level.getBlockState(p.blockPosition().below()).getBlock()
+                  instanceof net.minecraft.world.level.block.ScaffoldingBlock;
+      float ladderOppositeYaw;
       if (climbState.hasProperty(net.minecraft.world.level.block.LadderBlock.FACING)) {
-        desiredYaw =
+        ladderOppositeYaw =
             climbState
                 .getValue(net.minecraft.world.level.block.LadderBlock.FACING)
                 .getOpposite()
                 .toYRot();
+      } else if (climbState.hasProperty(net.minecraft.world.level.block.TrapDoorBlock.FACING)) {
+        ladderOppositeYaw =
+            climbState
+                .getValue(net.minecraft.world.level.block.TrapDoorBlock.FACING)
+                .getOpposite()
+                .toYRot();
       } else if (delta.horizontalDistanceSqr() < 0.04) {
-        desiredYaw = p.getYRot();
+        ladderOppositeYaw = p.getYRot();
       } else {
-        desiredYaw = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
+        ladderOppositeYaw = (float) Math.toDegrees(Math.atan2(-delta.x, delta.z));
       }
-      var steering = MovementSteering.toward(p.getYRot(), desiredYaw);
+      ClimbRules.ClimbCommand cmd =
+          ClimbRules.guideClimb(
+              p.getX(),
+              p.getY(),
+              p.getZ(),
+              p.onClimbable(),
+              isScaffolding,
+              ladderPos.getX(),
+              ladderPos.getY(),
+              ladderPos.getZ(),
+              next.getX(),
+              next.getY(),
+              next.getZ(),
+              ladderOppositeYaw,
+              p.getYRot(),
+              climbHysteresis);
+      if (cmd.mode() == ClimbRules.ClimbMode.RECOVER_REPLAN) {
+        release();
+        if (!replan(standingCell())) return -1;
+        return 0;
+      }
+      var steering = MovementSteering.toward(p.getYRot(), cmd.targetYaw());
       p.setYRot(steering.yaw());
-      p.setXRot(next.getY() > p.getY() ? -25f : 25f);
-      if (next.getY() > p.getY() - 0.1) {
-        PlayerControls.motionState(true, true, false, false);
-      } else {
-        PlayerControls.motionState(delta.horizontalDistanceSqr() > 0.09, false, false, false);
-      }
+      p.setXRot(cmd.targetPitch());
+      boolean fwd = cmd.forward() && steering.forward();
+      PlayerControls.motionState(fwd, cmd.jump(), false, cmd.sneak());
       return 0;
     }
     double landingDistSq =
@@ -681,7 +911,12 @@ public final class Navigator {
         p.onGround()
             && Math.abs(p.getY() - destination.y) < 0.65
             && (standingCell().equals(next) || landingDistSq < 0.85);
-    if (horizGap >= 1 && !strictWalk) {
+    boolean plannedParkour = index < pathActions.length && pathActions[index] == (byte) 3;
+    if (horizGap >= 1 && !strictWalk && !plannedParkour) {
+      if (!replan(standingCell())) return -1;
+      return 0;
+    }
+    if (MovementPolicy.parkourExecutionAllowed(plannedParkour, strictWalk, horizGap)) {
       if (alreadyCrossedToLanding) {
         resetParkour();
       } else {
@@ -701,15 +936,24 @@ public final class Navigator {
           parkourTakeoff = takeoffCell;
           parkourLanding = next;
           parkourAlignTicks = 0;
+          parkourTicks = 0;
           parkourPhase = (horizGap >= 2 && along > -0.15 && horizSpeed < 0.15) ? 1 : 2;
+          parkourAlignCycles = parkourPhase == 1 ? 1 : 0;
+        }
+        if (MovementPolicy.parkourTimedOut(parkourAlignCycles, ++parkourTicks)) {
+          if (parkourTakeoff != null && parkourLanding != null) {
+            blocked.add(new Edge(parkourTakeoff, parkourLanding));
+          }
+          if (!replan(standingCell())) return -1;
+          return 0;
         }
         Vec3 targetAim =
             parkourLanding != null ? foot(parkourLanding).subtract(p.position()) : delta;
         float desiredYaw = (float) Math.toDegrees(Math.atan2(-targetAim.x, targetAim.z));
-        var steering = MovementSteering.toward(p.getYRot(), desiredYaw);
-        p.setYRot(steering.yaw());
         p.setXRot(p.getXRot() + (8 - p.getXRot()) * .35f);
         if (!p.onGround()) {
+          var steering = MovementSteering.toward(p.getYRot(), desiredYaw);
+          p.setYRot(steering.yaw());
           parkourPhase = 3;
           PlayerControls.motionState(steering.forward(), false, horizGap >= 2, false);
           return 0;
@@ -729,11 +973,21 @@ public final class Navigator {
           }
         }
         if (horizGap >= 2 && distToEdge < 0.08 && horizSpeed < 0.14) {
+          parkourAlignCycles++;
+          if (MovementPolicy.parkourTimedOut(parkourAlignCycles, parkourTicks)) {
+            if (parkourTakeoff != null && parkourLanding != null) {
+              blocked.add(new Edge(parkourTakeoff, parkourLanding));
+            }
+            if (!replan(standingCell())) return -1;
+            return 0;
+          }
           parkourPhase = 1;
           parkourAlignTicks = 0;
           PlayerControls.motionState(false, false, false, true);
           return 0;
         }
+        var steering = MovementSteering.toward(p.getYRot(), desiredYaw);
+        p.setYRot(steering.yaw());
         boolean doJump =
             MovementPolicy.takeoffReady(distToEdge, horizSpeed, horizGap)
                 || (horizGap == 1 && distToEdge <= 0.14);
@@ -762,7 +1016,7 @@ public final class Navigator {
       last = p.position();
       return 0;
     }
-    if (!stand(next)) {
+    if (!stand(next, !strictWalk) || (allowedEdge != null && !allowedEdge.test(prevCell, next))) {
       if (!replan(standingCell())) return -1;
       return 0;
     }
@@ -774,7 +1028,6 @@ public final class Navigator {
         destination.y > p.getY() + .35
             && destination.y <= p.getY() + 1.1
             && delta.horizontalDistanceSqr() < 1.85;
-    boolean inShallowWater = isWater(p.blockPosition()) || isWater(next) || p.isInWater();
     boolean upcomingCorner = false;
     if (index + 1 < path.size()) {
       BlockPos after = path.get(index + 1);
@@ -784,17 +1037,18 @@ public final class Navigator {
     }
     float yawRem = MovementSteering.remainingYaw(p.getYRot(), desiredYaw);
     boolean sprint =
-        MovementPolicy.shouldSprint(
-            Store.config.followSprint,
-            path.size() - index,
-            target != null ? p.position().distanceTo(foot(target)) : delta.length(),
-            p.getFoodData().getFoodLevel(),
-            steering.forward(),
-            yawRem > 35f || upcomingCorner,
-            stepUp,
-            inShallowWater,
-            p.onClimbable(),
-            false);
+        !highLedge
+            && MovementPolicy.shouldSprint(
+                Store.config.followSprint,
+                path.size() - index,
+                target != null ? p.position().distanceTo(foot(target)) : delta.length(),
+                p.getFoodData().getFoodLevel(),
+                steering.forward(),
+                yawRem > 35f || upcomingCorner,
+                stepUp,
+                inShallowWater,
+                p.onClimbable(),
+                false);
     boolean climbExitJump =
         Store.config.allowClimb && p.onClimbable() && destination.y > p.getY() + 0.05;
     boolean waterShoreJump =
@@ -804,9 +1058,22 @@ public final class Navigator {
             ? steering.forward()
             : jump.step(
                 p.onGround(),
-                (stepUp || (inShallowWater && destination.y >= p.getY() + .2)) && steering.forward(),
+                (stepUp || (inShallowWater && destination.y >= p.getY() + .2))
+                    && steering.forward()
+                    && (!highLedge || yawRem <= 18f),
                 ticks);
-    PlayerControls.motionState(steering.forward(), jumpBit, sprint, false);
+    boolean onScaffoldingSupport =
+        isScaffoldingSupport(standingCell()) || isScaffoldingSupport(p.blockPosition());
+    // On high-altitude narrow ramps/catwalks (exposed >=3-block drop), crouch whenever not actively
+    // jumping up a 1-block step so corners and alignment pauses cannot slip off the edge.
+    // Never crouch on scaffolding, where sneak drops the player through the scaffolding floor.
+    boolean ledgeSneak =
+        MovementPolicy.shouldLedgeSneak(highLedge, p.onGround(), jumpBit, onScaffoldingSupport);
+    if (highLedge && stepUp && yawRem > 18f) {
+      jumpBit = false;
+      ledgeSneak = !onScaffoldingSupport;
+    }
+    PlayerControls.motionState(steering.forward(), jumpBit, sprint, ledgeSneak);
     return 0;
   }
 
@@ -833,6 +1100,7 @@ public final class Navigator {
     boolean owned = ownsInput;
     ownsInput = false;
     resetParkour();
+    climbHysteresis.reset();
     if (water != null) {
       water.stop();
       water = null;
@@ -842,6 +1110,7 @@ public final class Navigator {
       search.cancel();
       search = null;
     }
+    probeCache.clear();
     if (baritone) external.stop();
     baritone = false;
   }
@@ -900,10 +1169,46 @@ public final class Navigator {
         && mc().level.getBlockState(p).getFluidState().is(net.minecraft.tags.FluidTags.WATER);
   }
 
-  private static boolean isClimbable(BlockPos p) {
+  private static boolean isScaffoldingBlock(BlockPos p) {
     return mc().level != null
         && mc().level.hasChunkAt(p)
-        && mc().level.getBlockState(p).is(net.minecraft.tags.BlockTags.CLIMBABLE);
+        && mc().level.getBlockState(p).getBlock()
+            instanceof net.minecraft.world.level.block.ScaffoldingBlock;
+  }
+
+  private static boolean isScaffoldingSupport(BlockPos cell) {
+    return isScaffoldingBlock(cell) || isScaffoldingBlock(cell.below());
+  }
+
+  static boolean isClimbable(BlockPos p) {
+    return isClimbable(p, false);
+  }
+
+  static boolean isClimbable(BlockPos p, boolean planning) {
+    if (mc().level == null || !mc().level.hasChunkAt(p)) return false;
+    var state = mc().level.getBlockState(p);
+    if (state.is(net.minecraft.tags.BlockTags.CLIMBABLE)) return true;
+    if (state.getBlock() instanceof net.minecraft.world.level.block.TrapDoorBlock
+        && mc().level.hasChunkAt(p.below())) {
+      BlockPos belowPos = p.below();
+      var belowState = mc().level.getBlockState(belowPos);
+      boolean belowMakes =
+          belowState.getBlock().makesOpenTrapdoorAboveClimbable(belowState, mc().level, belowPos, state);
+      boolean open = state.getValue(net.minecraft.world.level.block.TrapDoorBlock.OPEN);
+      boolean wooden = state.is(net.minecraft.tags.BlockTags.WOODEN_TRAPDOORS);
+      return planning
+          ? ClimbRules.isTrapdoorClimbableForPlanning(
+              true, wooden, open, belowMakes, Store.config.autoOpenDoors)
+          : ClimbRules.isTrapdoorClimbableNow(true, open, belowMakes);
+    }
+    return false;
+  }
+
+  static boolean isClosedTrapdoor(BlockPos p) {
+    if (mc().level == null || !mc().level.hasChunkAt(p)) return false;
+    var state = mc().level.getBlockState(p);
+    return state.getBlock() instanceof net.minecraft.world.level.block.TrapDoorBlock
+        && !state.getValue(net.minecraft.world.level.block.TrapDoorBlock.OPEN);
   }
 
   private static boolean shallowWaterStandable(BlockPos cell) {
@@ -922,20 +1227,54 @@ public final class Navigator {
     return lethalHazard(p) || (isWater(p) && !Store.config.wadeWater);
   }
 
+  private static final double[][] SURFACE_PROBES = {
+    {.5, .5}, {.3, .3}, {.7, .3}, {.3, .7}, {.7, .7}
+  };
+
   static double surfaceY(BlockPos cell) {
     if (!mc().level.hasChunkAt(cell) || !mc().level.hasChunkAt(cell.below())) return Double.NaN;
-    var shape = mc().level.getBlockState(cell.below()).getCollisionShape(mc().level, cell.below());
+    var belowPos = cell.below();
+    var belowState = mc().level.getBlockState(belowPos);
+    if (belowState.getBlock() instanceof net.minecraft.world.level.block.ScaffoldingBlock) {
+      return cell.getY();
+    }
+    var shape = belowState.getCollisionShape(mc().level, belowPos);
     if (shape.isEmpty()) return Double.NaN;
-    double top =
-        shape.toAabbs().stream()
-            .filter(b -> b.minX <= .5 && b.maxX >= .5 && b.minZ <= .5 && b.maxZ >= .5)
-            .mapToDouble(b -> b.maxY)
-            .max()
-            .orElse(Double.NaN);
-    return top > 0 && top <= 1.501 ? cell.getY() - 1 + top : Double.NaN;
+    var boxes = shape.toAabbs();
+    double bestCenter = Double.NaN;
+    double bestMulti = Double.NaN;
+    int hitProbes = 0;
+    for (double[] pt : SURFACE_PROBES) {
+      double px = pt[0], pz = pt[1];
+      double probeTop = Double.NaN;
+      for (int i = 0; i < boxes.size(); i++) {
+        AABB b = boxes.get(i);
+        // Reject thin vertical strips (<0.2: open trapdoors, panes, iron bars, chains) while keeping carpets/slabs.
+        if (b.maxX - b.minX < 0.2 || b.maxZ - b.minZ < 0.2) continue;
+        if (b.minX <= px && b.maxX >= px && b.minZ <= pz && b.maxZ >= pz && b.maxY > 0 && b.maxY <= 1.501) {
+          if (!Double.isFinite(probeTop) || b.maxY > probeTop) probeTop = b.maxY;
+        }
+      }
+      if (Double.isFinite(probeTop)) {
+        if (px == .5 && pz == .5) bestCenter = probeTop;
+        else {
+          hitProbes++;
+          if (!Double.isFinite(bestMulti) || probeTop > bestMulti) bestMulti = probeTop;
+        }
+      }
+    }
+    double chosen = Double.isFinite(bestCenter) ? bestCenter : (hitProbes >= 2 ? bestMulti : Double.NaN);
+    return Double.isFinite(chosen) ? cell.getY() - 1 + chosen : Double.NaN;
   }
 
   static Vec3 foot(BlockPos cell) {
+    return foot(cell, false);
+  }
+
+  static Vec3 foot(BlockPos cell, boolean planning) {
+    if (isClimbable(cell, planning)) {
+      return new Vec3(cell.getX() + .5, cell.getY(), cell.getZ() + .5);
+    }
     double y = surfaceY(cell);
     return new Vec3(cell.getX() + .5, Double.isFinite(y) ? y : cell.getY(), cell.getZ() + .5);
   }
@@ -962,7 +1301,7 @@ public final class Navigator {
 
   private static boolean stand(BlockPos cell, boolean planning) {
     if (mc().player == null || mc().level == null || !mc().level.hasChunkAt(cell)) return false;
-    if (Store.config.allowClimb && isClimbable(cell)) {
+    if (Store.config.allowClimb && isClimbable(cell, planning)) {
       if (lethalHazard(cell) || lethalHazard(cell.above())) return false;
       return NavigationPassage.clear(
           body(new Vec3(cell.getX() + .5, cell.getY(), cell.getZ() + .5)), planning);
@@ -980,12 +1319,67 @@ public final class Navigator {
     return NavigationPassage.clear(body(foot(cell)), planning);
   }
 
+  private boolean exposedLedgeCached(BlockPos cell) {
+    var level = mc().level;
+    if (level == null || !level.hasChunkAt(cell)) return false;
+    return probeCache.exposedLedge(level, level.getGameTime(), cell);
+  }
+
+  private static boolean exposedLedge(BlockPos cell) {
+    if (mc().level == null || !mc().level.hasChunkAt(cell)) return false;
+    for (Direction d : Direction.Plane.HORIZONTAL) {
+      BlockPos side = cell.relative(d);
+      if (!mc().level.hasChunkAt(side)) return true;
+      boolean hasFloor = false;
+      for (int drop = 0; drop <= 2; drop++) {
+        BlockPos probe = side.below(drop);
+        if (!mc().level.hasChunkAt(probe)) break;
+        if (isClimbable(probe)
+            || !mc().level.getBlockState(probe).getCollisionShape(mc().level, probe).isEmpty()) {
+          hasFloor = true;
+          break;
+        }
+      }
+      if (!hasFloor) return true;
+    }
+    return false;
+  }
+
+  private static final class TickProbeCache {
+    private java.lang.ref.WeakReference<net.minecraft.world.level.Level> levelRef =
+        new java.lang.ref.WeakReference<>(null);
+    private long tick = Long.MIN_VALUE;
+    private final Map<Long, Boolean> ledge = new HashMap<>(64);
+
+    void clear() {
+      levelRef = new java.lang.ref.WeakReference<>(null);
+      tick = Long.MIN_VALUE;
+      ledge.clear();
+    }
+
+    boolean exposedLedge(net.minecraft.world.level.Level currentLevel, long gameTick, BlockPos cell) {
+      if (levelRef.get() != currentLevel || tick != gameTick || ledge.size() > 512) {
+        levelRef = new java.lang.ref.WeakReference<>(currentLevel);
+        tick = gameTick;
+        ledge.clear();
+      }
+      long key = cell.asLong();
+      Boolean cached = ledge.get(key);
+      if (cached != null) return cached;
+      boolean val = Navigator.exposedLedge(cell);
+      ledge.put(key, val);
+      return val;
+    }
+  }
+
   public static boolean grounded() {
     var p = mc().player;
     if (p == null) return false;
     if (Store.config.allowClimb && p.onClimbable()) return true;
     if (!p.onGround()) return false;
     var box = p.getBoundingBox();
+    if (mc().level.getBlockState(p.blockPosition().below()).getBlock()
+        instanceof net.minecraft.world.level.block.ScaffoldingBlock) return true;
     if (!mc().level.noCollision(p, box.deflate(1e-5))) return false;
     var below = new AABB(box.minX, box.minY - .08, box.minZ, box.maxX, box.minY + .001, box.maxZ);
     for (var shape : mc().level.getBlockCollisions(p, below)) if (!shape.isEmpty()) return true;
@@ -1030,6 +1424,7 @@ public final class Navigator {
   }
 
   private boolean traversable(BlockPos from, BlockPos to) {
+    if (allowedEdge != null && !allowedEdge.test(from, to)) return false;
     return traversable(from, to, !strictWalk);
   }
 
@@ -1041,8 +1436,20 @@ public final class Navigator {
     return standPath(from) && standPath(to) && traversable(from, to, Store.config.autoOpenDoors);
   }
 
+  static boolean openClimbStep(BlockPos from, BlockPos to) {
+    boolean planning = Store.config.autoOpenDoors;
+    if (to.getY() < from.getY()
+        && to.getX() == from.getX()
+        && to.getZ() == from.getZ()
+        && !ClimbRules.canDescendVerticallyInto(isClosedTrapdoor(to))) {
+      return false;
+    }
+    return (isClimbable(from, planning) || isClimbable(to, planning))
+        && stand(to, planning);
+  }
+
   private static boolean traversable(BlockPos from, BlockPos to, boolean planning) {
-    Vec3 a = foot(from), b = foot(to);
+    Vec3 a = foot(from, planning), b = foot(to, planning);
     if (!ArrivalGate.transition(a.y, b.y)) return false;
     double high = Math.max(a.y, b.y);
     for (int i = 0; i <= 4; i++) {
@@ -1054,75 +1461,201 @@ public final class Navigator {
   }
 
   private boolean replan(BlockPos start) {
-    release();
+    var p = mc().player;
+    if (p != null
+        && ClimbRules.shouldSneakToStabilizeClimb(
+            Store.config.allowClimb && p.onClimbable(),
+            p.onGround(),
+            isScaffoldingSupport(p.blockPosition()))) {
+      PlayerControls.motionState(false, false, false, true);
+    } else {
+      release();
+    }
+    BlockPos failedTakeoff = parkourTakeoff;
+    BlockPos failedLanding = parkourLanding;
     resetParkour();
+    climbHysteresis.reset();
     if (++replans > 3) {
       fail("局部重规划三次仍受阻；" + diagnostic());
       return false;
     }
-    if (index < path.size()) blocked.add(new Edge(start, path.get(index)));
-    searchStands.clear();
+    if (index < path.size()) {
+      BlockPos failedNext = path.get(index);
+      if (failedTakeoff != null && failedLanding != null && failedNext.equals(failedLanding)) {
+        blocked.add(new Edge(failedTakeoff, failedLanding));
+      } else if (start.distManhattan(failedNext) <= 1
+          && (!isClimbable(failedNext, !strictWalk) || replans >= 2)) {
+        blocked.add(new Edge(start, failedNext));
+      }
+    }
+    packedStands.clear();
     search = createSearch(start);
     stuck = settling = 0;
     last = mc().player.position();
     return true;
   }
 
+  private int standingOriginX, standingOriginY, standingOriginZ;
+  private static final int[][] CARDINAL_DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+  private static final int[] STEP_DYS = {0, 1, -1, 2, -2};
+  private final List<GridSearch.Step> parkourScratch = new ArrayList<>(4);
+
   private GridSearch createSearch(BlockPos start) {
+    ladderTopGaps.clear();
     int food = mc().player == null ? 20 : mc().player.getFoodData().getFoodLevel();
     String pkMode = strictWalk ? "OFF" : MovementPolicy.normalizeParkourMode(Store.config.parkourMode);
-    return GridSearch.weighted(
-        cell(start),
-        c -> goals.contains(pos(c)),
-        c -> {
-          BlockPos p = pos(c);
-          List<GridSearch.Step> next = new ArrayList<>();
-          for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}})
-            for (int dy : new int[] {0, 1, -1, 2, -2}) {
-              BlockPos q = p.offset(d[0], dy, d[1]);
-              if (q.distSqr(start) > 96 * 96 || blocked.contains(new Edge(p, q)) || !allowed(q)) continue;
-              if (searchStands.size() > 12000) searchStands.clear();
-              if (searchStands.computeIfAbsent(q, Navigator::standPath) && traversable(p, q)) {
+    standingOriginX = start.getX();
+    standingOriginY = start.getY();
+    standingOriginZ = start.getZ();
+    final int ox = standingOriginX, oy = standingOriginY, oz = standingOriginZ;
+
+    // Pack goal offsets within [-96, 96] into a fast HashSet<Long> (fallback to BlockPos for out-of-range).
+    final Set<Long> packedGoals = new HashSet<>(goals.size() * 2 + 1);
+    for (BlockPos g : goals) {
+      int gx = g.getX() - ox, gy = g.getY() - oy, gz = g.getZ() - oz;
+      if (Math.abs(gx) <= 96 && Math.abs(gy) <= 96 && Math.abs(gz) <= 96) {
+        packedGoals.add(GridSearch.packRelative(gx, gy, gz));
+      }
+    }
+    final BlockPos.MutableBlockPos pMut = new BlockPos.MutableBlockPos();
+    final BlockPos.MutableBlockPos qMut = new BlockPos.MutableBlockPos();
+    final boolean hasBlocked = !blocked.isEmpty();
+
+    return GridSearch.weightedPacked(
+        GridSearch.packRelative(0, 0, 0),
+        packedGoals::contains,
+        (fromKey, sink) -> {
+          int dx0 = GridSearch.unpackRelX(fromKey);
+          int dy0 = GridSearch.unpackRelY(fromKey);
+          int dz0 = GridSearch.unpackRelZ(fromKey);
+          int px = ox + dx0, py = oy + dy0, pz = oz + dz0;
+          pMut.set(px, py, pz);
+          for (int[] d : CARDINAL_DIRS) {
+            for (int dy : STEP_DYS) {
+              int rdx = dx0 + d[0], rdy = dy0 + dy, rdz = dz0 + d[1];
+              if (Math.abs(rdx) > 96 || Math.abs(rdy) > 96 || Math.abs(rdz) > 96) continue;
+              if (rdx * rdx + rdy * rdy + rdz * rdz > 96 * 96) continue;
+              qMut.set(ox + rdx, oy + rdy, oz + rdz);
+              if (hasBlocked && blocked.contains(new Edge(pMut, qMut))) continue;
+              if (!allowed(qMut)) continue;
+              if (packedStands.size() > 16000) packedStands.clear();
+              long qAbs = qMut.asLong();
+              Boolean okStand = packedStands.get(qAbs);
+              if (okStand == null) {
+                okStand = standPath(qMut);
+                packedStands.put(qAbs, okStand);
+              }
+              if (okStand && traversable(pMut, qMut)) {
                 double cost =
                     MovementPolicy.stepCost(
-                        isWater(q) ? MovementPolicy.MoveKind.WADE_WATER : MovementPolicy.MoveKind.WALK);
-                next.add(new GridSearch.Step(cell(q), cost));
+                            isWater(qMut)
+                                ? MovementPolicy.MoveKind.WADE_WATER
+                                : MovementPolicy.MoveKind.WALK)
+                        + Math.abs(dy) * 0.35;
+                sink.accept(GridSearch.packRelative(rdx, rdy, rdz), cost, (byte) 0);
               }
             }
+          }
           if (Store.config.allowClimb) {
-            BlockPos up = p.above();
-            if (up.distSqr(start) <= 96 * 96
-                && allowed(up)
-                && !blocked.contains(new Edge(p, up))
-                && (isClimbable(p) || isClimbable(up))
-                && searchStands.computeIfAbsent(up, Navigator::standPath)) {
-              next.add(new GridSearch.Step(cell(up), MovementPolicy.stepCost(MovementPolicy.MoveKind.CLIMB_UP)));
+            boolean pClimbable = isClimbable(pMut, !strictWalk);
+            int rdyUp = dy0 + 1;
+            if (Math.abs(rdyUp) <= 96 && dx0 * dx0 + rdyUp * rdyUp + dz0 * dz0 <= 96 * 96) {
+              qMut.set(px, py + 1, pz);
+              boolean qClimbable = isClimbable(qMut, !strictWalk);
+              if (allowed(qMut)
+                  && (!hasBlocked || !blocked.contains(new Edge(pMut, qMut)))
+                  && (pClimbable || qClimbable)
+                  && ClimbRules.canClimbOntoAboveCell(isClosedTrapdoor(pMut), qClimbable)) {
+                long qAbs = qMut.asLong();
+                Boolean okStand = packedStands.get(qAbs);
+                if (okStand == null) {
+                  okStand = standPath(qMut);
+                  packedStands.put(qAbs, okStand);
+                }
+                if (okStand) {
+                  sink.accept(
+                      GridSearch.packRelative(dx0, rdyUp, dz0),
+                      MovementPolicy.stepCost(MovementPolicy.MoveKind.CLIMB_UP) + 0.35,
+                      (byte) 1);
+                } else if (pClimbable
+                    && !qClimbable
+                    && ladderTopGaps.size() < 8
+                    && mc().level.hasChunkAt(qMut)
+                    && mc().level.getBlockState(qMut).isAir()) {
+                  for (int[] d : CARDINAL_DIRS) {
+                    BlockPos upperSide = new BlockPos(px + d[0], py + 2, pz + d[1]);
+                    if (standPath(upperSide)) {
+                      ladderTopGaps.add(qMut.immutable());
+                      break;
+                    }
+                  }
+                }
+              }
             }
-            BlockPos down = p.below();
-            if (down.distSqr(start) <= 96 * 96
-                && allowed(down)
-                && !blocked.contains(new Edge(p, down))
-                && isClimbable(down)
-                && searchStands.computeIfAbsent(down, Navigator::standPath)) {
-              next.add(new GridSearch.Step(cell(down), MovementPolicy.stepCost(MovementPolicy.MoveKind.CLIMB_DOWN)));
+            int rdyDown = dy0 - 1;
+            if (Math.abs(rdyDown) <= 96 && dx0 * dx0 + rdyDown * rdyDown + dz0 * dz0 <= 96 * 96) {
+              qMut.set(px, py - 1, pz);
+              if (allowed(qMut)
+                  && (!hasBlocked || !blocked.contains(new Edge(pMut, qMut)))
+                  && isClimbable(qMut, !strictWalk)
+                  && ClimbRules.canDescendVerticallyInto(isClosedTrapdoor(qMut))) {
+                long qAbs = qMut.asLong();
+                Boolean okStand = packedStands.get(qAbs);
+                if (okStand == null) {
+                  okStand = standPath(qMut);
+                  packedStands.put(qAbs, okStand);
+                }
+                if (okStand) {
+                  sink.accept(
+                      GridSearch.packRelative(dx0, rdyDown, dz0),
+                      MovementPolicy.stepCost(MovementPolicy.MoveKind.CLIMB_DOWN) + 0.35,
+                      (byte) 2);
+                }
+              }
             }
           }
-          if (!"OFF".equals(pkMode) && !isWater(p) && !isClimbable(p) && Double.isFinite(surfaceY(p))) {
-            addParkourSteps(start, p, pkMode, food, next);
+          if (!"OFF".equals(pkMode)
+              && !isWater(pMut)
+              && !isClimbable(pMut)
+              && !isScaffoldingSupport(pMut)
+              && Double.isFinite(surfaceY(pMut))) {
+            parkourScratch.clear();
+            addParkourSteps(start, pMut, pkMode, food, parkourScratch);
+            for (int i = 0; i < parkourScratch.size(); i++) {
+              GridSearch.Step st = parkourScratch.get(i);
+              GridSearch.Cell sc = st.cell();
+              int pxd = sc.x() - ox, pyd = sc.y() - oy, pzd = sc.z() - oz;
+              if (Math.abs(pxd) <= 96 && Math.abs(pyd) <= 96 && Math.abs(pzd) <= 96) {
+                sink.accept(
+                    GridSearch.packRelative(pxd, pyd, pzd),
+                    st.cost() + Math.abs(sc.y() - py) * 0.35,
+                    (byte) 3);
+              }
+            }
           }
-          return next;
         },
-        c -> {
-          BlockPos p = pos(c);
-          return Math.sqrt(goals.stream().mapToDouble(p::distSqr).min().orElse(0));
+        k -> {
+          if (goals.isEmpty()) return 0.0;
+          int px = ox + GridSearch.unpackRelX(k);
+          int py = oy + GridSearch.unpackRelY(k);
+          int pz = oz + GridSearch.unpackRelZ(k);
+          double bestSq = Double.MAX_VALUE;
+          for (BlockPos g : goals) {
+            double gx = px - g.getX(), gy = py - g.getY(), gz = pz - g.getZ();
+            double dSq = gx * gx + gy * gy + gz * gz;
+            if (dSq < bestSq) bestSq = dSq;
+          }
+          return Math.sqrt(bestSq);
         },
-        20000);
+        GridSearch.KeyCodec.relative(ox, oy, oz),
+        20000,
+        searchWorkspace);
   }
 
   private void addParkourSteps(
       BlockPos start, BlockPos p, String pkMode, int food, List<GridSearch.Step> out) {
     int maxGap = "FULL".equals(pkMode) ? 3 : 2;
-    for (int[] d : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+    for (int[] d : CARDINAL_DIRS) {
       int runup = 0;
       BlockPos b1 = p.offset(-d[0], 0, -d[1]);
       if (standPath(b1) && !isWater(b1) && Double.isFinite(surfaceY(b1))) {
@@ -1184,7 +1717,16 @@ public final class Navigator {
           if (landing.distSqr(start) > 96 * 96
               || blocked.contains(new Edge(p, landing))
               || !allowed(landing)) continue;
-          if (searchStands.computeIfAbsent(landing, Navigator::standPath) && !isWater(landing)) {
+          long landKey = landing.asLong();
+          Boolean okLand = packedStands.get(landKey);
+          if (okLand == null) {
+            okLand = standPath(landing);
+            packedStands.put(landKey, okLand);
+          }
+          if (okLand
+              && !isWater(landing)
+              && !isClimbable(landing)
+              && !isScaffoldingSupport(landing)) {
             double cost =
                 MovementPolicy.stepCost(
                     gap == 1 ? MovementPolicy.MoveKind.PARKOUR_SHORT : MovementPolicy.MoveKind.PARKOUR_SPRINT);
@@ -1199,12 +1741,13 @@ public final class Navigator {
     BlockPos best = null;
     double bestGoalSq = Double.MAX_VALUE;
     double bestStartSq = Double.MAX_VALUE;
+    boolean goalPlanning = !strictWalk;
     for (int dx = -2; dx <= 2; dx++)
       for (int dz = -2; dz <= 2; dz++)
         for (int dy = -1; dy <= 1; dy++) {
           BlockPos at = goal.offset(dx, dy, dz);
-          if (!allowed(at) || !stand(at)) continue;
-          Vec3 v = foot(at);
+          if (!allowed(at) || !stand(at, goalPlanning)) continue;
+          Vec3 v = foot(at, goalPlanning);
           if (!ArrivalGate.fallbackCandidate(
               v.x, v.y, v.z, goal.getX() + .5, goal.getY(), goal.getZ() + .5)) continue;
           out.add(at);

@@ -25,6 +25,7 @@ public final class Actions {
     final long epoch = Agent.epoch;
     final Consumer<String> done;
     int ticks;
+    boolean managed;
     final String dimension = mc().level.dimension().location().toString();
     final net.minecraft.client.multiplayer.ClientLevel world = mc().level;
     final String scope = Store.scope();
@@ -66,6 +67,12 @@ public final class Actions {
     }
 
     void finish(String text) {
+      if (managed) {
+        stop();
+        if (epoch == Agent.epoch && mc().level == world && scope.equals(Store.scope()))
+          done.accept(text);
+        return;
+      }
       if (job != this) return;
       stop();
       if (job == this) {
@@ -78,6 +85,7 @@ public final class Actions {
   }
 
   public static void cancel() {
+    RollbackJob.recordingSuppressed = false;
     try {
       MiningExpedition.cancelActive();
       AgentPointer.clear();
@@ -130,6 +138,7 @@ public final class Actions {
     if (Agent.paused) {
       BaritoneNavigation.cancelActive("AI已暂停");
       if (job instanceof UseHandJob use) use.suspend();
+      if (job instanceof TerraformJob tf) tf.onExternalPause();
       if (job instanceof GameInputJob) job.finish("输入已中断并释放：AI已暂停，请重新观察。");
       Navigator.release();
       return;

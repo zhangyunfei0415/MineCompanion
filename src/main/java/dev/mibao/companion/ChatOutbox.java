@@ -22,11 +22,16 @@ public final class ChatOutbox {
   }
 
   public void offer(String name, String owner, String text, String scope, long now) {
+    offerSafe(name, owner, text, scope, now);
+  }
+
+  public boolean offerSafe(String name, String owner, String text, String scope, long now) {
+    if (MentionPolicy.isSlashCommand(text)) return false;
     String clean =
         chatSafe(
                 Rules.clean(text, 1200).replace('\n', ' ').replace('\r', ' ').replace('\t', ' '))
             .trim();
-    if (clean.isBlank()) return;
+    if (clean.isBlank() || MentionPolicy.isSlashCommand(clean)) return false;
     String prefix =
         (owner == null || owner.isBlank()
                 ? ""
@@ -34,6 +39,7 @@ public final class ChatOutbox {
             + chatSafe(Rules.clean(name, 40)).replaceAll("\\s+", " ")
             + "：";
     String message = prefix + clean;
+    if (MentionPolicy.isSlashCommand(message)) return false;
     if (message.length() > 250) {
       int end = 249;
       if (Character.isHighSurrogate(message.charAt(end - 1))) end--;
@@ -41,11 +47,12 @@ public final class ChatOutbox {
     }
     String key = scope + "\n" + message;
     Long prior = recent.get(key);
-    if (prior != null && now - prior < 15000) return;
+    if (prior != null && now - prior < 15000) return false;
     recent.put(key, now);
     while (recent.size() > 64) recent.remove(recent.keySet().iterator().next());
     if (queue.size() >= 16) queue.removeFirst();
     queue.addLast(new Pending(message, scope));
+    return true;
   }
 
   public String poll(String scope, long now) {

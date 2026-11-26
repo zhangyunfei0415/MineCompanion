@@ -217,12 +217,12 @@ public final class RoamExplorationJob extends Actions.Job {
     if (here != null && !here.equals(lastCell)) {
       stepsWalked++;
       visitedThisRun.add(here);
-      if (SESSION_SEEN_CELLS.add(here)) newCells++;
+      if (SESSION_SEEN_CELLS.size() < 16384 && SESSION_SEEN_CELLS.add(here)) newCells++;
       lastCell = here;
     }
     long cKey = ExplorationRoamPolicy.chunkKey(feet.getX(), feet.getZ());
     chunksVisitedThisRun.add(cKey);
-    if (SESSION_SEEN_CHUNKS.add(cKey)) {
+    if (SESSION_SEEN_CHUNKS.size() < 4096 && SESSION_SEEN_CHUNKS.add(cKey)) {
       newChunks++;
     }
 
@@ -509,28 +509,35 @@ public final class RoamExplorationJob extends Actions.Job {
         BlockPos fp = ExplorationMemory.pos(n.cell());
         if (isTargetFailed(fp, nowMs)) continue;
         double dSq = fp.distSqr(feet);
-        if (dSq < 12.0 || dSq > 44 * 44) continue;
+        double dyAbs = Math.abs(fp.getY() - feet.getY());
+        boolean verticalConnector = dyAbs >= 1.0 && ExplorationMemory.isVerticalShaftCandidate(fp);
+        if ((!verticalConnector && dSq < 12.0) || dSq < 1.0 || dSq > 44 * 44) continue;
         long sk = ExplorationRoamPolicy.sectorKey(fp.getX(), fp.getZ());
         if (NEGATIVE_SECTORS.getOrDefault(sk, 0L) > nowMs) continue;
         if (!mc.level.hasChunkAt(fp) || !Navigator.stand(fp) || Navigator.isNarrowHazardAdjacent(fp))
           continue;
         long ck = ExplorationRoamPolicy.chunkKey(fp.getX(), fp.getZ());
         double dx = fp.getX() - feet.getX();
+        double dy = fp.getY() - feet.getY();
         double dz = fp.getZ() - feet.getZ();
         double score =
-            ExplorationRoamPolicy.scoreFrontier(
+            ExplorationRoamPolicy.scoreFrontier3d(
                 dx,
+                dy,
                 dz,
                 currentHeading,
                 preferredHeading,
                 chunkVisits.getOrDefault(ck, 0),
                 SESSION_SEEN_CELLS.contains(n.cell()),
-                visitedThisRun.contains(n.cell()));
+                visitedThisRun.contains(n.cell()),
+                verticalConnector);
         if (score < bestFrontierScore) {
           bestFrontierScore = score;
           bestFrontier = fp;
           bestFrontierAlign =
-              ExplorationRoamPolicy.headingAlignment(dx, dz, currentHeading);
+              verticalConnector && dx == 0 && dz == 0
+                  ? 0.0
+                  : ExplorationRoamPolicy.headingAlignment(dx, dz, currentHeading);
         }
       }
     }

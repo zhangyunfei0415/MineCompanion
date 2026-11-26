@@ -97,8 +97,15 @@ public final class HarnessCapabilities {
     o.addProperty("jei_recipe_query", true);
     o.addProperty("companion_context_tool", true);
     o.addProperty("historical_actions_replayed", false);
+    o.addProperty("player_mention_inbox", true);
+    o.addProperty("wait_events_long_poll", true);
+    o.addProperty("guest_safe_chat_policy", "opt_in_readonly_chat");
     o.addProperty(
         "new_mod_machines", "observe_tooltip_and_ui_profile_or_dedicated_adapter");
+    o.addProperty(
+        "terraform_engine",
+        "terraform_preview/terraform_run/terraform_control; flatten|fill|farm_grid; fixed-stance"
+            + " verified ops");
     return o;
   }
 
